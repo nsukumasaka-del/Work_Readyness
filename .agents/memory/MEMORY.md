@@ -1,0 +1,1 @@
+- [Generated client DOM iterable requirement](generated-client-dom-iterable.md) — keep DOM.Iterable enabled for Orval-generated Fetch client types.

@@ -1,0 +1,239 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: career
+    description: Career platform operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /career/overview:
+    get:
+      operationId: getCareerOverview
+      tags: [career]
+      summary: Get the current career platform overview
+      responses:
+        "200":
+          description: Career overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CareerOverview"
+  /career/jobs:
+    get:
+      operationId: listJobs
+      tags: [career]
+      summary: List South African job matches
+      parameters:
+        - name: location
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sector
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JobMatch"
+  /career/diagnostic:
+    post:
+      operationId: createDiagnostic
+      tags: [career]
+      summary: Create a CV diagnostic report
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiagnosticInput"
+      responses:
+        "201":
+          description: Diagnostic report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosticReport"
+  /career/interview:
+    get:
+      operationId: getInterviewPrep
+      tags: [career]
+      summary: Get interview practice prompts
+      responses:
+        "200":
+          description: Interview preparation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterviewPrep"
+  /career/coaching:
+    post:
+      operationId: applyForCoaching
+      tags: [career]
+      summary: Submit an application for coaching
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoachingApplicationInput"
+      responses:
+        "201":
+          description: Coaching application received
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachingApplication"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    CareerOverview:
+      type: object
+      required: [diagnosticScore, jobMatchCount, interviewProgress, latestRole]
+      properties:
+        diagnosticScore:
+          type: integer
+        jobMatchCount:
+          type: integer
+        interviewProgress:
+          type: integer
+        latestRole:
+          type: string
+    JobMatch:
+      type: object
+      required: [id, title, company, location, sector, salary, match, posted, tags]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        company:
+          type: string
+        location:
+          type: string
+        sector:
+          type: string
+        salary:
+          type: string
+        match:
+          type: integer
+        posted:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    DiagnosticInput:
+      type: object
+      required: [fileName]
+      properties:
+        fileName:
+          type: string
+        role:
+          type: string
+    DiagnosticReport:
+      type: object
+      required: [id, fileName, authenticityScore, atsScore, flaggedPhrases, missingKeywords, prompts]
+      properties:
+        id:
+          type: integer
+        fileName:
+          type: string
+        authenticityScore:
+          type: integer
+        atsScore:
+          type: integer
+        flaggedPhrases:
+          type: array
+          items:
+            type: string
+        missingKeywords:
+          type: array
+          items:
+            type: string
+        prompts:
+          type: array
+          items:
+            type: string
+    InterviewPrep:
+      type: object
+      required: [completed, total, questions]
+      properties:
+        completed:
+          type: integer
+        total:
+          type: integer
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/InterviewQuestion"
+    InterviewQuestion:
+      type: object
+      required: [id, question, context, hint]
+      properties:
+        id:
+          type: integer
+        question:
+          type: string
+        context:
+          type: string
+        hint:
+          type: string
+    CoachingApplicationInput:
+      type: object
+      required: [name, email, experience, goals, paymentPlan]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        experience:
+          type: string
+        goals:
+          type: string
+        paymentPlan:
+          type: string
+    CoachingApplication:
+      type: object
+      required: [id, status, message]
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+        message:
+          type: string
+

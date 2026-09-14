@@ -1,0 +1,16 @@
+# Cloudflare Pages build configuration for BonList.
+#
+# In the Cloudflare dashboard (Workers & Pages → your project → Settings → Builds):
+#   Root directory:        /
+#   Build command:         pnpm run cf:build
+#   Build output directory: artifacts/careerbridge-sa/dist/public
+#   Environment variables:
+#     NODE_VERSION=22
+#     SKIP_DEPENDENCY_INSTALL=1
+#
+# SKIP_DEPENDENCY_INSTALL=1 makes Cloudflare skip its frozen `pnpm install`
+# so cf:build can install with --no-frozen-lockfile (fixes ERR_PNPM_LOCKFILE_CONFIG_MISMATCH).
+
+name = "bonlist"
+compatibility_date = "2025-09-01"
+pages_build_output_dir = "artifacts/careerbridge-sa/dist/public"

@@ -1555,13 +1555,11 @@ function Home() {
       <section className="sky-wash relative overflow-hidden">
         <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 pb-16 pt-14 md:px-8 md:pb-24 md:pt-20 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="rise-in">
-            <div className="inline-flex rounded-2xl border border-border/70 bg-white px-3 py-2.5 shadow-xs sm:px-4 sm:py-3">
-              <img
-                src="/brand/bonlist-logo.png"
-                alt="BonList — Your Shortcut to Getting Hired."
-                className="h-12 w-auto max-w-[min(340px,85vw)] object-contain object-left sm:h-14 md:h-16"
-              />
-            </div>
+            <img
+              src="/brand/bonlist-logo.png"
+              alt="BonList — Your Shortcut to Getting Hired."
+              className="h-16 w-auto max-w-[min(420px,92vw)] object-contain object-left sm:h-[4.5rem] md:h-20"
+            />
             <h1 className="display mt-5 max-w-xl text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl md:text-[2.75rem] md:leading-[1.1]">
               Let us help you find your next dream job today.
             </h1>

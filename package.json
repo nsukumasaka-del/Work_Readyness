@@ -2,6 +2,8 @@
   "name": "workspace",
   "version": "0.0.0",
   "license": "MIT",
+  "private": true,
+  "packageManager": "pnpm@10.11.1",
   "scripts": {
     "preinstall": "node -e \"const{rmSync}=require('fs');for (const f of ['package-lock.json','yarn.lock']) { try { rmSync(f,{force:true}); } catch {} } if (!/^pnpm\\//.test(process.env.npm_config_user_agent||'')) { console.error('Use pnpm instead'); process.exit(1); }\"",
     "dev": "node ./scripts/dev.mjs",
@@ -11,9 +13,9 @@
     "mobile:sync": "node ./mobile/bonlist-android/scripts/sync-web.mjs --build --cap-sync",
     "mobile:copy": "node ./mobile/bonlist-android/scripts/sync-web.mjs --cap-sync",
     "mobile:open": "npm --prefix ./mobile/bonlist-android run cap:open",
-    "mobile:dev": "node ./mobile/bonlist-android/scripts/dev-live.mjs"
+    "mobile:dev": "node ./mobile/bonlist-android/scripts/dev-live.mjs",
+    "cf:build": "node ./scripts/cf-build.mjs"
   },
-  "private": true,
   "dependencies": {
     "@replit/connectors-sdk": "^0.4.3"
   },

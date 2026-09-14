@@ -5,100 +5,182 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import * as zod from 'zod';
-
+import * as zod from "zod";
 
 /**
  * Returns server health status
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
-  "status": zod.string()
-})
-
+  status: zod.string(),
+});
 
 /**
  * @summary Get the current career platform overview
  */
 export const GetCareerOverviewResponse = zod.object({
-  "diagnosticScore": zod.number().int(),
-  "jobMatchCount": zod.number().int(),
-  "interviewProgress": zod.number().int(),
-  "latestRole": zod.string()
-})
+  diagnosticScore: zod.number().int(),
+  jobMatchCount: zod.number().int(),
+  interviewProgress: zod.number().int(),
+  latestRole: zod.string(),
+  profileCount: zod.number().int(),
+});
 
+/**
+ * @summary Create a visitor profile before CV upload
+ */
+export const CreateProfileBody = zod.object({
+  name: zod.string(),
+  email: zod.string(),
+  phone: zod.string().optional(),
+  location: zod.string().optional(),
+  targetRole: zod.string().optional(),
+});
+
+export const CreateProfileResponse = zod.object({
+  id: zod.number().int(),
+  name: zod.string(),
+  email: zod.string(),
+  phone: zod.string().optional(),
+  location: zod.string().optional(),
+  targetRole: zod.string().optional(),
+  createdAt: zod.string(),
+  profileCount: zod.number().int(),
+});
 
 /**
  * @summary List South African job matches
  */
 export const ListJobsQueryParams = zod.object({
-  "location": zod.coerce.string().optional(),
-  "sector": zod.coerce.string().optional()
-})
+  location: zod.coerce.string().optional(),
+  sector: zod.coerce.string().optional(),
+});
 
 export const ListJobsResponseItem = zod.object({
-  "id": zod.number().int(),
-  "title": zod.string(),
-  "company": zod.string(),
-  "location": zod.string(),
-  "sector": zod.string(),
-  "salary": zod.string(),
-  "match": zod.number().int(),
-  "posted": zod.string(),
-  "tags": zod.array(zod.string())
-})
-export const ListJobsResponse = zod.array(ListJobsResponseItem)
-
+  id: zod.number().int(),
+  title: zod.string(),
+  company: zod.string(),
+  location: zod.string(),
+  sector: zod.string(),
+  salary: zod.string(),
+  match: zod.number().int(),
+  posted: zod.string(),
+  tags: zod.array(zod.string()),
+  source: zod.string().optional(),
+  url: zod.string().optional(),
+  description: zod.string().optional(),
+});
+export const ListJobsResponse = zod.array(ListJobsResponseItem);
 
 /**
  * @summary Create a CV diagnostic report
  */
 export const CreateDiagnosticBody = zod.object({
-  "fileName": zod.string(),
-  "role": zod.string().optional()
-})
+  fileName: zod.string(),
+  role: zod.string().optional(),
+  location: zod.string().optional(),
+  profileId: zod.number().int().optional(),
+});
 
 export const CreateDiagnosticResponse = zod.object({
-  "id": zod.number().int(),
-  "fileName": zod.string(),
-  "authenticityScore": zod.number().int(),
-  "atsScore": zod.number().int(),
-  "flaggedPhrases": zod.array(zod.string()),
-  "missingKeywords": zod.array(zod.string()),
-  "prompts": zod.array(zod.string())
-})
+  id: zod.number().int(),
+  fileName: zod.string(),
+  targetRole: zod.string(),
+  summary: zod.string(),
+  overallScore: zod.number().int(),
+  authenticityScore: zod.number().int(),
+  atsScore: zod.number().int(),
+  scores: zod.object({
+    clarity: zod.number().int(),
+    impact: zod.number().int(),
+    structure: zod.number().int(),
+    keywordFit: zod.number().int(),
+    authenticity: zod.number().int(),
+    ats: zod.number().int(),
+  }),
+  strengths: zod.array(
+    zod.object({
+      title: zod.string(),
+      detail: zod.string(),
+      priority: zod.string().optional(),
+    }),
+  ),
+  improvements: zod.array(
+    zod.object({
+      title: zod.string(),
+      detail: zod.string(),
+      priority: zod.string().optional(),
+    }),
+  ),
+  sectionReviews: zod.array(
+    zod.object({
+      section: zod.string(),
+      score: zod.number().int(),
+      status: zod.string(),
+      findings: zod.array(zod.string()),
+    }),
+  ),
+  flaggedPhrases: zod.array(zod.string()),
+  missingKeywords: zod.array(zod.string()),
+  rewriteExamples: zod.array(
+    zod.object({
+      before: zod.string(),
+      after: zod.string(),
+    }),
+  ),
+  prompts: zod.array(zod.string()),
+  relatedJobs: zod.array(ListJobsResponseItem),
+  jobSearch: zod.object({
+    query: zod.string(),
+    queriedBoards: zod.array(zod.string()),
+    liveResults: zod.boolean(),
+  }),
+});
 
+/**
+ * @summary Ask Smokey, the career agent
+ */
+export const AskSmokeyBody = zod.object({
+  message: zod.string(),
+  role: zod.string().optional(),
+  fileName: zod.string().optional(),
+  cvDocument: zod.any().optional(),
+});
+
+export const AskSmokeyResponse = zod.object({
+  reply: zod.string(),
+  suggestions: zod.array(zod.string()),
+});
 
 /**
  * @summary Get interview practice prompts
  */
 export const GetInterviewPrepResponse = zod.object({
-  "completed": zod.number().int(),
-  "total": zod.number().int(),
-  "questions": zod.array(zod.object({
-  "id": zod.number().int(),
-  "question": zod.string(),
-  "context": zod.string(),
-  "hint": zod.string()
-}))
-})
-
+  completed: zod.number().int(),
+  total: zod.number().int(),
+  questions: zod.array(
+    zod.object({
+      id: zod.number().int(),
+      question: zod.string(),
+      context: zod.string(),
+      hint: zod.string(),
+    }),
+  ),
+});
 
 /**
  * @summary Submit an application for coaching
  */
 export const ApplyForCoachingBody = zod.object({
-  "name": zod.string(),
-  "email": zod.string(),
-  "experience": zod.string(),
-  "goals": zod.string(),
-  "paymentPlan": zod.string()
-})
+  name: zod.string(),
+  email: zod.string(),
+  experience: zod.string(),
+  goals: zod.string(),
+  paymentPlan: zod.string(),
+});
 
 export const ApplyForCoachingResponse = zod.object({
-  "id": zod.number().int(),
-  "status": zod.string(),
-  "message": zod.string()
-})
-
-
+  id: zod.number().int(),
+  status: zod.string(),
+  message: zod.string(),
+});

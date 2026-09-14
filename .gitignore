@@ -36,6 +36,9 @@ npm-debug.log
 yarn-error.log
 testem.log
 /typings
+.data/
+.env
+.env.local
 
 # System Files
 .DS_Store
@@ -47,3 +50,7 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Local Android/JDK toolchains
+tools/
+

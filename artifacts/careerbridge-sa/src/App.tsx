@@ -1,157 +1,1436 @@
-import { type ReactNode, type FormEvent, useMemo, useState, useEffect } from 'react';
+import { type ReactNode, type FormEvent, useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import {
   ArrowRight,
+  Bot,
   BriefcaseBusiness,
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   CircleAlert,
   ClipboardCheck,
+  Download,
+  ExternalLink,
   FileCheck2,
   FileText,
-  Filter,
   HeartHandshake,
   Info,
-  LayoutDashboard,
-  LockKeyhole,
+  Layers,
+  Lock,
+  MapPin,
   Menu,
-  MessageCircle,
   PenLine,
   Search,
   ShieldCheck,
+  Smartphone,
   Sparkles,
-  Target,
-  UserRound,
   X,
+  BookOpen,
 } from 'lucide-react';
 import {
-  getGetCareerOverviewQueryKey,
   getGetInterviewPrepQueryKey,
-  getListJobsQueryKey,
   useApplyForCoaching,
   useCreateDiagnostic,
-  useGetCareerOverview,
   useGetInterviewPrep,
-  useListJobs,
 } from '@workspace/api-client-react';
 import type {
-  CareerOverview,
   CoachingApplicationInput,
   DiagnosticReport,
   InterviewPrep,
   JobMatch,
+  UserProfile,
 } from '@workspace/api-client-react';
 import NotFound from '@/pages/not-found';
+import { AdminRoute, trackPageVisit } from '@/pages/admin';
+import PricingPage from '@/pages/pricing';
+import ProgrammePage from '@/pages/programme';
+import CvBuilderPage, { generateCv, persistGeneratedCv } from '@/pages/cv-builder';
+import { SmokeyAgent } from '@/components/smokey-agent';
+import {
+  defaultEntitlement,
+  fetchEntitlement,
+  type Entitlement,
+} from '@/lib/entitlements';
+import { isNativeApp } from '@/lib/platform';
+import { triggerAndroidApkDownload } from '@/lib/download-apk';
 import {
   Link,
   Route,
   Switch,
   useLocation,
+  useParams,
   Router as WouterRouter,
 } from 'wouter';
 
 const queryClient = new QueryClient();
 
+const PROFILE_KEY = 'careerbridge-profile';
+const REPORT_KEY = 'careerbridge-report';
+const SELECTED_JOB_KEY = 'careerbridge-selected-job';
+const ADMIN_TOKEN_KEY = 'careerbridge-admin-token';
+const ADMIN_FLAG_KEY = 'careerbridge-is-admin';
+
+function persistSelectedJob(job: JobMatch) {
+  sessionStorage.setItem(SELECTED_JOB_KEY, JSON.stringify(job));
+}
+
+function findJobFromSession(jobId: string): JobMatch | null {
+  try {
+    const selected = sessionStorage.getItem(SELECTED_JOB_KEY);
+    if (selected) {
+      const parsed = JSON.parse(selected) as JobMatch;
+      if (String(parsed.id) === jobId) return parsed;
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    const reportRaw = sessionStorage.getItem(REPORT_KEY);
+    if (!reportRaw) return null;
+    const report = JSON.parse(reportRaw) as DiagnosticReport;
+    return report.relatedJobs?.find((job) => String(job.id) === jobId) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function applyHref(job: JobMatch): string | undefined {
+  if (job.url) return job.url;
+  const where = job.location.split('·')[0]?.trim() || 'South Africa';
+  return `https://www.careerjunction.co.za/jobs?keywords=${encodeURIComponent(job.title)}&location=${encodeURIComponent(where)}`;
+}
+
 const navItems = [
-  { href: '/', label: 'Overview', icon: LayoutDashboard },
-  { href: '/diagnostic', label: 'CV diagnostic', icon: FileCheck2 },
-  { href: '/jobs', label: 'Job matches', icon: BriefcaseBusiness },
-  { href: '/interview', label: 'Interview room', icon: MessageCircle },
-  { href: '/coaching', label: 'Human coaching', icon: HeartHandshake },
+  { href: '/', label: 'Overview' },
+  { href: '/diagnostic', label: 'CV review', requiresProfile: true },
+  { href: '/jobs', label: 'Matches', requiresCv: true },
+  { href: '/interview', label: 'Interview' },
+  { href: '/pricing', label: 'Pricing' },
+  { href: '/programme', label: 'Programme', requiresProfile: true },
+  { href: '/cv-builder?intake=1', label: 'CV builder', requiresProfile: true },
+  { href: '/coaching', label: 'Coaching' },
 ];
 
-function LogoMark() {
+const primaryNavHrefs = new Set(['/', '/cv-builder', '/diagnostic', '/jobs', '/interview', '/pricing']);
+
+function readProfile(): UserProfile | null {
+  try {
+    const stored = sessionStorage.getItem(PROFILE_KEY);
+    return stored ? (JSON.parse(stored) as UserProfile) : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasProfile() {
+  return Boolean(readProfile());
+}
+
+function isAdminUser() {
+  return sessionStorage.getItem(ADMIN_FLAG_KEY) === '1' && Boolean(sessionStorage.getItem(ADMIN_TOKEN_KEY));
+}
+
+function clearAuthSession() {
+  sessionStorage.removeItem(PROFILE_KEY);
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+  sessionStorage.removeItem(ADMIN_FLAG_KEY);
+}
+
+function persistProfile(profile: UserProfile) {
+  sessionStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+}
+
+function persistAdminAccess(adminToken?: string, isAdmin?: boolean) {
+  if (isAdmin && adminToken) {
+    sessionStorage.setItem(ADMIN_TOKEN_KEY, adminToken);
+    sessionStorage.setItem(ADMIN_FLAG_KEY, '1');
+    return;
+  }
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+  sessionStorage.removeItem(ADMIN_FLAG_KEY);
+}
+
+function hasCvReport() {
+  try {
+    return Boolean(sessionStorage.getItem(REPORT_KEY));
+  } catch {
+    return false;
+  }
+}
+
+function HeaderAuthActions({
+  profileReady,
+  profile,
+  isAdmin,
+  onLogout,
+  compact = false,
+}: {
+  profileReady: boolean;
+  profile: UserProfile | null;
+  isAdmin: boolean;
+  onLogout: () => void;
+  compact?: boolean;
+}) {
+  if (profileReady && profile) {
+    return (
+      <div className={`flex items-center ${compact ? 'w-full flex-col gap-2' : 'gap-1.5 xl:gap-2'}`}>
+        {isAdmin ? (
+          <Link
+            href="/admin"
+            className={`rounded-xl border border-primary/20 bg-secondary px-2.5 py-2 text-sm font-semibold text-primary hover:border-primary/40 xl:px-3 ${
+              compact ? 'w-full text-center' : ''
+            }`}
+            data-testid="link-header-admin-console"
+          >
+            <span className="xl:hidden">Admin</span>
+            <span className="hidden xl:inline">Admin console</span>
+          </Link>
+        ) : null}
+        <Link
+          href="/profile"
+          className={`inline-flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2 text-sm font-medium text-foreground hover:border-primary/30 xl:px-3 ${
+            compact ? 'w-full justify-center py-2.5' : ''
+          }`}
+          data-testid="link-header-account"
+          title="Candidate profile"
+        >
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-secondary text-xs font-bold text-primary">
+            {profile.name.charAt(0).toUpperCase()}
+          </span>
+          <span className={compact ? 'max-w-[14rem] truncate font-medium' : 'hidden max-w-[7rem] truncate sm:inline xl:max-w-[9rem]'}>
+            {compact ? profile.name : profile.name.split(' ')[0]}
+          </span>
+        </Link>
+        <button
+          type="button"
+          onClick={onLogout}
+          className={`rounded-xl px-2.5 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground xl:px-3 ${
+            compact ? 'w-full border border-border' : ''
+          }`}
+          data-testid="button-header-logout"
+        >
+          Log out
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <Link href="/" className="flex items-center gap-3" data-testid="link-logo">
-      <span className="grid h-9 w-9 place-items-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))] shadow-[4px_4px_0_hsl(var(--accent))]">
-        <span className="display text-lg font-extrabold">C</span>
-      </span>
-      <span className="leading-none">
-        <span className="display block text-base font-extrabold tracking-tight">CareerBridge</span>
-        <span className="mono mt-1 block text-[9px] uppercase tracking-[0.25em] text-[hsl(var(--sidebar-foreground)/.6)]">South Africa</span>
-      </span>
+    <div className={`flex items-center ${compact ? 'w-full flex-col gap-2' : 'gap-1.5 xl:gap-2'}`}>
+      <Link
+        href="/login"
+        className={`rounded-xl px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted ${
+          compact ? 'w-full border border-border text-center' : ''
+        }`}
+        data-testid="link-header-login"
+      >
+        Log in
+      </Link>
+      <Link
+        href="/signup"
+        className={`btn-primary ${compact ? 'w-full justify-center' : 'px-3.5 py-2 xl:px-4 xl:py-2.5'}`}
+        data-testid="link-header-signup"
+      >
+        Sign up
+      </Link>
+    </div>
+  );
+}
+function LogoMark({ compact = false }: { compact?: boolean }) {
+  return (
+    <Link
+      href="/"
+      className="flex min-w-0 items-center"
+      data-testid="link-logo"
+      aria-label="BonList home"
+    >
+      {compact ? (
+        <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-xl border border-border/70 bg-white shadow-xs">
+          <img
+            src="/brand/bonlist-mark.png"
+            alt="BonList"
+            className="h-8 w-8 object-contain"
+            width={32}
+            height={32}
+          />
+        </span>
+      ) : (
+        <span className="inline-flex h-10 items-center overflow-hidden rounded-xl border border-border/70 bg-white px-2.5 shadow-xs sm:h-11 sm:px-3">
+          <img
+            src="/brand/bonlist-logo.png"
+            alt="BonList — Your Shortcut to Getting Hired."
+            className="h-7 w-auto max-w-[min(210px,52vw)] object-contain object-left sm:h-8"
+            height={32}
+          />
+        </span>
+      )}
     </Link>
   );
 }
 
-function AppShell({ children }: { children: ReactNode }) {
-  const [location] = useLocation();
-  const [menuOpen, setMenuOpen] = useState(false);
-  return (
-    <div className="noise min-h-[100dvh] bg-background text-foreground">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[248px] flex-col bg-sidebar px-5 py-6 text-sidebar-foreground md:flex">
-        <LogoMark />
-        <div className="mt-16">
-          <p className="mono mb-3 px-3 text-[9px] uppercase tracking-[0.24em] text-sidebar-foreground/45">Your next move</p>
-          <nav className="space-y-1" aria-label="Primary navigation">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const active = location === item.href;
-              return (
-                <Link
-                  href={item.href}
-                  key={item.href}
-                  data-testid={`link-nav-${item.label.toLowerCase().replaceAll(' ', '-')}`}
-                  className={`group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold ${active ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-[3px_3px_0_hsl(var(--accent))]' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}
-                >
-                  <Icon size={17} strokeWidth={active ? 2.5 : 1.8} />
-                  <span>{item.label}</span>
-                  {active && <ArrowRight className="ml-auto" size={14} />}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-        <div className="mt-auto rounded-2xl border border-sidebar-border bg-sidebar-accent/60 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="mono text-[9px] uppercase tracking-[0.2em] text-sidebar-foreground/50">Advisor note</span>
-            <Sparkles size={14} className="text-sidebar-primary" />
-          </div>
-          <p className="text-sm leading-5 text-sidebar-foreground/80">Good careers are built from evidence, not empty confidence.</p>
-          <Link href="/coaching" className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-sidebar-primary" data-testid="link-sidebar-coaching">
-            Talk to a human <ArrowRight size={12} />
-          </Link>
-        </div>
-      </aside>
+interface GuideTopicContent {
+  id: string;
+  tabLabel: string;
+  title: string;
+  badge: string;
+  tagline: string;
+  ctaText: string;
+  ctaHref: string;
+  content: {
+    sectionTitle: string;
+    description: string;
+    points: { label: string; text: string }[];
+  }[];
+}
 
-      <div className="md:pl-[248px]">
-        <header className="sticky top-0 z-30 flex h-[72px] items-center justify-between border-b border-border/70 bg-background/90 px-5 backdrop-blur-md md:px-10">
-          <div className="md:hidden"><LogoMark /></div>
-          <div className="hidden items-center gap-2 md:flex">
-            <span className="h-2 w-2 rounded-full bg-[hsl(var(--accent))]" />
-            <span className="mono text-[10px] uppercase tracking-[0.17em] text-muted-foreground">A practical career companion</span>
+const GUIDE_TOPICS: Record<string, GuideTopicContent> = {
+  'how-to-write-a-resume': {
+    id: 'how-to-write-a-resume',
+    tabLabel: 'Writing a resume',
+    title: 'How to Write an ATS-Friendly CV & Resume',
+    badge: 'Enhancv & ATS Standards',
+    tagline: 'Master the structure, wording, and keyword density that gets your CV past applicant tracking systems and into recruiters’ hands.',
+    ctaText: 'Open AI Resume Builder',
+    ctaHref: '/cv-builder?intake=1',
+    content: [
+      {
+        sectionTitle: '1. Structure for ATS Direct-Text Parsing',
+        description: 'Modern enterprise systems (Workday, Taleo, Greenhouse, SAP) require linear, transparent document layouts.',
+        points: [
+          { label: 'Standard Headings', text: 'Use universally recognized section headings: Professional Summary, Work Experience, Skills & Competencies, Education, Certifications.' },
+          { label: 'No Trapped Text', text: 'Avoid placing your core work history in floating textboxes, vector illustrations, or nested graphic elements that ATS parsers skip.' },
+          { label: 'Consistent Chronology', text: 'Format employment periods uniformly as "MMM YYYY – Present" or "YYYY – YYYY" to ensure clean tenure calculation.' }
+        ]
+      },
+      {
+        sectionTitle: '2. The High-Impact Bullet Formula',
+        description: 'Recruiters scan bullet points in 6 to 8 seconds. Replace passive duty descriptions with active accomplishment statements.',
+        points: [
+          { label: 'Formula', text: '[Strong Action Verb] + [Specific Responsibility or Tool] + [Measurable Business Outcome or Metric].' },
+          { label: 'Before', text: 'Responsible for managing social media accounts and customer emails.' },
+          { label: 'After', text: 'Orchestrated customer engagement across 4 digital channels, increasing query resolution speed by 38% and user satisfaction to 96%.' }
+        ]
+      },
+      {
+        sectionTitle: '3. South African Market Context',
+        description: 'Aligning with South African labor and corporate recruitment practices.',
+        points: [
+          { label: 'Privacy First', text: 'Protect sensitive personal data: do not include South African ID numbers, marital status, or full street addresses on public submissions.' },
+          { label: 'Authentic Verification', text: 'Back every listed achievement with verifiable records. BonList’s authenticity layer ensures 100% factual fidelity.' }
+        ]
+      }
+    ]
+  },
+  'resume-format': {
+    id: 'resume-format',
+    tabLabel: 'Resume formats',
+    title: 'Choosing the Right Resume & CV Format',
+    badge: 'Layout Strategy',
+    tagline: 'Match your career stage and industry with an optimized layout that emphasizes your strengths.',
+    ctaText: 'Browse 8 Modern ATS Templates',
+    ctaHref: '/cv-builder?panel=templates',
+    content: [
+      {
+        sectionTitle: 'ATS Single-Column (Gold Standard)',
+        description: 'The highest ATS compliance rate across enterprise corporate portals.',
+        points: [
+          { label: 'Best For', text: 'Corporate enterprises, banking, civil engineering, law, and traditional recruiting agencies.' },
+          { label: 'Key Advantage', text: 'Zero parsing errors in legacy scanning software; perfectly chronological and easy for human hiring managers to skim.' }
+        ]
+      },
+      {
+        sectionTitle: 'Modern Two-Column (65/35 Split)',
+        description: 'Visual balance with high information density.',
+        points: [
+          { label: 'Best For', text: 'Software developers, product managers, data analysts, and marketing leaders.' },
+          { label: 'Key Advantage', text: 'Places rich technical skills, certifications, and languages in a dedicated side rail while giving maximum width to career milestones.' }
+        ]
+      },
+      {
+        sectionTitle: 'Executive Split & Technical Clean',
+        description: 'Tailored for senior authority or systems architecture.',
+        points: [
+          { label: 'Executive Split', text: 'Highlights strategic scope, P&L governance, executive leadership, and board-level presentations.' },
+          { label: 'Technical Clean', text: 'Structured for engineers, architects, and technical specialists emphasizing tech stacks, repository links, and production scale.' }
+        ]
+      }
+    ]
+  },
+  'resume-summary': {
+    id: 'resume-summary',
+    tabLabel: 'Resume summary',
+    title: 'Writing a Compelling Resume Summary',
+    badge: 'Executive Positioning',
+    tagline: 'Your professional summary is the elevator pitch that hooks hiring managers before they read your work history.',
+    ctaText: 'Draft Summary with AI Writer',
+    ctaHref: '/cv-builder?intake=1',
+    content: [
+      {
+        sectionTitle: 'The 3-Sentence Blueprint',
+        description: 'Keep your summary concise (50–80 words) and packed with evidence.',
+        points: [
+          { label: 'Sentence 1 (Identity)', text: 'State your professional title, years of experience, and core industry focus.' },
+          { label: 'Sentence 2 (Specialty)', text: 'Highlight 2–3 core technical capabilities or methodologies you excel in.' },
+          { label: 'Sentence 3 (Value)', text: 'Conclude with a standout metric, efficiency gain, or organizational impact you regularly deliver.' }
+        ]
+      },
+      {
+        sectionTitle: 'Example Summaries by Discipline',
+        description: 'Proven templates for different career tracks.',
+        points: [
+          { label: 'Software Engineer', text: '"Full-Stack Software Engineer with 4+ years architecting scalable cloud services and reactive frontends in TypeScript and React. Proven track record reducing API latency by 45% and mentoring junior developers in automated testing."' },
+          { label: 'Project Manager', text: '"PMP-certified Operations Specialist with 6+ years steering cross-functional initiatives across retail and fintech. Consistently delivered 10+ concurrent digital projects on time and 12% under budget."' }
+        ]
+      }
+    ]
+  },
+  'one-page-resume': {
+    id: 'one-page-resume',
+    tabLabel: '1-page vs 2-page',
+    title: 'How to Fit Your Experience on One or Two Pages',
+    badge: 'Page Budgeting',
+    tagline: 'Eliminate fluff, condense your timeline, and make every line earn its place on the page.',
+    ctaText: 'Use Compact Single-Page Layout',
+    ctaHref: '/cv-builder?panel=templates',
+    content: [
+      {
+        sectionTitle: 'The Page Count Rules',
+        description: 'When to stick to one page vs when two pages are appropriate.',
+        points: [
+          { label: '0–5 Years Experience', text: 'Keep strictly to 1 page. Hiring managers value brevity and focused relevance over exhaustive detail.' },
+          { label: '5+ Years or Senior Leadership', text: '2 pages is standard in South Africa. Ensure page 1 contains your strongest achievements and current role.' },
+          { label: 'Never 3+ Pages', text: 'Unless submitting an academic CV or comprehensive medical dossier, never exceed 2 pages for corporate applications.' }
+        ]
+      },
+      {
+        sectionTitle: 'Trimming Techniques That Work',
+        description: 'Save 30% vertical space without losing substance.',
+        points: [
+          { label: 'Combine Older Roles', text: 'Group roles older than 7–10 years into single-line entries (Company, Title, Years) without extensive bullet points.' },
+          { label: 'Remove Generic Soft Skills', text: 'Replace buzzword lists ("hard worker", "team player") with verifiable technical skills and tools.' },
+          { label: 'Compact Margins', text: 'BonList’s Compact template utilizes 15mm margins and calibrated typography to maximize capacity elegantly.' }
+        ]
+      }
+    ]
+  },
+  'interview-tips': {
+    id: 'interview-tips',
+    tabLabel: 'Interview guide',
+    title: 'AI Mock Interview & STAR Technique Guide',
+    badge: 'Interview Preparation',
+    tagline: 'Prepare structured, confident answers to behavioral, situational, and technical questions.',
+    ctaText: 'Start AI Mock Interview',
+    ctaHref: '/interview',
+    content: [
+      {
+        sectionTitle: 'Mastering the STAR Method',
+        description: 'Structure every behavioral answer with clarity.',
+        points: [
+          { label: 'Situation', text: 'Set the scene in 1–2 sentences with company, team context, and the challenge encountered.' },
+          { label: 'Task', text: 'Explain your specific mandate and goal in resolving the problem.' },
+          { label: 'Action', text: 'Detail the concrete steps you took, tools utilized, and how you collaborated.' },
+          { label: 'Result', text: 'Quantify the outcome, learnings gained, or value added to the company.' }
+        ]
+      }
+    ]
+  },
+  'sa-trends': {
+    id: 'sa-trends',
+    tabLabel: 'SA hiring trends',
+    title: 'South African Job Market & Hiring Insights',
+    badge: 'Regional Intelligence',
+    tagline: 'Key hiring dynamics, remote work patterns, and demanded skills across Gauteng, Western Cape, and KZN.',
+    ctaText: 'Explore Verified Job Matches',
+    ctaHref: '/jobs',
+    content: [
+      {
+        sectionTitle: 'Market Dynamics in South Africa',
+        description: 'Current employer preferences and high-growth sectors.',
+        points: [
+          { label: 'Tech & Financial Services', text: 'High demand for TypeScript, Python, AWS/Azure cloud, cybersecurity, and digital banking specialists.' },
+          { label: 'Hybrid & Remote Flexibility', text: '68% of Gauteng and Cape Town technology roles offer hybrid or fully remote arrangements.' },
+          { label: 'B-BBEE & Compliance', text: 'Work readiness programmes and certified credentials significantly accelerate employment velocity.' }
+        ]
+      }
+    ]
+  },
+  'salary-insights': {
+    id: 'salary-insights',
+    tabLabel: 'Salary tips',
+    title: 'Salary Negotiation & Compensation Benchmarks',
+    badge: 'Compensation Strategy',
+    tagline: 'How to research market bands and negotiate your package with confidence.',
+    ctaText: 'Review Career Coaching Options',
+    ctaHref: '/coaching',
+    content: [
+      {
+        sectionTitle: 'Negotiation Fundamentals',
+        description: 'Securing fair remuneration aligned with market rates.',
+        points: [
+          { label: 'Know Total Cost to Company (CTC)', text: 'In South Africa, offers are usually structured as CTC (including medical aid, provident fund, and travel allowances).' },
+          { label: 'Timing Your Discussion', text: 'Discuss compensation after you have demonstrated clear mutual value in the second or final round.' }
+        ]
+      }
+    ]
+  },
+  'career-gaps': {
+    id: 'career-gaps',
+    tabLabel: 'Career gaps',
+    title: 'Framing Employment Gaps Positively',
+    badge: 'Career Transition',
+    tagline: 'Turn breaks into proof of resilience, self-directed learning, and purpose.',
+    ctaText: 'Build Your Re-entry CV',
+    ctaHref: '/cv-builder?intake=1',
+    content: [
+      {
+        sectionTitle: 'Constructive Framing Strategies',
+        description: 'Explain timeline pauses with clarity and forward momentum.',
+        points: [
+          { label: 'Be Honest & Brief', text: 'Address gaps in 1 clear sentence: personal sabbatical, caregiving, freelancing, or focused upskilling.' },
+          { label: 'Highlight Active Growth', text: 'Mention courses completed, freelance contracts, community projects, or certifications earned.' }
+        ]
+      }
+    ]
+  }
+};
+
+function CareerGuideModal({
+  topicId,
+  onClose,
+  onSelectTopic,
+}: {
+  topicId: string | null;
+  onClose: () => void;
+  onSelectTopic: (id: string) => void;
+}) {
+  const [, setLocation] = useLocation();
+  if (!topicId) return null;
+  const guide = GUIDE_TOPICS[topicId] || GUIDE_TOPICS['how-to-write-a-resume'];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-8 animate-in fade-in duration-200">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <div className="flex items-center gap-2.5">
+            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+              {guide.badge}
+            </span>
+            <span className="text-xs text-muted-foreground">CareerBridge Expert Guide</span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="hidden text-sm text-muted-foreground sm:block">Gauteng · Western Cape · KZN</span>
-            <Link href="/coaching" className="grid h-9 w-9 place-items-center rounded-full border border-border bg-card text-muted-foreground hover:border-primary hover:text-primary" data-testid="link-profile" aria-label="Open coaching intake">
-              <UserRound size={16} />
-            </Link>
-            <button className="grid h-9 w-9 place-items-center rounded-lg border border-border md:hidden" onClick={() => setMenuOpen(!menuOpen)} data-testid="button-mobile-menu" aria-label="Toggle navigation">
-              {menuOpen ? <X size={18} /> : <Menu size={18} />}
-            </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Close guide"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Topic Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto border-b border-border/60 bg-muted/30 px-6 py-2.5 text-xs">
+          {Object.keys(GUIDE_TOPICS).map((key) => {
+            const item = GUIDE_TOPICS[key];
+            const active = item.id === guide.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelectTopic(item.id)}
+                className={`shrink-0 rounded-lg px-2.5 py-1 font-medium transition-colors ${
+                  active
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                {item.tabLabel}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Content Body */}
+        <div className="overflow-y-auto px-6 py-6 sm:px-8">
+          <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+            {guide.title}
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            {guide.tagline}
+          </p>
+
+          <div className="mt-6 space-y-6 divide-y divide-border/60">
+            {guide.content.map((sec, idx) => (
+              <div key={idx} className={idx === 0 ? '' : 'pt-6'}>
+                <h3 className="text-base font-semibold text-foreground">
+                  {sec.sectionTitle}
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">{sec.description}</p>
+                <div className="mt-3 space-y-2">
+                  {sec.points.map((pt, pIdx) => (
+                    <div key={pIdx} className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs leading-relaxed">
+                      <strong className="font-semibold text-foreground">{pt.label}: </strong>
+                      <span className="text-muted-foreground">{pt.text}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-        </header>
-        {menuOpen && (
-          <div className="absolute right-4 top-[68px] z-50 w-64 rounded-2xl border border-border bg-card p-2 shadow-xl md:hidden">
-            {navItems.map((item) => <Link href={item.href} key={item.href} onClick={() => setMenuOpen(false)} className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold hover:bg-muted" data-testid={`link-mobile-${item.label.toLowerCase().replaceAll(' ', '-')}`}><item.icon size={16} />{item.label}</Link>)}
-          </div>
-        )}
-        <main className="page-enter">{children}</main>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t border-border bg-muted/20 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              setLocation(guide.ctaHref);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-95"
+          >
+            <span>{guide.ctaText}</span>
+            <ArrowRight size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function PageHeading({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {
+function AppShell({ children }: { children: ReactNode }) {
+  const [location, setLocation] = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [cvReady, setCvReady] = useState(false);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState<'resume' | 'tools' | null>(null);
+  const [guideModalTopic, setGuideModalTopic] = useState<string | null>(null);
+  const [mobileResumeOpen, setMobileResumeOpen] = useState(true);
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
+  const closeTimeoutRef = useRef<number | null>(null);
+  const profileReady = Boolean(profile);
+
+  const handleDropdownEnter = (menu: 'resume' | 'tools') => {
+    if (closeTimeoutRef.current) {
+      window.clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+    setActiveDropdown(menu);
+  };
+
+  const handleDropdownLeave = () => {
+    if (closeTimeoutRef.current) {
+      window.clearTimeout(closeTimeoutRef.current);
+    }
+    closeTimeoutRef.current = window.setTimeout(() => {
+      setActiveDropdown(null);
+    }, 180);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveDropdown(null);
+        setGuideModalTopic(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    setActiveDropdown(null);
+    setMenuOpen(false);
+    // Always land at the top of the new route (fixes empty screen after long pages like Diagnostic)
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [location]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimeoutRef.current) window.clearTimeout(closeTimeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    setCvReady(hasCvReport());
+    setProfile(readProfile());
+    setIsAdmin(isAdminUser());
+    trackPageVisit(location || '/');
+  }, [location]);
+
+  useEffect(() => {
+    const syncProfile = () => setProfile(readProfile());
+    window.addEventListener('careerbridge-profile-updated', syncProfile);
+    window.addEventListener('storage', syncProfile);
+    return () => {
+      window.removeEventListener('careerbridge-profile-updated', syncProfile);
+      window.removeEventListener('storage', syncProfile);
+    };
+  }, []);
+
+  const handleLogout = () => {
+    clearAuthSession();
+    setProfile(null);
+    setIsAdmin(false);
+    setMenuOpen(false);
+    setLocation('/');
+  };
+
+  const isCvBuilder = location === '/cv-builder' || location.startsWith('/cv-builder/');
+  const inNativeApp = isNativeApp();
+
   return (
-    <div className="mb-8 flex flex-col justify-between gap-5 md:flex-row md:items-end">
+    <div className={`min-h-[100dvh] overflow-x-hidden bg-background text-foreground ${isCvBuilder ? 'flex flex-col' : ''}`}>
+      <header className="sticky top-0 z-40 border-b border-border/70 bg-background/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:px-5 md:px-8">
+          <div className="min-w-0 shrink-0">
+            <LogoMark />
+          </div>
+
+          {/* Desktop Enhancv-Style Control Panel Navigation */}
+          <nav
+            className="hidden min-w-0 items-center gap-1 lg:flex"
+            aria-label="Primary navigation"
+          >
+            {/* Resume Mega-Menu Dropdown */}
+            <div
+              className="relative"
+              onMouseEnter={() => handleDropdownEnter('resume')}
+              onMouseLeave={handleDropdownLeave}
+            >
+              <button
+                type="button"
+                onClick={() => setActiveDropdown(activeDropdown === 'resume' ? null : 'resume')}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  activeDropdown === 'resume' || location === '/cv-builder' || location === '/diagnostic'
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+                }`}
+                aria-expanded={activeDropdown === 'resume'}
+                aria-haspopup="true"
+              >
+                <span>Resume</span>
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform duration-200 ${
+                    activeDropdown === 'resume' ? 'rotate-180 text-foreground' : 'text-muted-foreground'
+                  }`}
+                />
+              </button>
+
+              {activeDropdown === 'resume' && (
+                <div
+                  className="absolute left-0 top-full z-50 w-[580px] max-w-[calc(100vw-2rem)] pt-2 animate-in fade-in-0 zoom-in-95 duration-150"
+                  onMouseEnter={() => handleDropdownEnter('resume')}
+                  onMouseLeave={handleDropdownLeave}
+                >
+                  <div className="rounded-2xl border border-border/80 bg-popover p-5 text-popover-foreground shadow-[0_20px_50px_rgba(0,0,0,0.12)] backdrop-blur-xl">
+                    <div className="grid grid-cols-[1.3fr_1fr] gap-6 divide-x divide-border/60">
+                      {/* Left: Tools */}
+                      <div className="flex flex-col gap-1 pr-2">
+                        <p className="px-3 pb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground/80">
+                          Tools
+                        </p>
+
+                        <Link
+                          href="/cv-builder?intake=1"
+                          onClick={() => setActiveDropdown(null)}
+                          className="group flex items-center gap-3.5 rounded-xl p-2.5 transition-colors hover:bg-muted/70"
+                          data-testid="link-nav-ai-resume-builder"
+                        >
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                            <Sparkles size={18} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                              AI Resume Builder
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Helps you to land interviews
+                            </div>
+                          </div>
+                        </Link>
+
+                        <Link
+                          href="/diagnostic"
+                          onClick={() => setActiveDropdown(null)}
+                          className="group flex items-center gap-3.5 rounded-xl p-2.5 transition-colors hover:bg-muted/70"
+                          data-testid="link-nav-resume-checker"
+                        >
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 transition-colors group-hover:bg-emerald-600 group-hover:text-white">
+                            <FileCheck2 size={18} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                              Resume Checker
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Is your resume good enough?
+                            </div>
+                          </div>
+                        </Link>
+
+                        <Link
+                          href="/cv-builder?panel=templates"
+                          onClick={() => setActiveDropdown(null)}
+                          className="group flex items-center gap-3.5 rounded-xl p-2.5 transition-colors hover:bg-muted/70"
+                          data-testid="link-nav-resume-templates"
+                        >
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400 transition-colors group-hover:bg-sky-600 group-hover:text-white">
+                            <Layers size={18} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                              Resume Templates
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Free and premium templates
+                            </div>
+                          </div>
+                        </Link>
+
+                        <Link
+                          href="/cv-builder?intake=1"
+                          onClick={() => setActiveDropdown(null)}
+                          className="group flex items-center gap-3.5 rounded-xl p-2.5 transition-colors hover:bg-muted/70"
+                          data-testid="link-nav-resume-examples"
+                        >
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 transition-colors group-hover:bg-amber-600 group-hover:text-white">
+                            <FileText size={18} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                              Resume Examples
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Generate or explore
+                            </div>
+                          </div>
+                        </Link>
+                      </div>
+
+                      {/* Right: Learning */}
+                      <div className="flex flex-col gap-1 pl-6">
+                        <p className="px-3 pb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground/80">
+                          Learning
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveDropdown(null);
+                            setGuideModalTopic('how-to-write-a-resume');
+                          }}
+                          className="group flex items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/70 hover:text-primary"
+                        >
+                          <span>How to write a resume</span>
+                          <ChevronRight size={14} className="text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveDropdown(null);
+                            setGuideModalTopic('resume-format');
+                          }}
+                          className="group flex items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/70 hover:text-primary"
+                        >
+                          <span>Choosing a resume format</span>
+                          <ChevronRight size={14} className="text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveDropdown(null);
+                            setGuideModalTopic('resume-summary');
+                          }}
+                          className="group flex items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/70 hover:text-primary"
+                        >
+                          <span>Writing a resume summary</span>
+                          <ChevronRight size={14} className="text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveDropdown(null);
+                            setGuideModalTopic('one-page-resume');
+                          }}
+                          className="group flex items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/70 hover:text-primary"
+                        >
+                          <span>Fit your experience on one page</span>
+                          <ChevronRight size={14} className="text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Tools Mega-Menu Dropdown */}
+            <div
+              className="relative"
+              onMouseEnter={() => handleDropdownEnter('tools')}
+              onMouseLeave={handleDropdownLeave}
+            >
+              <button
+                type="button"
+                onClick={() => setActiveDropdown(activeDropdown === 'tools' ? null : 'tools')}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  activeDropdown === 'tools' || location === '/interview' || location === '/jobs' || location === '/coaching' || location === '/programme'
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+                }`}
+                aria-expanded={activeDropdown === 'tools'}
+                aria-haspopup="true"
+              >
+                <span>Tools</span>
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform duration-200 ${
+                    activeDropdown === 'tools' ? 'rotate-180 text-foreground' : 'text-muted-foreground'
+                  }`}
+                />
+              </button>
+
+              {activeDropdown === 'tools' && (
+                <div
+                  className="absolute -left-20 xl:left-0 top-full z-50 w-[580px] max-w-[calc(100vw-2rem)] pt-2 animate-in fade-in-0 zoom-in-95 duration-150"
+                  onMouseEnter={() => handleDropdownEnter('tools')}
+                  onMouseLeave={handleDropdownLeave}
+                >
+                  <div className="rounded-2xl border border-border/80 bg-popover p-5 text-popover-foreground shadow-[0_20px_50px_rgba(0,0,0,0.12)] backdrop-blur-xl">
+                    <div className="grid grid-cols-[1.3fr_1fr] gap-6 divide-x divide-border/60">
+                      {/* Left: Job Search */}
+                      <div className="flex flex-col gap-1 pr-2">
+                        <p className="px-3 pb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground/80">
+                          Job Search & Career
+                        </p>
+
+                        <Link
+                          href="/interview"
+                          onClick={() => setActiveDropdown(null)}
+                          className="group flex items-center gap-3.5 rounded-xl p-2.5 transition-colors hover:bg-muted/70"
+                          data-testid="link-nav-interview-help"
+                        >
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400 transition-colors group-hover:bg-violet-600 group-hover:text-white">
+                            <Bot size={18} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                              Interview Help
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Practice with AI mock interviews
+                            </div>
+                          </div>
+                        </Link>
+
+                        <Link
+                          href="/jobs"
+                          onClick={() => setActiveDropdown(null)}
+                          className="group flex items-center gap-3.5 rounded-xl p-2.5 transition-colors hover:bg-muted/70"
+                          data-testid="link-nav-job-matches"
+                        >
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 transition-colors group-hover:bg-blue-600 group-hover:text-white">
+                            <BriefcaseBusiness size={18} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                              Job Matches
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Find roles that match you
+                            </div>
+                          </div>
+                        </Link>
+
+                        <Link
+                          href="/coaching"
+                          onClick={() => setActiveDropdown(null)}
+                          className="group flex items-center gap-3.5 rounded-xl p-2.5 transition-colors hover:bg-muted/70"
+                          data-testid="link-nav-career-coaching"
+                        >
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 transition-colors group-hover:bg-rose-600 group-hover:text-white">
+                            <HeartHandshake size={18} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                              Career Coaching
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              1-on-1 personalized mentorship
+                            </div>
+                          </div>
+                        </Link>
+
+                        <Link
+                          href="/programme"
+                          onClick={() => setActiveDropdown(null)}
+                          className="group flex items-center gap-3.5 rounded-xl p-2.5 transition-colors hover:bg-muted/70"
+                          data-testid="link-nav-work-readiness"
+                        >
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 transition-colors group-hover:bg-emerald-600 group-hover:text-white">
+                            <ClipboardCheck size={18} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                              Work Readiness Programme
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Structured pathway to employment
+                            </div>
+                          </div>
+                        </Link>
+                      </div>
+
+                      {/* Right: Learning & Resources */}
+                      <div className="flex flex-col gap-1 pl-6">
+                        <p className="px-3 pb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground/80">
+                          Learning
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveDropdown(null);
+                            setGuideModalTopic('interview-tips');
+                          }}
+                          className="group flex items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/70 hover:text-primary"
+                        >
+                          <span>Job Interview Guides</span>
+                          <ChevronRight size={14} className="text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveDropdown(null);
+                            setGuideModalTopic('sa-trends');
+                          }}
+                          className="group flex items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/70 hover:text-primary"
+                        >
+                          <span>Career Resources</span>
+                          <ChevronRight size={14} className="text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveDropdown(null);
+                            setGuideModalTopic('salary-insights');
+                          }}
+                          className="group flex items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/70 hover:text-primary"
+                        >
+                          <span>Job Interview Questions</span>
+                          <ChevronRight size={14} className="text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveDropdown(null);
+                            setGuideModalTopic('career-gaps');
+                          }}
+                          className="group flex items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/70 hover:text-primary"
+                        >
+                          <span>Career Advice & Support</span>
+                          <ChevronRight size={14} className="text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Pricing Direct Link */}
+            <Link
+              href="/pricing"
+              className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                location === '/pricing'
+                  ? 'bg-secondary text-secondary-foreground'
+                  : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+              }`}
+              data-testid="link-nav-pricing"
+            >
+              Pricing
+            </Link>
+          </nav>
+
+          {/* Right Header Actions */}
+          <div className="flex shrink-0 items-center gap-2">
+            {!inNativeApp ? (
+            <button
+              type="button"
+              onClick={() => triggerAndroidApkDownload()}
+              className="hidden sm:inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-2 text-xs font-bold text-emerald-800 transition hover:bg-emerald-500/20 dark:text-emerald-200"
+              data-testid="link-download-android-apk"
+              title="Download BonList for Android"
+            >
+              <Smartphone size={14} />
+              <span className="hidden md:inline">Download APK</span>
+              <Download size={13} className="md:hidden" />
+            </button>
+            ) : null}
+            <div className="hidden lg:flex">
+              <HeaderAuthActions
+                profileReady={profileReady}
+                profile={profile}
+                isAdmin={isAdmin}
+                onLogout={handleLogout}
+              />
+            </div>
+            <button
+              className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-card lg:hidden"
+              onClick={() => setMenuOpen(!menuOpen)}
+              data-testid="button-mobile-menu"
+              aria-label="Toggle navigation"
+              aria-expanded={menuOpen}
+            >
+              {menuOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Enhancv-Style Accordion Menu */}
+        {menuOpen && (
+          <div className="max-h-[min(80vh,calc(100dvh-4rem))] overflow-y-auto border-t border-border bg-card px-4 py-4 lg:hidden animate-in slide-in-from-top-2 duration-200">
+            {/* Resume Accordion */}
+            <div className="border-b border-border/70 pb-3">
+              <button
+                type="button"
+                onClick={() => setMobileResumeOpen(!mobileResumeOpen)}
+                className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm font-bold text-foreground"
+              >
+                <span>Resume</span>
+                <ChevronDown
+                  size={16}
+                  className={`transition-transform duration-200 ${mobileResumeOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+              {mobileResumeOpen && (
+                <div className="mt-2 space-y-3 pl-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Tools</p>
+                  <div className="space-y-1">
+                    <Link
+                      href="/cv-builder?intake=1"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
+                    >
+                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                        <Sparkles size={16} />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-foreground">AI Resume Builder</div>
+                        <div className="text-xs text-muted-foreground">Helps you to land interviews</div>
+                      </div>
+                    </Link>
+
+                    <Link
+                      href="/diagnostic"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
+                    >
+                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                        <FileCheck2 size={16} />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-foreground">Resume Checker</div>
+                        <div className="text-xs text-muted-foreground">Is your resume good enough?</div>
+                      </div>
+                    </Link>
+
+                    <Link
+                      href="/cv-builder?panel=templates"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
+                    >
+                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                        <Layers size={16} />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-foreground">Resume Templates</div>
+                        <div className="text-xs text-muted-foreground">Free and premium templates</div>
+                      </div>
+                    </Link>
+
+                    <Link
+                      href="/cv-builder?intake=1"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
+                    >
+                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                        <FileText size={16} />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-foreground">Resume Examples</div>
+                        <div className="text-xs text-muted-foreground">Generate or explore</div>
+                      </div>
+                    </Link>
+                  </div>
+
+                  <p className="pt-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Learning</p>
+                  <div className="space-y-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setGuideModalTopic('how-to-write-a-resume');
+                      }}
+                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
+                    >
+                      How to write a resume
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setGuideModalTopic('resume-format');
+                      }}
+                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
+                    >
+                      Choosing a resume format
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setGuideModalTopic('resume-summary');
+                      }}
+                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
+                    >
+                      Writing a resume summary
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setGuideModalTopic('one-page-resume');
+                      }}
+                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
+                    >
+                      Fit your experience on one page
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Tools Accordion */}
+            <div className="border-b border-border/70 py-3">
+              <button
+                type="button"
+                onClick={() => setMobileToolsOpen(!mobileToolsOpen)}
+                className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm font-bold text-foreground"
+              >
+                <span>Tools</span>
+                <ChevronDown
+                  size={16}
+                  className={`transition-transform duration-200 ${mobileToolsOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+              {mobileToolsOpen && (
+                <div className="mt-2 space-y-3 pl-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Job Search</p>
+                  <div className="space-y-1">
+                    <Link
+                      href="/interview"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
+                    >
+                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400">
+                        <Bot size={16} />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-foreground">Interview Help</div>
+                        <div className="text-xs text-muted-foreground">Practice with AI mock interviews</div>
+                      </div>
+                    </Link>
+
+                    <Link
+                      href="/jobs"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
+                    >
+                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                        <BriefcaseBusiness size={16} />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-foreground">Job Matches</div>
+                        <div className="text-xs text-muted-foreground">Find roles that match you</div>
+                      </div>
+                    </Link>
+
+                    <Link
+                      href="/coaching"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
+                    >
+                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400">
+                        <HeartHandshake size={16} />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-foreground">Career Coaching</div>
+                        <div className="text-xs text-muted-foreground">1-on-1 personalized mentorship</div>
+                      </div>
+                    </Link>
+
+                    <Link
+                      href="/programme"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
+                    >
+                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                        <ClipboardCheck size={16} />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-foreground">Work Readiness Programme</div>
+                        <div className="text-xs text-muted-foreground">Structured pathway to employment</div>
+                      </div>
+                    </Link>
+                  </div>
+
+                  <p className="pt-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Learning</p>
+                  <div className="space-y-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setGuideModalTopic('interview-tips');
+                      }}
+                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
+                    >
+                      Job Interview Guides
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setGuideModalTopic('sa-trends');
+                      }}
+                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
+                    >
+                      Career Resources
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setGuideModalTopic('salary-insights');
+                      }}
+                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
+                    >
+                      Job Interview Questions
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Pricing Link in Mobile */}
+            <div className="py-2">
+              <Link
+                href="/pricing"
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center justify-between rounded-lg px-2 py-2 text-sm font-bold text-foreground hover:bg-muted"
+              >
+                <span>Pricing</span>
+              </Link>
+            </div>
+
+            {!inNativeApp ? (
+            <div className="py-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  triggerAndroidApkDownload();
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-bold text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300"
+                data-testid="link-mobile-download-apk"
+              >
+                <Smartphone size={16} />
+                <span>Download Android APK</span>
+              </button>
+            </div>
+            ) : null}
+
+            {/* Candidate Auth / Profile Actions */}
+            <div className="mt-4 border-t border-border pt-4">
+              <HeaderAuthActions
+                profileReady={profileReady}
+                profile={profile}
+                isAdmin={isAdmin}
+                onLogout={handleLogout}
+                compact
+              />
+            </div>
+          </div>
+        )}
+      </header>
+
+      <CareerGuideModal
+        topicId={guideModalTopic}
+        onClose={() => setGuideModalTopic(null)}
+        onSelectTopic={(id) => setGuideModalTopic(id)}
+      />
+
+      <main className={`min-w-0 ${location === '/' ? '' : 'page-enter'} ${isCvBuilder ? 'flex-1 flex flex-col' : ''}`}>{children}</main>
+
+      {!isCvBuilder && (
+        <footer className="mt-16 border-t border-border bg-card">
+          <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10 md:flex-row md:items-center md:justify-between md:px-8">
+            <div className="space-y-3">
+              <LogoMark />
+              <p className="max-w-md text-sm leading-6 text-muted-foreground">
+                Create a profile first so we can support your search — then review your CV and unlock role matches.
+              </p>
+            </div>
+            {!inNativeApp ? (
+            <button
+              type="button"
+              onClick={() => triggerAndroidApkDownload()}
+              className="inline-flex items-center justify-center gap-2 self-start rounded-2xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground shadow-sm transition hover:brightness-105"
+              data-testid="button-footer-download-apk"
+            >
+              <Smartphone size={18} />
+              Download Android APK
+            </button>
+            ) : null}
+          </div>
+        </footer>
+      )}
+      <SmokeyAgent />
+    </div>
+  );
+}
+
+function PageHeading({
+  eyebrow,
+  title,
+  description,
+  action,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="mb-10 flex flex-col justify-between gap-5 md:flex-row md:items-end">
       <div>
-        <p className="mono mb-3 text-[10px] uppercase tracking-[0.25em] text-[hsl(var(--accent-foreground))]">{eyebrow}</p>
-        <h1 className="display max-w-3xl text-4xl font-extrabold tracking-tight text-primary md:text-5xl">{title}</h1>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-primary">{eyebrow}</p>
+        <h1 className="display max-w-3xl text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+          {title}
+        </h1>
         <p className="mt-3 max-w-xl text-[15px] leading-6 text-muted-foreground">{description}</p>
       </div>
       {action}
@@ -159,130 +1438,895 @@ function PageHeading({ eyebrow, title, description, action }: { eyebrow: string;
   );
 }
 
-function MetricCard({ label, value, detail, icon: Icon, accent = 'yellow' }: { label: string; value: string | number; detail: string; icon: typeof Target; accent?: 'yellow' | 'coral' | 'teal' }) {
-  const accents = {
-    yellow: 'bg-secondary text-secondary-foreground',
-    coral: 'bg-accent text-accent-foreground',
-    teal: 'bg-primary text-primary-foreground',
-  };
-  return (
-    <div className="group relative overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-[0_7px_0_hsl(var(--border)/.55)] transition-transform hover:-translate-y-1">
-      <div className="mb-7 flex items-start justify-between">
-        <span className={`grid h-9 w-9 place-items-center rounded-xl ${accents[accent]}`}><Icon size={17} /></span>
-        <span className="mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Live signal</span>
-      </div>
-      <p className="mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
-      <div className="mt-1 flex items-end gap-2">
-        <strong className="display text-4xl font-extrabold text-primary">{value}</strong>
-        <span className="mb-1 text-xs text-muted-foreground">{detail}</span>
-      </div>
-    </div>
-  );
-}
-
 function LoadingBlock({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse rounded-xl bg-muted ${className}`} />;
+  return <div className={`animate-pulse rounded-2xl bg-muted ${className}`} />;
 }
 
 function ErrorNotice({ label, onRetry }: { label: string; onRetry: () => void }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-2xl border border-[hsl(var(--destructive)/.3)] bg-[hsl(var(--destructive)/.06)] p-4 text-sm">
-      <div className="flex items-center gap-3"><CircleAlert size={18} className="text-destructive" /><span>{label}</span></div>
-      <button className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-bold hover:border-primary" onClick={onRetry} data-testid="button-retry">Try again</button>
+    <div className="flex items-center justify-between gap-4 rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm">
+      <div className="flex items-center gap-3">
+        <CircleAlert size={18} className="text-destructive" />
+        <span>{label}</span>
+      </div>
+      <button className="btn-secondary px-3 py-2 text-xs" onClick={onRetry} data-testid="button-retry">
+        Try again
+      </button>
+    </div>
+  );
+}
+
+function HeroProductVisual() {
+  return (
+    <div className="relative float-soft">
+      <div className="absolute -inset-6 rounded-[2rem] bg-primary/10 blur-2xl" aria-hidden />
+      <div className="sky-panel relative overflow-hidden rounded-[1.75rem] border border-border/80 p-5 md:p-6">
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">CV review preview</p>
+            <p className="mt-1 text-sm text-muted-foreground">Upload once · get clarity + role matches</p>
+          </div>
+          <FileCheck2 className="text-primary" size={20} />
+        </div>
+        <div className="space-y-3">
+          {[
+            { label: 'Overall readiness', value: '72' },
+            { label: 'Authenticity signal', value: '82' },
+            { label: 'ATS discoverability', value: '68' },
+          ].map((row) => (
+            <div
+              key={row.label}
+              className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/80 px-4 py-3"
+            >
+              <p className="text-sm font-medium text-foreground">{row.label}</p>
+              <span className="text-sm font-bold text-primary">{row.value}</span>
+            </div>
+          ))}
+          <div className="rounded-2xl border border-dashed border-primary/30 bg-secondary/50 px-4 py-3 text-xs leading-5 text-secondary-foreground">
+            After your profile and CV review, we recommend 4 roles tailored to you — premium 90%+ matches unlock with Job Seeker, Career Pro, or the{' '}
+            <Link href="/pricing" className="font-semibold text-primary hover:underline">
+              3-month programme
+            </Link>
+            .
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
 function Home() {
   const [, setLocation] = useLocation();
-  const overviewQuery = useGetCareerOverview({ query: { queryKey: getGetCareerOverviewQueryKey() } });
   const diagnostic = useCreateDiagnostic();
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [fileName, setFileName] = useState('');
   const [role, setRole] = useState('');
-  const overview = overviewQuery.data as CareerOverview | undefined;
+  const [locationArea, setLocationArea] = useState('');
+  const [scanStep, setScanStep] = useState(0);
+
+  useEffect(() => {
+    const current = readProfile();
+    setProfile(current);
+    if (current?.targetRole) setRole(current.targetRole);
+    if (current?.location) setLocationArea(current.location);
+  }, []);
+
+  useEffect(() => {
+    if (!diagnostic.isPending) {
+      setScanStep(0);
+      return;
+    }
+    const steps = [1, 2, 3, 4];
+    let index = 0;
+    setScanStep(1);
+    const timer = window.setInterval(() => {
+      index = (index + 1) % steps.length;
+      setScanStep(steps[index]);
+    }, 900);
+    return () => window.clearInterval(timer);
+  }, [diagnostic.isPending]);
 
   const submitDiagnostic = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!fileName) return;
-    diagnostic.mutate({ data: { fileName, role: role || undefined } }, {
-      onSuccess: (report) => {
-        sessionStorage.setItem('careerbridge-report', JSON.stringify(report));
-        setLocation('/diagnostic');
+    if (!profile || !fileName) return;
+    diagnostic.mutate(
+      {
+        data: {
+          fileName,
+          role: role || profile.targetRole || undefined,
+          location: locationArea || profile.location || undefined,
+          profileId: profile.id,
+        },
       },
-    });
+      {
+        onSuccess: (report) => {
+          sessionStorage.setItem(REPORT_KEY, JSON.stringify(report));
+          setLocation('/diagnostic');
+        },
+      },
+    );
   };
 
   return (
     <div>
-      <section className="relative overflow-hidden bg-primary px-5 py-14 text-primary-foreground md:px-12 md:py-20">
-        <div className="signal-grid absolute inset-0 opacity-25" />
-        <div className="absolute -right-20 -top-32 h-96 w-96 rounded-full border-[42px] border-secondary/20" />
-        <div className="relative mx-auto grid max-w-6xl gap-12 lg:grid-cols-[1.05fr_.95fr] lg:items-center">
+      <section className="sky-wash relative overflow-hidden">
+        <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 pb-16 pt-14 md:px-8 md:pb-24 md:pt-20 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="rise-in">
-            <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-primary-foreground/20 bg-primary-foreground/10 px-3 py-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-secondary" />
-              <span className="mono text-[9px] uppercase tracking-[0.2em] text-primary-foreground/75">Built for the South African market</span>
+            <div className="inline-flex rounded-2xl border border-border/70 bg-white px-3 py-2.5 shadow-xs sm:px-4 sm:py-3">
+              <img
+                src="/brand/bonlist-logo.png"
+                alt="BonList — Your Shortcut to Getting Hired."
+                className="h-12 w-auto max-w-[min(340px,85vw)] object-contain object-left sm:h-14 md:h-16"
+              />
             </div>
-            <h1 className="display max-w-2xl text-5xl font-extrabold leading-[.98] tracking-tight md:text-7xl">A clearer route to work that fits.</h1>
-            <p className="mt-7 max-w-xl text-lg leading-7 text-primary-foreground/70">CareerBridge turns your CV, your context and your goals into a practical next move — with credible feedback, local opportunities and a human in your corner.</p>
-            <div className="mt-9 flex flex-wrap gap-3">
-              <a href="#cv-check" className="inline-flex items-center gap-2 rounded-xl bg-secondary px-5 py-3.5 text-sm font-bold text-secondary-foreground shadow-[4px_4px_0_hsl(var(--accent))] hover:-translate-y-0.5" data-testid="link-start-cv-check">Start with your CV <ArrowRight size={16} /></a>
-              <Link href="/jobs" className="inline-flex items-center gap-2 rounded-xl border border-primary-foreground/25 px-5 py-3.5 text-sm font-bold text-primary-foreground hover:bg-primary-foreground/10" data-testid="link-browse-jobs">Browse SA jobs</Link>
-            </div>
-            <div className="mt-10 flex items-center gap-5 text-xs text-primary-foreground/55">
-              <span className="flex items-center gap-2"><ShieldCheck size={15} className="text-secondary" />No inflated promises</span>
-              <span className="flex items-center gap-2"><LockKeyhole size={14} className="text-secondary" />Your data stays yours</span>
+            <h1 className="display mt-5 max-w-xl text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl md:text-[2.75rem] md:leading-[1.1]">
+              Let us help you find your next dream job today.
+            </h1>
+            <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground md:text-lg">
+              Upload your CV now for the perfect review and revamp — then see recommended roles that fit your story.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link href="/signup" className="btn-primary" data-testid="link-start-profile">
+                Sign up to get started <ArrowRight size={16} />
+              </Link>
+              <a href="#cv-check" className="btn-secondary" data-testid="link-how-review-works">
+                Then upload your CV
+              </a>
             </div>
           </div>
-          <div id="cv-check" className="rise-in delay-1 rounded-3xl border border-primary-foreground/15 bg-primary-foreground/[.07] p-5 backdrop-blur-sm md:p-7">
-            <div className="mb-6 flex items-start justify-between">
-              <div><p className="mono text-[10px] uppercase tracking-[.22em] text-secondary">First step</p><h2 className="display mt-2 text-2xl font-bold">Let’s read your CV properly.</h2></div>
-              <FileText size={24} className="text-primary-foreground/55" />
-            </div>
-            <form onSubmit={submitDiagnostic} className="space-y-4">
-              <label className="block">
-                <span className="mb-2 block text-xs font-semibold text-primary-foreground/65">Upload your current CV</span>
-                <span className={`flex cursor-pointer items-center gap-3 rounded-xl border border-dashed px-4 py-4 ${fileName ? 'border-secondary bg-secondary/10' : 'border-primary-foreground/25 bg-primary-foreground/5 hover:border-secondary'}`}>
-                  <input type="file" accept=".pdf,.doc,.docx" className="sr-only" onChange={(event) => setFileName(event.target.files?.[0]?.name ?? '')} data-testid="input-cv-file" />
-                  <FileText size={18} className={fileName ? 'text-secondary' : 'text-primary-foreground/50'} />
-                  <span className="min-w-0 flex-1 truncate text-sm text-primary-foreground/75">{fileName || 'PDF or Word document'}</span>
-                  {fileName ? <CheckCircle2 size={17} className="text-secondary" /> : <span className="rounded-lg bg-primary-foreground/10 px-2 py-1 text-[10px] font-bold">Choose</span>}
-                </span>
-              </label>
-              <label className="block">
-                <span className="mb-2 block text-xs font-semibold text-primary-foreground/65">Role you are targeting <span className="font-normal opacity-60">(optional)</span></span>
-                <input value={role} onChange={(event) => setRole(event.target.value)} placeholder="e.g. Operations coordinator" className="w-full rounded-xl border border-primary-foreground/20 bg-primary-foreground/10 px-4 py-3 text-sm text-primary-foreground outline-none placeholder:text-primary-foreground/35 focus:border-secondary focus:ring-2 focus:ring-secondary/20" data-testid="input-target-role" />
-              </label>
-              {diagnostic.isError && <p className="text-xs text-[hsl(var(--accent))]">We couldn’t read that just now. Please try again.</p>}
-              <button disabled={!fileName || diagnostic.isPending} className="flex w-full items-center justify-center gap-2 rounded-xl bg-secondary px-4 py-3.5 text-sm font-bold text-secondary-foreground disabled:cursor-not-allowed disabled:opacity-50" data-testid="button-submit-diagnostic">
-                {diagnostic.isPending ? 'Reading your CV…' : 'Get my evidence report'} <ArrowRight size={16} />
-              </button>
-            </form>
-            <p className="mt-4 text-center text-[11px] leading-4 text-primary-foreground/45">We look for what is clear, what is missing and what sounds unlike you.</p>
+          <div className="rise-in delay-1">
+            <HeroProductVisual />
           </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-5 py-12 md:px-12 md:py-16">
-        <div className="mb-7 flex items-end justify-between"><div><p className="mono text-[10px] uppercase tracking-[.22em] text-accent-foreground">Your signals</p><h2 className="display mt-2 text-3xl font-extrabold text-primary">A little clarity, every day.</h2></div><Link href="/diagnostic" className="hidden items-center gap-2 text-sm font-bold text-primary sm:flex" data-testid="link-view-signals">View your signals <ArrowRight size={15} /></Link></div>
-        {overviewQuery.isError ? <ErrorNotice label="Your overview could not load." onRetry={() => overviewQuery.refetch()} /> : overviewQuery.isLoading ? <div className="grid gap-4 md:grid-cols-4"><LoadingBlock className="h-36" /><LoadingBlock className="h-36" /><LoadingBlock className="h-36" /><LoadingBlock className="h-36" /></div> : (
-          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-            <MetricCard label="CV diagnostic" value={overview?.diagnosticScore ?? '—'} detail="/100" icon={FileCheck2} accent="yellow" />
-            <MetricCard label="Relevant matches" value={overview?.jobMatchCount ?? '—'} detail="roles" icon={Target} accent="coral" />
-            <MetricCard label="Interview practice" value={overview?.interviewProgress ?? '—'} detail="complete" icon={ClipboardCheck} accent="teal" />
-            <MetricCard label="Latest role" value={overview?.latestRole ?? '—'} detail="" icon={BriefcaseBusiness} accent="yellow" />
+      <section id="cv-check" className="mx-auto max-w-6xl px-5 py-16 md:px-8 md:py-20">
+        <div className="grid items-start gap-10 lg:grid-cols-[0.9fr_1.1fr]">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Step 2</p>
+            <h2 className="display mt-3 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+              Upload your CV for review and revamp.
+            </h2>
+            <p className="mt-4 text-[15px] leading-7 text-muted-foreground">
+              {profile
+                ? `Welcome, ${profile.name.split(' ')[0]}. Your profile is ready — upload your CV to get a detailed review and recommended roles.`
+                : 'Create a profile first so we can keep track of your visit and personalise your CV review.'}
+            </p>
+            <ul className="mt-6 space-y-3 text-sm text-muted-foreground">
+              <li className="flex gap-2">
+                <ShieldCheck size={16} className="mt-0.5 shrink-0 text-primary" />
+                Profile first — then CV upload
+              </li>
+              <li className="flex gap-2">
+                <FileCheck2 size={16} className="mt-0.5 shrink-0 text-primary" />
+                Detailed review + 4 recommended roles after upload
+              </li>
+            </ul>
           </div>
-        )}
-      </section>
-
-      <section className="border-y border-border bg-[hsl(var(--muted)/.45)] px-5 py-14 md:px-12">
-        <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[.8fr_1.2fr] md:items-start">
-          <div><p className="mono text-[10px] uppercase tracking-[.22em] text-accent-foreground">How it works</p><h2 className="display mt-3 text-4xl font-extrabold leading-tight text-primary">No black box. Just useful next steps.</h2></div>
-          <div className="grid gap-5 sm:grid-cols-3">
-            {[['01', 'Read the evidence', 'We check the signals recruiters actually see: clarity, proof, and fit.'], ['02', 'Make a focused move', 'Choose from local roles and prompts that match your real experience.'], ['03', 'Build with support', 'Practice the conversation, then bring the hard parts to a human coach.']].map(([number, title, copy]) => <div key={number} className="border-t-2 border-primary pt-4"><span className="mono text-xs text-accent-foreground">{number}</span><h3 className="mt-4 text-base font-bold text-primary">{title}</h3><p className="mt-2 text-sm leading-5 text-muted-foreground">{copy}</p></div>)}
-          </div>
+          {!profile ? (
+            <div className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8" data-testid="cv-locked-panel">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-secondary text-primary">
+                <Lock size={20} />
+              </div>
+              <h3 className="display mt-5 text-2xl font-semibold text-foreground">Create a profile to continue</h3>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                We ask for a short profile before CV upload so we can support your search and understand how many people BonList is helping.
+              </p>
+              <Link href="/signup" className="btn-primary mt-6" data-testid="link-create-profile-from-cv">
+                Sign up to unlock CV review <ArrowRight size={16} />
+              </Link>
+            </div>
+          ) : (
+          <form
+            onSubmit={submitDiagnostic}
+            className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8"
+          >
+            {diagnostic.isPending ? (
+              <div className="space-y-5 py-4" data-testid="cv-scan-progress">
+                <div className="flex items-center gap-3">
+                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-secondary text-primary">
+                    <Sparkles className="animate-pulse" size={20} />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">AI CV reader in progress</p>
+                    <p className="text-xs text-muted-foreground">Analysing structure, proof, and role fit…</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {[
+                    'Parsing document layout',
+                    'Scoring authenticity & ATS signals',
+                    'Mapping keywords to target role',
+                    'Searching trusted SA job boards',
+                  ].map((label, index) => {
+                    const active = scanStep >= index + 1;
+                    return (
+                      <div
+                        key={label}
+                        className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${
+                          active ? 'bg-secondary text-secondary-foreground' : 'bg-muted/60 text-muted-foreground'
+                        }`}
+                      >
+                        <span
+                          className={`h-2 w-2 rounded-full ${active ? 'bg-primary' : 'bg-border'}`}
+                        />
+                        {label}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <>
+                <label className="block">
+                  <span className="mb-2 block text-xs font-semibold text-foreground">Upload your current CV</span>
+                  <span
+                    className={`flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed px-4 py-4 ${
+                      fileName
+                        ? 'border-primary/50 bg-secondary'
+                        : 'border-border bg-muted/50 hover:border-primary/40'
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx"
+                      className="sr-only"
+                      onChange={(event) => setFileName(event.target.files?.[0]?.name ?? '')}
+                      data-testid="input-cv-file"
+                    />
+                    <FileText size={18} className={fileName ? 'text-primary' : 'text-muted-foreground'} />
+                    <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                      {fileName || 'PDF or Word document'}
+                    </span>
+                    {fileName ? (
+                      <CheckCircle2 size={17} className="text-primary" />
+                    ) : (
+                      <span className="rounded-lg bg-background px-2 py-1 text-[10px] font-bold text-foreground">
+                        Choose
+                      </span>
+                    )}
+                  </span>
+                </label>
+                <label className="mt-4 block">
+                  <span className="mb-2 block text-xs font-semibold text-foreground">
+                    Role you are targeting <span className="font-normal text-muted-foreground">(optional)</span>
+                  </span>
+                  <input
+                    value={role}
+                    onChange={(event) => setRole(event.target.value)}
+                    placeholder="e.g. Operations coordinator"
+                    className="field-input"
+                    data-testid="input-target-role"
+                  />
+                </label>
+                <label className="mt-4 block">
+                  <span className="mb-2 block text-xs font-semibold text-foreground">
+                    Your area <span className="font-normal text-muted-foreground">(optional)</span>
+                  </span>
+                  <select
+                    value={locationArea}
+                    onChange={(event) => setLocationArea(event.target.value)}
+                    className="field-input"
+                    data-testid="select-candidate-location"
+                  >
+                    <option value="">All South Africa</option>
+                    <option value="Cape Town">Cape Town / Western Cape</option>
+                    <option value="Johannesburg">Johannesburg / Gauteng</option>
+                    <option value="Durban">Durban / KZN</option>
+                    <option value="Hybrid">Hybrid / Remote</option>
+                  </select>
+                </label>
+                {diagnostic.isError && (
+                  <p className="mt-3 text-xs text-destructive">
+                    We couldn&apos;t read that just now. Please try again.
+                  </p>
+                )}
+                <button
+                  disabled={!fileName || diagnostic.isPending}
+                  className="btn-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-50"
+                  data-testid="button-submit-diagnostic"
+                >
+                  Run AI CV review <ArrowRight size={16} />
+                </button>
+              </>
+            )}
+          </form>
+          )}
         </div>
       </section>
+
+      <section className="mx-auto max-w-6xl px-5 py-16 md:px-8 md:py-20">
+        <div className="mb-10 max-w-2xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">How it works</p>
+          <h2 className="display mt-3 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+            We&apos;re here for every step of your search.
+          </h2>
+          <p className="mt-4 text-[15px] leading-7 text-muted-foreground">
+            Build evidence once, then move with focus — local jobs, interview stories, and human support when you need it.
+          </p>
+        </div>
+        <div className="grid gap-6 md:grid-cols-3">
+          {[
+            {
+              icon: FileCheck2,
+              title: 'Read the evidence',
+              copy: 'Check the signals recruiters actually see: clarity, proof, and fit.',
+              delay: 'delay-1',
+            },
+            {
+              icon: Search,
+              title: 'Make a focused move',
+              copy: 'Choose from local roles and prompts that match your real experience.',
+              delay: 'delay-2',
+            },
+            {
+              icon: HeartHandshake,
+              title: 'Build with support',
+              copy: 'Practice the conversation, then bring the hard parts to a human coach.',
+              delay: 'delay-3',
+            },
+          ].map((step) => (
+            <div key={step.title} className={`rise-in ${step.delay} border-t-2 border-primary pt-5`}>
+              <step.icon className="text-primary" size={22} />
+              <h3 className="mt-5 text-lg font-semibold text-foreground">{step.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{step.copy}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AuthCard({
+  eyebrow,
+  title,
+  description,
+  children,
+  footer,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  children: ReactNode;
+  footer: ReactNode;
+}) {
+  return (
+    <div className="mx-auto max-w-md px-5 py-12 md:px-8 md:py-16">
+      <div className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">{eyebrow}</p>
+        <h1 className="display mt-2 text-3xl font-semibold text-foreground">{title}</h1>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p>
+        <div className="mt-6">{children}</div>
+        <div className="mt-6 border-t border-border pt-4 text-center text-sm text-muted-foreground">{footer}</div>
+      </div>
+    </div>
+  );
+}
+
+async function completeAuthSession(payload: {
+  isAdmin?: boolean;
+  adminToken?: string;
+}) {
+  persistProfile(payload as UserProfile);
+  persistAdminAccess(payload.adminToken, Boolean(payload.isAdmin));
+}
+
+async function readApiJson(response: Response): Promise<Record<string, any>> {
+  const text = await response.text();
+  if (!text.trim()) {
+    throw new Error(
+      response.ok
+        ? 'Server returned an empty response. Please try again.'
+        : `Request failed (${response.status}). The API may be restarting — try again in a moment.`,
+    );
+  }
+  try {
+    return JSON.parse(text) as Record<string, any>;
+  } catch {
+    throw new Error(
+      `Server returned a non-JSON response (${response.status}). Please try again.`,
+    );
+  }
+}
+
+function LoginPage() {
+  const [, setLocation] = useLocation();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isAdminUser()) setLocation('/admin');
+    else if (hasProfile()) setLocation('/profile');
+  }, [setLocation]);
+
+  const submitLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch('/api/career/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const payload = await readApiJson(response);
+      if (!response.ok) throw new Error(payload.error || 'Login failed');
+      await completeAuthSession(payload);
+      if (payload.isAdmin) {
+        setLocation('/admin');
+        return;
+      }
+      setLocation('/');
+      window.setTimeout(() => {
+        document.getElementById('cv-check')?.scrollIntoView({ behavior: 'smooth' });
+      }, 80);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <AuthCard
+      eyebrow="Welcome back"
+      title="Log in to BonList"
+      description="Access your profile, CV reviews, and personalised role matches."
+      footer={
+        <>
+          New here?{' '}
+          <Link href="/signup" className="font-semibold text-primary" data-testid="link-login-to-signup">
+            Create an account
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={submitLogin} className="space-y-4" data-testid="form-login">
+        <Field
+          label="Email address"
+          value={email}
+          onChange={setEmail}
+          placeholder="you@example.com"
+          type="email"
+          testId="input-login-email"
+          required
+        />
+        <Field
+          label="Password"
+          value={password}
+          onChange={setPassword}
+          placeholder="Your password"
+          type="password"
+          testId="input-login-password"
+          required
+        />
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        <button
+          type="submit"
+          disabled={loading || !email.trim() || !password}
+          className="btn-primary w-full disabled:opacity-50"
+          data-testid="button-login-submit"
+        >
+          {loading ? 'Signing in…' : 'Log in'} <ArrowRight size={15} />
+        </button>
+      </form>
+    </AuthCard>
+  );
+}
+
+function SignupPage() {
+  const [, setLocation] = useLocation();
+  const [step, setStep] = useState<'details' | 'otp'>('details');
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+    phone: '',
+    location: '',
+    targetRole: '',
+  });
+  const [challengeId, setChallengeId] = useState('');
+  const [code, setCode] = useState('');
+  const [info, setInfo] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isAdminUser()) setLocation('/admin');
+    else if (hasProfile()) setLocation('/profile');
+  }, [setLocation]);
+
+  const update = (key: keyof typeof form, value: string) =>
+    setForm((current) => ({ ...current, [key]: value }));
+
+  const submitDetails = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    setInfo('');
+    try {
+      const response = await fetch('/api/career/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim(),
+          password: form.password,
+          phone: form.phone.trim() || undefined,
+          location: form.location.trim() || undefined,
+          targetRole: form.targetRole.trim() || undefined,
+        }),
+      });
+      const payload = await readApiJson(response);
+      if (!response.ok) throw new Error(payload.error || 'Sign up failed');
+      if (payload.requiresOtp) {
+        setChallengeId(payload.challengeId);
+        setInfo(
+          payload.message ||
+            `We sent a 6-digit code to ${form.email.trim()}. Check your inbox (and spam folder).`,
+        );
+        setStep('otp');
+        return;
+      }
+      await completeAuthSession(payload);
+      setLocation('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sign up failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitOtp = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch('/api/career/auth/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeId, code: code.trim() }),
+      });
+      const payload = await readApiJson(response);
+      if (!response.ok) throw new Error(payload.error || 'Verification failed');
+      await completeAuthSession(payload);
+      setLocation('/');
+      window.setTimeout(() => {
+        document.getElementById('cv-check')?.scrollIntoView({ behavior: 'smooth' });
+      }, 80);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Verification failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <AuthCard
+      eyebrow={step === 'details' ? 'Get started' : 'Step 2 · Verify email'}
+      title={step === 'details' ? 'Create your BonList account' : 'Enter your verification code'}
+      description={
+        step === 'details'
+          ? 'Sign up to upload your CV, get a readiness review, and unlock trusted job matches.'
+          : `We sent a 6-digit code to ${form.email}. Enter it below to activate your account.`
+      }
+      footer={
+        step === 'details' ? (
+          <>
+            Already have an account?{' '}
+            <Link href="/login" className="font-semibold text-primary" data-testid="link-signup-to-login">
+              Log in
+            </Link>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="font-semibold text-primary"
+            onClick={() => {
+              setStep('details');
+              setCode('');
+              setError('');
+            }}
+            data-testid="button-signup-back"
+          >
+            Edit your details
+          </button>
+        )
+      }
+    >
+      {step === 'details' ? (
+        <form onSubmit={submitDetails} className="space-y-4" data-testid="form-signup">
+          <Field
+            label="Full name"
+            value={form.name}
+            onChange={(value) => update('name', value)}
+            placeholder="Noluthando M."
+            testId="input-signup-name"
+            required
+          />
+          <Field
+            label="Email address"
+            value={form.email}
+            onChange={(value) => update('email', value)}
+            placeholder="you@example.com"
+            type="email"
+            testId="input-signup-email"
+            required
+          />
+          <Field
+            label="Password"
+            value={form.password}
+            onChange={(value) => update('password', value)}
+            placeholder="At least 6 characters"
+            type="password"
+            testId="input-signup-password"
+            required
+          />
+          <label className="block">
+            <span className="mb-2 block text-xs font-semibold text-foreground">Location (optional)</span>
+            <select
+              value={form.location}
+              onChange={(event) => update('location', event.target.value)}
+              className="field-input"
+              data-testid="select-signup-location"
+            >
+              <option value="">Select area</option>
+              <option value="Cape Town">Cape Town / Western Cape</option>
+              <option value="Johannesburg">Johannesburg / Gauteng</option>
+              <option value="Durban">Durban / KZN</option>
+              <option value="Hybrid">Hybrid / Remote</option>
+            </select>
+          </label>
+          <Field
+            label="Target role (optional)"
+            value={form.targetRole}
+            onChange={(value) => update('targetRole', value)}
+            placeholder="e.g. Software Engineer"
+            testId="input-signup-role"
+          />
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          <button
+            type="submit"
+            disabled={loading || !form.name.trim() || !form.email.trim() || form.password.length < 6}
+            className="btn-primary w-full disabled:opacity-50"
+            data-testid="button-signup-submit"
+          >
+            {loading ? 'Sending code…' : 'Send verification code'} <ArrowRight size={15} />
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={submitOtp} className="space-y-4" data-testid="form-signup-otp">
+          {info ? <p className="text-xs leading-5 text-muted-foreground">{info}</p> : null}
+          <p className="rounded-xl border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+            Check <strong className="text-foreground">{form.email}</strong> for a 6-digit BonList code. It expires in 10 minutes.
+          </p>
+          <Field
+            label="Verification code"
+            value={code}
+            onChange={setCode}
+            placeholder="6-digit code"
+            testId="input-signup-otp"
+            required
+          />
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          <button
+            type="submit"
+            disabled={loading || code.trim().length !== 6}
+            className="btn-primary w-full disabled:opacity-50"
+            data-testid="button-signup-verify"
+          >
+            {loading ? 'Verifying…' : 'Verify & create account'} <ArrowRight size={15} />
+          </button>
+        </form>
+      )}
+    </AuthCard>
+  );
+}
+
+function ProfilePage() {
+  const [, setLocation] = useLocation();
+  const existing = readProfile();
+  const [form, setForm] = useState({
+    name: existing?.name || '',
+    email: existing?.email || '',
+    phone: existing?.phone || '',
+    location: existing?.location || '',
+    targetRole: existing?.targetRole || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [entitlement, setEntitlement] = useState<Entitlement>(defaultEntitlement(existing?.id || 0));
+
+  useEffect(() => {
+    if (!existing) setLocation('/signup');
+  }, [existing, setLocation]);
+
+  useEffect(() => {
+    if (!existing) return;
+    setForm({
+      name: existing.name || '',
+      email: existing.email || '',
+      phone: existing.phone || '',
+      location: existing.location || '',
+      targetRole: existing.targetRole || '',
+    });
+    void fetchEntitlement(existing.id).then(setEntitlement);
+    const refresh = () => void fetchEntitlement(existing.id).then(setEntitlement);
+    window.addEventListener('careerbridge-entitlement-updated', refresh);
+    return () => window.removeEventListener('careerbridge-entitlement-updated', refresh);
+  }, [existing?.id]);
+
+  if (!existing) {
+    return (
+      <div className="mx-auto max-w-3xl px-5 py-20 text-center text-sm text-muted-foreground">
+        Redirecting to sign up…
+      </div>
+    );
+  }
+
+  const update = (key: keyof typeof form, value: string) =>
+    setForm((current) => ({ ...current, [key]: value }));
+
+  const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const response = await fetch('/api/career/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: existing.id,
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone.trim() || undefined,
+          location: form.location.trim() || undefined,
+          targetRole: form.targetRole.trim() || undefined,
+        }),
+      });
+      const payload = await readApiJson(response);
+      if (!response.ok) throw new Error(payload.error || 'Could not update profile');
+      persistProfile(payload as UserProfile);
+      setSuccess('Your profile has been updated.');
+      window.dispatchEvent(new Event('careerbridge-profile-updated'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update profile');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const programmeActive = entitlement.programme?.status === 'active';
+
+  return (
+    <div className="mx-auto max-w-3xl px-5 py-16 md:px-8">
+      <PageHeading
+        eyebrow="Your profile"
+        title={`Welcome back, ${form.name.trim().split(' ')[0] || existing.name.split(' ')[0]}.`}
+        description="Update your name, email, and career details anytime. Changes save to your BonList account."
+        action={
+          <Link href="/#cv-check" className="btn-primary" data-testid="link-profile-to-cv">
+            Upload CV <ArrowRight size={15} />
+          </Link>
+        }
+      />
+
+      <div className="mb-6 rounded-3xl border border-border bg-card p-5 md:p-6" data-testid="card-profile-access">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Your access</p>
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="display text-2xl font-semibold text-foreground">
+              {programmeActive
+                ? 'Career Accelerator'
+                : entitlement.planName || 'Free'}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {programmeActive
+                ? `Full platform access · ${entitlement.programme?.daysRemaining ?? 0} days remaining`
+                : entitlement.plan === 'free'
+                  ? 'Standard matches and core CV tools. Upgrade anytime.'
+                  : 'Premium features active on your monthly plan.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {programmeActive ? (
+              <Link href="/programme" className="btn-primary" data-testid="link-profile-programme">
+                Programme dashboard <ArrowRight size={14} />
+              </Link>
+            ) : (
+              <Link href="/pricing" className="btn-primary" data-testid="link-profile-pricing">
+                View pricing <ArrowRight size={14} />
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <form
+        onSubmit={saveProfile}
+        className="rounded-3xl border border-border bg-card p-6 md:p-8"
+        data-testid="form-profile-edit"
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Full name"
+            value={form.name}
+            onChange={(value) => update('name', value)}
+            placeholder="Your full name"
+            testId="input-profile-name"
+            required
+          />
+          <Field
+            label="Email (Gmail or other)"
+            value={form.email}
+            onChange={(value) => update('email', value)}
+            placeholder="you@gmail.com"
+            type="email"
+            testId="input-profile-email"
+            required
+          />
+          <Field
+            label="Phone"
+            value={form.phone}
+            onChange={(value) => update('phone', value)}
+            placeholder="Optional"
+            testId="input-profile-phone"
+          />
+          <Field
+            label="Location"
+            value={form.location}
+            onChange={(value) => update('location', value)}
+            placeholder="City or province"
+            testId="input-profile-location"
+          />
+          <div className="sm:col-span-2">
+            <Field
+              label="Target role"
+              value={form.targetRole}
+              onChange={(value) => update('targetRole', value)}
+              placeholder="e.g. Product Marketing Manager"
+              testId="input-profile-target-role"
+            />
+          </div>
+        </div>
+        {error ? <p className="mt-4 text-xs text-destructive">{error}</p> : null}
+        {success ? <p className="mt-4 text-xs text-emerald-700">{success}</p> : null}
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            disabled={saving || !form.name.trim() || !form.email.trim()}
+            className="btn-primary disabled:opacity-50"
+            data-testid="button-profile-save"
+          >
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+          <p className="text-xs text-muted-foreground">
+            Use a real email you can access — including Gmail — so we can reach you about coaching and matches.
+          </p>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ScoreBar({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between text-xs">
+        <span className="font-medium text-muted-foreground">{label}</span>
+        <strong className="text-foreground">{value}</strong>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-primary transition-all duration-700"
+          style={{ width: `${value}%` }}
+        />
+      </div>
     </div>
   );
 }
@@ -290,116 +2334,1089 @@ function Home() {
 function DiagnosticPage() {
   const [report, setReport] = useState<DiagnosticReport | null>(null);
   const [, setLocation] = useLocation();
+
   useEffect(() => {
-    const stored = sessionStorage.getItem('careerbridge-report');
-    if (stored) setReport(JSON.parse(stored) as DiagnosticReport);
-  }, []);
+    if (!hasProfile()) {
+      setLocation('/signup');
+      return;
+    }
+    const stored = sessionStorage.getItem(REPORT_KEY);
+    if (stored) {
+      try {
+        setReport(JSON.parse(stored) as DiagnosticReport);
+      } catch {
+        setReport(null);
+      }
+    }
+  }, [setLocation]);
+
+  const handleGenerateCv = () => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    setLocation('/cv-builder?intake=1');
+  };
+
   if (!report) {
-    return <div className="mx-auto max-w-4xl px-5 py-16 md:px-12"><PageHeading eyebrow="CV diagnostic" title="Start with the document in front of you." description="Upload your CV on the overview page and we’ll return a grounded report: what feels authentic, what an ATS may miss, and what to edit next." action={<Link href="/" className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground" data-testid="link-upload-cv">Upload a CV <ArrowRight size={15} /></Link>} /><div className="signal-grid rounded-3xl border border-border p-10 text-center"><FileText className="mx-auto text-accent-foreground" size={38} /><h2 className="display mt-5 text-2xl font-bold text-primary">No report yet</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">A useful review starts with your actual CV, not a generic score.</p></div></div>;
-  }
-  return (
-    <div className="mx-auto max-w-6xl px-5 py-10 md:px-12 md:py-14">
-      <PageHeading eyebrow="CV diagnostic · report ready" title="A CV people can trust." description={`${report.fileName} — here is what your document is communicating before anyone meets you.`} action={<button onClick={() => setLocation('/')} className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm font-bold text-primary hover:border-primary" data-testid="button-review-another-cv"><PenLine size={15} /> Review another CV</button>} />
-      <div className="grid gap-5 lg:grid-cols-[.8fr_1.2fr]">
-        <div className="rounded-3xl bg-primary p-6 text-primary-foreground shadow-[7px_7px_0_hsl(var(--accent))] md:p-8">
-          <div className="flex items-start justify-between"><div><p className="mono text-[10px] uppercase tracking-[.2em] text-primary-foreground/55">Your readout</p><p className="mt-5 display text-7xl font-extrabold">{report.authenticityScore}</p></div><ShieldCheck size={27} className="text-secondary" /></div>
-          <p className="mt-2 text-lg font-semibold">Authenticity signal</p>
-          <p className="mt-2 max-w-sm text-sm leading-6 text-primary-foreground/65">Does this sound like a real person with a clear point of view? Stronger proof beats bigger adjectives.</p>
-          <div className="mt-9 border-t border-primary-foreground/15 pt-5"><div className="flex justify-between text-xs"><span className="text-primary-foreground/55">ATS discoverability</span><strong className="text-secondary">{report.atsScore}/100</strong></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-primary-foreground/15"><div className="h-full rounded-full bg-secondary transition-all duration-700" style={{ width: `${report.atsScore}%` }} /></div></div>
-        </div>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <SignalList title="Phrases to question" subtitle="These may sound polished, but they hide your contribution." items={report.flaggedPhrases} tone="coral" />
-          <SignalList title="Keywords to earn" subtitle="Add them only where your experience can prove them." items={report.missingKeywords} tone="yellow" />
+    return (
+      <div className="mx-auto max-w-4xl px-5 py-16 md:px-8">
+        <PageHeading
+          eyebrow="AI CV reader"
+          title="Start with the document in front of you."
+          description="Upload your CV on the overview page and we’ll return a detailed evidence report with section scores, rewrite examples, and roles recently listed for your target."
+          action={
+            <Link href="/" className="btn-primary" data-testid="link-upload-cv">
+              Upload a CV <ArrowRight size={15} />
+            </Link>
+          }
+        />
+        <div className="rounded-3xl border border-border bg-card px-6 py-16 text-center">
+          <FileText className="mx-auto text-primary" size={36} />
+          <h2 className="display mt-5 text-2xl font-semibold text-foreground">No report yet</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+            A useful review starts with your actual CV, not a generic score.
+          </p>
         </div>
       </div>
-      <section className="mt-10">
-        <div className="mb-5 flex items-end justify-between"><div><p className="mono text-[10px] uppercase tracking-[.2em] text-accent-foreground">Human-first edits</p><h2 className="display mt-2 text-3xl font-extrabold text-primary">Three prompts worth your time.</h2></div><span className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex"><Info size={14} /> No copy-paste templates</span></div>
-        <div className="grid gap-4 md:grid-cols-3">{report.prompts.map((prompt, index) => <div key={`${prompt}-${index}`} className="group rounded-2xl border border-border bg-card p-5 hover:-translate-y-1 hover:shadow-lg"><span className="mono text-xs text-accent-foreground">0{index + 1}</span><p className="mt-5 text-[15px] font-semibold leading-6 text-primary">{prompt}</p><button className="mt-7 flex items-center gap-2 text-xs font-bold text-muted-foreground group-hover:text-primary" onClick={() => navigator.clipboard?.writeText(prompt)} data-testid={`button-copy-prompt-${index}`}>Copy prompt <ArrowRight size={13} /></button></div>)}</div>
+    );
+  }
+
+  const scores = report.scores ?? {
+    clarity: report.authenticityScore,
+    impact: 60,
+    structure: 70,
+    keywordFit: 65,
+    authenticity: report.authenticityScore,
+    ats: report.atsScore,
+  };
+  const overall = report.overallScore ?? report.authenticityScore;
+  const relatedJobs = report.relatedJobs ?? [];
+
+  return (
+    <div className="mx-auto max-w-6xl px-5 py-12 md:px-8 md:py-16">
+      <PageHeading
+        eyebrow="AI CV reader · detailed report"
+        title="A CV people can trust."
+        description={`${report.fileName}${report.targetRole ? ` · targeting ${report.targetRole}` : ''} — section-level analysis, rewrite guidance, and roles listed for your lane.`}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleGenerateCv}
+              className="btn-primary"
+              data-testid="button-generate-cv"
+            >
+              <Sparkles size={15} />
+              Generate improved CV
+            </button>
+            <button
+              onClick={() => setLocation('/')}
+              className="btn-secondary"
+              data-testid="button-review-another-cv"
+            >
+              <PenLine size={15} /> Review another CV
+            </button>
+          </div>
+        }
+      />
+
+      <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="rounded-3xl bg-primary p-6 text-primary-foreground md:p-8">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary-foreground/70">
+                Overall readiness
+              </p>
+              <p className="display mt-4 text-6xl font-semibold md:text-7xl">{overall}</p>
+              <p className="mt-2 text-lg font-semibold">Composite score / 100</p>
+            </div>
+            <ShieldCheck size={26} />
+          </div>
+          <p className="mt-4 max-w-md text-sm leading-6 text-primary-foreground/80">
+            {report.summary ||
+              'Stronger proof beats bigger adjectives. Use the section findings below to make your next edit count.'}
+          </p>
+          <div className="mt-8 grid gap-3 border-t border-primary-foreground/20 pt-5 sm:grid-cols-2">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.12em] text-primary-foreground/65">Authenticity</p>
+              <p className="mt-1 text-2xl font-semibold">{report.authenticityScore}</p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.12em] text-primary-foreground/65">ATS fit</p>
+              <p className="mt-1 text-2xl font-semibold">{report.atsScore}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-border bg-card p-6 md:p-7">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Score breakdown</p>
+          <h2 className="display mt-2 text-2xl font-semibold text-foreground">Where the signal is strong — and thin.</h2>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <ScoreBar label="Clarity" value={scores.clarity} />
+            <ScoreBar label="Impact" value={scores.impact} />
+            <ScoreBar label="Structure" value={scores.structure} />
+            <ScoreBar label="Keyword fit" value={scores.keywordFit} />
+            <ScoreBar label="Authenticity" value={scores.authenticity} />
+            <ScoreBar label="ATS discoverability" value={scores.ats} />
+          </div>
+        </div>
+      </div>
+
+      {(report.strengths?.length || report.improvements?.length) && (
+        <section className="mt-8 grid gap-5 lg:grid-cols-2">
+          <div className="rounded-3xl border border-border bg-card p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Strengths</p>
+            <h3 className="mt-2 text-xl font-semibold text-foreground">Keep these intact.</h3>
+            <div className="mt-5 space-y-3">
+              {(report.strengths ?? []).map((item) => (
+                <div key={item.title} className="rounded-2xl bg-secondary/70 px-4 py-3">
+                  <p className="text-sm font-semibold text-foreground">{item.title}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.detail}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-3xl border border-border bg-card p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Priority improvements</p>
+            <h3 className="mt-2 text-xl font-semibold text-foreground">Edit these next.</h3>
+            <div className="mt-5 space-y-3">
+              {(report.improvements ?? []).map((item) => (
+                <div key={item.title} className="rounded-2xl border border-border px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    {item.priority && (
+                      <span className="rounded-md bg-secondary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
+                        {item.priority}
+                      </span>
+                    )}
+                    <p className="text-sm font-semibold text-foreground">{item.title}</p>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.detail}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {report.sectionReviews?.length ? (
+        <section className="mt-8">
+          <div className="mb-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Section reviews</p>
+            <h2 className="display mt-2 text-3xl font-semibold text-foreground">A closer read of each part.</h2>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {report.sectionReviews.map((section) => (
+              <div key={section.section} className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground">{section.section}</h3>
+                    <p className="mt-1 text-xs font-medium text-primary">{section.status}</p>
+                  </div>
+                  <span className="display text-2xl font-semibold text-foreground">{section.score}</span>
+                </div>
+                <ul className="mt-4 space-y-2">
+                  {section.findings.map((finding) => (
+                    <li key={finding} className="flex gap-2 text-xs leading-5 text-muted-foreground">
+                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                      {finding}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="mt-8 grid gap-5 lg:grid-cols-2">
+        <SignalList
+          title="Phrases to question"
+          subtitle="These may sound polished, but they hide your contribution."
+          items={report.flaggedPhrases}
+        />
+        <SignalList
+          title="Keywords to earn"
+          subtitle="Add them only where your experience can prove them."
+          items={report.missingKeywords}
+        />
+      </section>
+
+      {report.rewriteExamples?.length ? (
+        <section className="mt-8">
+          <div className="mb-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Rewrite examples</p>
+            <h2 className="display mt-2 text-3xl font-semibold text-foreground">From vague claim to usable proof.</h2>
+          </div>
+          <div className="space-y-4">
+            {report.rewriteExamples.map((example) => (
+              <div key={example.before} className="grid gap-3 rounded-2xl border border-border bg-card p-5 md:grid-cols-2">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Before</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{example.before}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">After</p>
+                  <p className="mt-2 text-sm font-medium leading-6 text-foreground">{example.after}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="mt-8 rounded-3xl border border-primary/25 bg-secondary/40 p-6 md:p-8" data-testid="section-cv-builder-cta">
+        <div className="flex flex-wrap items-start justify-between gap-5">
+          <div className="max-w-xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">CV builder</p>
+            <h2 className="display mt-2 text-3xl font-semibold text-foreground">Turn this review into a stronger CV.</h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              One click builds an improved CV from your review — clearer proof language, cleaner structure, and your
+              authentic voice. Not happy with the layout? Generate a new CV anytime.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleGenerateCv}
+            className="btn-primary"
+            data-testid="button-generate-cv-section"
+          >
+            <Sparkles size={15} />
+            Generate improved CV <ArrowRight size={15} />
+          </button>
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <div className="mb-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Human-first edits</p>
+          <h2 className="display mt-2 text-3xl font-semibold text-foreground">Prompts worth your time.</h2>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {report.prompts.map((prompt, index) => (
+            <div key={`${prompt}-${index}`} className="rounded-2xl border border-border bg-card p-5">
+              <span className="text-xs font-bold text-primary">0{index + 1}</span>
+              <p className="mt-4 text-[15px] font-semibold leading-6 text-foreground">{prompt}</p>
+              <button
+                className="mt-6 flex items-center gap-2 text-xs font-bold text-muted-foreground hover:text-primary"
+                onClick={() => navigator.clipboard?.writeText(prompt)}
+                data-testid={`button-copy-prompt-${index}`}
+              >
+                Copy prompt <ArrowRight size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-12 border-t border-border pt-10">
+        <div className="mb-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Recommended for you</p>
+          <h2 className="display mt-2 text-3xl font-semibold text-foreground">
+            4 roles matched to your CV{report.targetRole ? ` · ${report.targetRole}` : ''}.
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+            {report.jobSearch?.liveResults
+              ? `Live search across trusted boards for “${report.jobSearch.query}”. Sources include ${report.jobSearch.queriedBoards.slice(0, 5).join(', ')}.`
+              : 'We search trusted SA job boards for recent listings that align with your CV. 90%+ fits stay premium until you unlock Job Seeker, Career Pro, or the programme.'}
+          </p>
+          {report.jobSearch?.queriedBoards?.length ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {report.jobSearch.queriedBoards.slice(0, 8).map((board) => (
+                <span
+                  key={board}
+                  className="rounded-md border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                >
+                  {board}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        {relatedJobs.length === 0 ? (
+          <div className="rounded-2xl border border-border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
+            Recommended roles appear here right after your CV review.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {relatedJobs.slice(0, 4).map((job) => (
+              <JobCard key={`related-${job.id}`} job={job} />
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );
 }
 
-function SignalList({ title, subtitle, items, tone }: { title: string; subtitle: string; items: string[]; tone: 'coral' | 'yellow' }) {
-  return <div className="rounded-3xl border border-border bg-card p-6"><div className={`mb-4 h-2 w-10 rounded-full ${tone === 'coral' ? 'bg-accent' : 'bg-secondary'}`} /><h3 className="text-base font-bold text-primary">{title}</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">{subtitle}</p><div className="mt-5 space-y-2">{items.length ? items.map((item) => <div key={item} className="flex gap-2 rounded-xl bg-muted/70 px-3 py-2.5 text-xs font-medium text-primary"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent-foreground" />{item}</div>) : <p className="text-xs text-muted-foreground">Nothing flagged here — keep that clarity.</p>}</div></div>;
+function SignalList({ title, subtitle, items }: { title: string; subtitle: string; items: string[] }) {
+  return (
+    <div className="rounded-3xl border border-border bg-card p-6">
+      <div className="mb-4 h-1.5 w-10 rounded-full bg-primary" />
+      <h3 className="text-base font-semibold text-foreground">{title}</h3>
+      <p className="mt-2 text-xs leading-5 text-muted-foreground">{subtitle}</p>
+      <div className="mt-5 space-y-2">
+        {items.length ? (
+          items.map((item) => (
+            <div key={item} className="flex gap-2 rounded-xl bg-muted/70 px-3 py-2.5 text-xs font-medium text-foreground">
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+              {item}
+            </div>
+          ))
+        ) : (
+          <p className="text-xs text-muted-foreground">Nothing flagged here — keep that clarity.</p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function JobsPage() {
-  const [search, setSearch] = useState('');
-  const [location, setJobLocation] = useState('');
-  const [sector, setSector] = useState('');
-  const params = useMemo(() => ({ location: location || undefined, sector: sector || undefined }), [location, sector]);
-  const jobsQuery = useListJobs(params, { query: { queryKey: getListJobsQueryKey(params) } });
-  const jobs = (jobsQuery.data as JobMatch[] | undefined) ?? [];
-  const visibleJobs = jobs.filter((job) => `${job.title} ${job.company} ${job.location} ${job.sector} ${job.tags.join(' ')}`.toLowerCase().includes(search.toLowerCase()));
-  return <div className="mx-auto max-w-6xl px-5 py-10 md:px-12 md:py-14">
-    <PageHeading eyebrow="Local job matches" title="Roles with a reason to look twice." description="Search the South African market by fit, not by desperation. Each match shows the evidence behind the recommendation." />
-    <div className="mb-7 grid gap-3 rounded-2xl border border-border bg-card p-3 md:grid-cols-[1.4fr_.8fr_.8fr_auto]">
-      <label className="flex items-center gap-3 rounded-xl bg-muted/70 px-3"><Search size={17} className="text-muted-foreground" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search title, company or skill" className="w-full bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground" data-testid="input-job-search" /></label>
-      <select value={location} onChange={(event) => setJobLocation(event.target.value)} className="rounded-xl border border-border bg-background px-3 py-3 text-sm font-medium outline-none focus:border-primary" data-testid="select-job-location"><option value="">All locations</option><option value="Johannesburg">Johannesburg</option><option value="Cape Town">Cape Town</option><option value="Durban">Durban</option></select>
-      <select value={sector} onChange={(event) => setSector(event.target.value)} className="rounded-xl border border-border bg-background px-3 py-3 text-sm font-medium outline-none focus:border-primary" data-testid="select-job-sector"><option value="">All sectors</option><option value="Technology">Technology</option><option value="Finance">Finance</option><option value="Operations">Operations</option><option value="Marketing">Marketing</option></select>
-      <button onClick={() => { setSearch(''); setJobLocation(''); setSector(''); }} className="flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-xs font-bold text-muted-foreground hover:border-primary hover:text-primary" data-testid="button-clear-filters"><Filter size={14} /> Clear</button>
+  const [, setLocation] = useLocation();
+  const [report, setReport] = useState<DiagnosticReport | null>(null);
+  const [entitlement, setEntitlement] = useState<Entitlement>(defaultEntitlement());
+
+  useEffect(() => {
+    if (!hasProfile()) {
+      setLocation('/signup');
+      return;
+    }
+    const stored = sessionStorage.getItem(REPORT_KEY);
+    if (!stored) {
+      setLocation('/#cv-check');
+      return;
+    }
+    try {
+      setReport(JSON.parse(stored) as DiagnosticReport);
+    } catch {
+      setLocation('/#cv-check');
+    }
+    const profile = readProfile();
+    if (profile?.id) void fetchEntitlement(profile.id).then(setEntitlement);
+    const refresh = () => {
+      const current = readProfile();
+      if (current?.id) void fetchEntitlement(current.id).then(setEntitlement);
+    };
+    window.addEventListener('careerbridge-entitlement-updated', refresh);
+    return () => window.removeEventListener('careerbridge-entitlement-updated', refresh);
+  }, [setLocation]);
+
+  if (!report) {
+    return (
+      <div className="mx-auto max-w-3xl px-5 py-20 text-center md:px-8">
+        <Lock className="mx-auto text-primary" size={32} />
+        <h1 className="display mt-5 text-3xl font-semibold text-foreground">Matches unlock after your CV review</h1>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted-foreground">
+          BonList is built to help you find your next role from your CV — not to browse a general job board.
+        </p>
+        <Link href="/#cv-check" className="btn-primary mt-8" data-testid="link-jobs-need-cv">
+          Upload your CV <ArrowRight size={15} />
+        </Link>
+      </div>
+    );
+  }
+
+  const matches = (report.relatedJobs ?? []).slice(0, 4);
+  const premiumUnlocked = entitlement.features.premiumJobs;
+
+  return (
+    <div className="mx-auto max-w-6xl px-5 py-12 md:px-8 md:py-16">
+      <PageHeading
+        eyebrow="Your matches"
+        title="Roles recommended from your CV review."
+        description={
+          report.jobSearch?.liveResults
+            ? `Live listings found for “${report.jobSearch.query}” across trusted SA boards — not an open job feed.`
+            : "Personalised recommendations from your CV, searched across trusted SA job boards — not an open listing feed."
+        }
+        action={
+          <Link href="/diagnostic" className="btn-secondary" data-testid="link-matches-to-review">
+            Back to CV review <ArrowRight size={14} />
+          </Link>
+        }
+      />
+      {report.jobSearch?.queriedBoards?.length ? (
+        <div className="mb-6 flex flex-wrap gap-2">
+          {report.jobSearch.queriedBoards.slice(0, 8).map((board) => (
+            <span
+              key={board}
+              className="rounded-md border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+            >
+              {board}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {matches.length === 0 ? (
+        <div className="rounded-3xl border border-border bg-card px-6 py-16 text-center">
+          <BriefcaseBusiness className="mx-auto text-primary" size={32} />
+          <h2 className="display mt-4 text-2xl font-semibold text-foreground">No matches yet</h2>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
+            Run a fresh CV review to generate four recommended roles for your profile.
+          </p>
+          <Link href="/" className="btn-primary mt-5" data-testid="link-jobs-to-upload">
+            Upload CV <ArrowRight size={15} />
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {matches.map((job) => (
+            <JobCard key={job.id} job={job} premiumUnlocked={premiumUnlocked} />
+          ))}
+        </div>
+      )}
+      <p className="mt-5 text-center text-xs text-muted-foreground">
+        {premiumUnlocked
+          ? 'Premium 90%+ matches are unlocked on your current plan or programme.'
+          : '90%+ fits are premium matches — unlock with Job Seeker, Career Pro, or the 3-month programme.'}
+      </p>
     </div>
-    {jobsQuery.isError ? <ErrorNotice label="Job matches are taking a moment to load." onRetry={() => jobsQuery.refetch()} /> : jobsQuery.isLoading ? <div className="space-y-3">{[1, 2, 3, 4].map((item) => <LoadingBlock key={item} className="h-32" />)}</div> : visibleJobs.length === 0 ? <div className="signal-grid rounded-3xl border border-border px-6 py-16 text-center"><BriefcaseBusiness className="mx-auto text-accent-foreground" size={32} /><h2 className="display mt-4 text-2xl font-bold text-primary">No close matches yet.</h2><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">Try a broader search, or return to your diagnostic to sharpen your role direction.</p><Link href="/diagnostic" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground" data-testid="link-jobs-to-diagnostic">Review my CV <ArrowRight size={15} /></Link></div> : <div className="space-y-3">{visibleJobs.map((job) => <JobCard key={job.id} job={job} />)}</div>}
-    <p className="mt-5 text-center text-xs text-muted-foreground">{visibleJobs.length} role{visibleJobs.length === 1 ? '' : 's'} showing · match signals are directional, not promises</p>
-  </div>;
+  );
 }
 
-function JobCard({ job }: { job: JobMatch }) {
-  return <article className="group grid gap-5 rounded-2xl border border-border bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[4px_4px_0_hsl(var(--border))] md:grid-cols-[1fr_auto] md:items-center" data-testid={`card-job-${job.id}`}>
-    <div className="flex gap-4"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary text-secondary"><span className="display text-lg font-extrabold">{job.company.charAt(0)}</span></div><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-base font-bold text-primary">{job.title}</h2><span className="rounded-full bg-secondary/60 px-2 py-0.5 mono text-[9px] font-bold text-secondary-foreground">{job.match}% fit</span></div><p className="mt-1 text-sm text-muted-foreground">{job.company} · {job.location} · {job.sector}</p><div className="mt-3 flex flex-wrap gap-1.5">{job.tags.map((tag) => <span key={tag} className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground">{tag}</span>)}</div></div></div>
-    <div className="flex items-center justify-between gap-5 border-t border-border pt-4 md:block md:border-t-0 md:pt-0 md:text-right"><div><p className="text-sm font-bold text-primary">{job.salary}</p><p className="mt-1 text-[11px] text-muted-foreground">Posted {job.posted}</p></div><button className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-primary opacity-70 group-hover:opacity-100" onClick={() => navigator.clipboard?.writeText(`${job.title} at ${job.company}`)} data-testid={`button-save-job-${job.id}`}>Save role <HeartHandshake size={13} /></button></div>
-  </article>;
+function JobCard({ job, premiumUnlocked = false }: { job: JobMatch; premiumUnlocked?: boolean }) {
+  const premiumLocked = job.match >= 90 && !premiumUnlocked;
+  const detailHref = `/jobs/${job.id}`;
+  const externalApply = applyHref(job);
+
+  return (
+    <article
+      className={`relative overflow-hidden rounded-2xl border border-border bg-card transition-all ${
+        premiumLocked ? '' : 'hover:border-primary/35 hover:shadow-sm'
+      }`}
+      data-testid={`card-job-${job.id}`}
+    >
+      <div
+        className={`grid gap-5 p-5 md:grid-cols-[1fr_auto] md:items-center ${
+          premiumLocked ? 'select-none blur-[3px] pointer-events-none' : ''
+        }`}
+      >
+        <div className="flex gap-4">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-secondary text-primary">
+            <span className="display text-lg font-semibold">{job.company.charAt(0)}</span>
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href={detailHref}
+                onClick={() => persistSelectedJob(job)}
+                className="text-base font-semibold text-foreground hover:text-primary"
+                data-testid={`link-job-detail-${job.id}`}
+              >
+                {job.title}
+              </Link>
+              <span className="rounded-md bg-secondary px-2 py-0.5 text-[11px] font-bold text-primary">
+                {job.match}% fit
+              </span>
+              {job.source && (
+                <span className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  {job.source}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">{job.company} · {job.sector}</p>
+            <p className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
+              <MapPin size={14} className="text-primary" />
+              {job.location}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {job.tags.map((tag) => (
+                <span key={tag} className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 border-t border-border pt-4 md:items-end md:border-t-0 md:pt-0">
+          <div className="md:text-right">
+            <p className="text-sm font-semibold text-foreground">{job.salary}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">Posted {job.posted}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 md:justify-end">
+            <Link
+              href={detailHref}
+              onClick={() => persistSelectedJob(job)}
+              className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-bold text-foreground hover:border-primary/40"
+              data-testid={`button-view-spec-${job.id}`}
+            >
+              View job spec
+            </Link>
+            {externalApply ? (
+              <a
+                href={externalApply}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground"
+                data-testid={`button-apply-job-${job.id}`}
+              >
+                Apply <ExternalLink size={13} />
+              </a>
+            ) : (
+              <button
+                className="inline-flex items-center gap-1 text-xs font-bold text-primary"
+                onClick={() => navigator.clipboard?.writeText(`${job.title} at ${job.company}`)}
+                data-testid={`button-save-job-${job.id}`}
+              >
+                Save role <HeartHandshake size={13} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {premiumLocked && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/55 px-5 backdrop-blur-[1px]">
+          <div className="max-w-sm rounded-2xl border border-border bg-card/95 p-5 text-center shadow-md">
+            <span className="mx-auto grid h-10 w-10 place-items-center rounded-xl bg-secondary text-primary">
+              <Lock size={18} />
+            </span>
+            <p className="mt-3 text-sm font-semibold text-foreground">{job.match}% premium match</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Unlock with Job Seeker, Career Pro, or the R2,000 Career Accelerator programme.
+            </p>
+            <Link
+              href="/pricing"
+              className="btn-primary mt-4 w-full"
+              data-testid={`button-unlock-job-${job.id}`}
+            >
+              Unlock with subscription
+            </Link>
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function JobDetailPage() {
+  const params = useParams<{ id: string }>();
+  const [, setLocation] = useLocation();
+  const jobId = params.id || '';
+  const [job, setJob] = useState<JobMatch | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const found = findJobFromSession(jobId);
+      if (!found) {
+        setLocation('/jobs');
+        return;
+      }
+      if (found.match >= 90) {
+        const profile = readProfile();
+        const entitlement = profile?.id
+          ? await fetchEntitlement(profile.id)
+          : defaultEntitlement();
+        if (!entitlement.features.premiumJobs) {
+          setLocation('/pricing');
+          return;
+        }
+      }
+      if (cancelled) return;
+      persistSelectedJob(found);
+      setJob(found);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId, setLocation]);
+
+  if (!job) {
+    return (
+      <div className="mx-auto max-w-3xl px-5 py-20 text-center text-sm text-muted-foreground">
+        Loading job details…
+      </div>
+    );
+  }
+
+  const externalApply = applyHref(job);
+  const spec =
+    job.description ||
+    `${job.title} at ${job.company}. Location: ${job.location}. Sector: ${job.sector}. Salary: ${job.salary}. Posted ${job.posted}. Review the full specification on the source board before you apply.`;
+
+  return (
+    <div className="mx-auto max-w-4xl px-5 py-12 md:px-8 md:py-16">
+      <Link href="/jobs" className="inline-flex items-center gap-1 text-xs font-bold text-primary" data-testid="link-back-to-matches">
+        ← Back to matches
+      </Link>
+
+      <div className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+              {job.source || 'Trusted board'} · {job.match}% fit
+            </p>
+            <h1 className="display mt-2 text-3xl font-semibold text-foreground md:text-4xl">{job.title}</h1>
+            <p className="mt-2 text-base text-muted-foreground">{job.company}</p>
+          </div>
+          {externalApply ? (
+            <a
+              href={externalApply}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-primary"
+              data-testid="button-apply-detail"
+            >
+              Apply on {job.source || 'listing site'} <ExternalLink size={15} />
+            </a>
+          ) : null}
+        </div>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-border bg-secondary/40 px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Location</p>
+            <p className="mt-1 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+              <MapPin size={14} className="text-primary" />
+              {job.location}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border bg-secondary/40 px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Salary</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">{job.salary}</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-secondary/40 px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Posted</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">{job.posted}</p>
+          </div>
+        </div>
+
+        <section className="mt-8 border-t border-border pt-6">
+          <h2 className="text-lg font-semibold text-foreground">Job specification</h2>
+          <p className="mt-3 text-sm leading-7 text-muted-foreground whitespace-pre-wrap">{spec}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {job.tags.map((tag) => (
+              <span key={tag} className="rounded-md border border-border px-2.5 py-1 text-[11px] text-muted-foreground">
+                {tag}
+              </span>
+            ))}
+            <span className="rounded-md border border-border px-2.5 py-1 text-[11px] text-muted-foreground">{job.sector}</span>
+          </div>
+        </section>
+
+        <div className="mt-8 flex flex-col gap-3 rounded-2xl border border-primary/20 bg-secondary/50 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-foreground">Ready to apply?</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              BonList shows the match and location here. Applications are completed on {job.source || 'the trusted job board'} where the role is listed.
+            </p>
+          </div>
+          {externalApply ? (
+            <a
+              href={externalApply}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-primary shrink-0"
+              data-testid="button-apply-detail-footer"
+            >
+              Apply now <ExternalLink size={15} />
+            </a>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function InterviewPage() {
   const interviewQuery = useGetInterviewPrep({ query: { queryKey: getGetInterviewPrepQueryKey() } });
   const [completed, setCompleted] = useState<number[]>([]);
+  const [entitlement, setEntitlement] = useState<Entitlement>(defaultEntitlement());
   const prep = interviewQuery.data as InterviewPrep | undefined;
   const questions = prep?.questions ?? [];
   const completedCount = completed.length || prep?.completed || 0;
-  return <div className="mx-auto max-w-6xl px-5 py-10 md:px-12 md:py-14">
-    <PageHeading eyebrow="Interview room" title="Practice the answer behind the answer." description="Good preparation is not memorising a script. It is knowing which story to reach for when the question gets specific." action={<div className="rounded-2xl border border-border bg-card px-4 py-3"><p className="mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">Progress</p><p className="mt-1 text-lg font-bold text-primary">{completedCount}<span className="text-muted-foreground">/{prep?.total ?? '—'}</span></p></div>} />
-    {interviewQuery.isError ? <ErrorNotice label="Interview prompts are not available right now." onRetry={() => interviewQuery.refetch()} /> : interviewQuery.isLoading ? <div className="grid gap-5 md:grid-cols-2">{[1, 2, 3, 4].map((item) => <LoadingBlock key={item} className="h-56" />)}</div> : <div className="grid gap-5 lg:grid-cols-[.78fr_1.22fr]">
-      <div className="rounded-3xl bg-secondary p-6 text-secondary-foreground md:p-8"><ClipboardCheck size={26} /><p className="mono mt-10 text-[10px] uppercase tracking-[.2em]">Before you start</p><h2 className="display mt-3 text-3xl font-extrabold leading-tight">Answer like a person, not a brochure.</h2><ul className="mt-7 space-y-4 text-sm leading-5"><li className="flex gap-3"><CheckCircle2 size={17} className="mt-0.5 shrink-0" />Name the situation, not just the skill.</li><li className="flex gap-3"><CheckCircle2 size={17} className="mt-0.5 shrink-0" />Show what changed because of your work.</li><li className="flex gap-3"><CheckCircle2 size={17} className="mt-0.5 shrink-0" />Say what you would do differently now.</li></ul><Link href="/coaching" className="mt-9 inline-flex items-center gap-2 text-sm font-bold underline underline-offset-4" data-testid="link-interview-coaching">Want a real person to listen? <ArrowRight size={14} /></Link></div>
-      <div className="space-y-3">{questions.map((question, index) => <QuestionCard key={question.id} question={question} index={index} isComplete={completed.includes(question.id) || (completed.length === 0 && index < (prep?.completed ?? 0))} onComplete={() => setCompleted((current) => current.includes(question.id) ? current.filter((id) => id !== question.id) : [...current, question.id])} />)}</div>
-    </div>}
-  </div>;
+
+  useEffect(() => {
+    const profile = readProfile();
+    if (!profile?.id) return;
+    void fetchEntitlement(profile.id).then(setEntitlement);
+  }, []);
+
+  const interviewUnlocked = entitlement.features.interviewTools;
+
+  return (
+    <div className="mx-auto max-w-6xl px-5 py-12 md:px-8 md:py-16">
+      <PageHeading
+        eyebrow="Interview room"
+        title="Practice the answer behind the answer."
+        description="Good preparation is not memorising a script. It is knowing which story to reach for when the question gets specific."
+        action={
+          <div className="rounded-2xl border border-border bg-card px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Progress</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">
+              {completedCount}
+              <span className="text-muted-foreground">/{prep?.total ?? '—'}</span>
+            </p>
+          </div>
+        }
+      />
+      {!interviewUnlocked ? (
+        <div className="mb-6 rounded-2xl border border-border bg-secondary/50 px-5 py-4 text-sm">
+          <p className="font-semibold text-foreground">Full interview tools unlock on Career Pro</p>
+          <p className="mt-1 text-muted-foreground">
+            Or get them included for 3 months with the R2,000 Career Accelerator programme — no extra subscription required.
+          </p>
+          <Link href="/pricing" className="mt-3 inline-flex items-center gap-1 font-bold text-primary" data-testid="link-interview-pricing">
+            View pricing <ArrowRight size={14} />
+          </Link>
+        </div>
+      ) : null}
+      {interviewQuery.isError ? (
+        <ErrorNotice label="Interview prompts are not available right now." onRetry={() => interviewQuery.refetch()} />
+      ) : interviewQuery.isLoading ? (
+        <div className="grid gap-5 md:grid-cols-2">
+          {[1, 2, 3, 4].map((item) => (
+            <LoadingBlock key={item} className="h-48" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-[0.78fr_1.22fr]">
+          <div className="rounded-3xl bg-secondary p-6 text-secondary-foreground md:p-8">
+            <ClipboardCheck size={26} className="text-primary" />
+            <p className="mt-10 text-xs font-semibold uppercase tracking-[0.14em] text-primary">Before you start</p>
+            <h2 className="display mt-3 text-3xl font-semibold leading-tight text-foreground">
+              Answer like a person, not a brochure.
+            </h2>
+            <ul className="mt-7 space-y-4 text-sm leading-5 text-muted-foreground">
+              <li className="flex gap-3">
+                <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-primary" />
+                Name the situation, not just the skill.
+              </li>
+              <li className="flex gap-3">
+                <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-primary" />
+                Show what changed because of your work.
+              </li>
+              <li className="flex gap-3">
+                <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-primary" />
+                Say what you would do differently now.
+              </li>
+            </ul>
+            <Link
+              href="/pricing"
+              className="mt-9 inline-flex items-center gap-2 text-sm font-bold text-primary"
+              data-testid="link-interview-coaching"
+            >
+              Join the 3-month Career Accelerator <ArrowRight size={14} />
+            </Link>
+          </div>
+          <div className="space-y-3">
+            {questions.map((question, index) => (
+              <QuestionCard
+                key={question.id}
+                question={question}
+                index={index}
+                isComplete={
+                  completed.includes(question.id) || (completed.length === 0 && index < (prep?.completed ?? 0))
+                }
+                onComplete={() =>
+                  setCompleted((current) =>
+                    current.includes(question.id)
+                      ? current.filter((id) => id !== question.id)
+                      : [...current, question.id],
+                  )
+                }
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-function QuestionCard({ question, index, isComplete, onComplete }: { question: InterviewPrep['questions'][number]; index: number; isComplete: boolean; onComplete: () => void }) {
+function QuestionCard({
+  question,
+  index,
+  isComplete,
+  onComplete,
+}: {
+  question: InterviewPrep['questions'][number];
+  index: number;
+  isComplete: boolean;
+  onComplete: () => void;
+}) {
   const [open, setOpen] = useState(false);
-  return <article className={`rounded-2xl border bg-card p-5 transition-all ${isComplete ? 'border-[hsl(var(--primary)/.35)]' : 'border-border'}`} data-testid={`card-interview-question-${question.id}`}>
-    <div className="flex items-start gap-4"><button onClick={onComplete} className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${isComplete ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-transparent hover:border-primary'}`} data-testid={`button-complete-question-${question.id}`} aria-label={isComplete ? 'Mark question incomplete' : 'Mark question practiced'}><Check size={14} /></button><div className="min-w-0 flex-1"><p className="mono text-[10px] text-accent-foreground">QUESTION 0{index + 1}</p><h2 className={`mt-2 text-base font-bold leading-6 ${isComplete ? 'text-primary/60 line-through' : 'text-primary'}`}>{question.question}</h2><p className="mt-2 text-sm leading-5 text-muted-foreground">{question.context}</p></div><button onClick={() => setOpen(!open)} className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-primary" data-testid={`button-toggle-hint-${question.id}`} aria-label="Toggle hint">{open ? <ChevronDown size={17} /> : <Info size={17} />}</button></div>
-    {open && <div className="ml-10 mt-4 rounded-xl bg-muted/70 p-3 text-xs leading-5 text-primary"><strong className="mr-1">Try this:</strong>{question.hint}</div>}
-  </article>;
+  return (
+    <article
+      className={`rounded-2xl border bg-card p-5 transition-all ${
+        isComplete ? 'border-primary/35' : 'border-border'
+      }`}
+      data-testid={`card-interview-question-${question.id}`}
+    >
+      <div className="flex items-start gap-4">
+        <button
+          onClick={onComplete}
+          className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${
+            isComplete
+              ? 'border-primary bg-primary text-primary-foreground'
+              : 'border-border text-transparent hover:border-primary'
+          }`}
+          data-testid={`button-complete-question-${question.id}`}
+          aria-label={isComplete ? 'Mark question incomplete' : 'Mark question practiced'}
+        >
+          <Check size={14} />
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">Question 0{index + 1}</p>
+          <h2
+            className={`mt-2 text-base font-semibold leading-6 ${
+              isComplete ? 'text-foreground/55 line-through' : 'text-foreground'
+            }`}
+          >
+            {question.question}
+          </h2>
+          <p className="mt-2 text-sm leading-5 text-muted-foreground">{question.context}</p>
+        </div>
+        <button
+          onClick={() => setOpen(!open)}
+          className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-primary"
+          data-testid={`button-toggle-hint-${question.id}`}
+          aria-label="Toggle hint"
+        >
+          {open ? <ChevronDown size={17} /> : <Info size={17} />}
+        </button>
+      </div>
+      {open && (
+        <div className="ml-10 mt-4 rounded-xl bg-muted/70 p-3 text-xs leading-5 text-foreground">
+          <strong className="mr-1">Try this:</strong>
+          {question.hint}
+        </div>
+      )}
+    </article>
+  );
 }
 
 function CoachingPage() {
-  const apply = useApplyForCoaching();
+  const profile = readProfile();
   const [submitted, setSubmitted] = useState<{ status: string; message: string } | null>(null);
-  const [form, setForm] = useState<CoachingApplicationInput>({ name: '', email: '', experience: '', goals: '', paymentPlan: 'monthly' });
-  const update = (key: keyof CoachingApplicationInput, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const apply = useApplyForCoaching();
+  const [form, setForm] = useState<CoachingApplicationInput>({
+    name: profile?.name || '',
+    email: profile?.email || '',
+    experience: '',
+    goals: '',
+    paymentPlan: 'programme',
+  });
+  const update = (key: keyof CoachingApplicationInput, value: string) =>
+    setForm((current) => ({ ...current, [key]: value }));
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    apply.mutate({ data: form }, { onSuccess: (application) => setSubmitted(application) });
+    apply.mutate(
+      { data: { ...form, paymentPlan: 'programme' } },
+      { onSuccess: (application) => setSubmitted(application) },
+    );
   };
-  if (submitted) return <div className="mx-auto max-w-3xl px-5 py-20 text-center md:px-12"><div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-secondary text-secondary-foreground"><CheckCircle2 size={30} /></div><p className="mono mt-7 text-[10px] uppercase tracking-[.22em] text-accent-foreground">Application received</p><h1 className="display mt-3 text-4xl font-extrabold text-primary">A human will pick this up.</h1><p className="mx-auto mt-4 max-w-md text-sm leading-6 text-muted-foreground">{submitted.message || 'We will review your context and come back with the right next step.'}</p><Link href="/" className="mt-8 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground" data-testid="link-coaching-done">Back to overview <ArrowRight size={15} /></Link></div>;
-  return <div className="mx-auto max-w-6xl px-5 py-10 md:px-12 md:py-14">
-    <PageHeading eyebrow="Human coaching · 12 weeks" title="Bring the messy bit. We’ll make a plan." description="A structured three-month partnership for people who want thoughtful accountability, not another folder of generic advice." />
-    <div className="grid gap-8 lg:grid-cols-[.85fr_1.15fr]">
-      <div><div className="rounded-3xl bg-primary p-7 text-primary-foreground md:p-8"><HeartHandshake size={28} className="text-secondary" /><h2 className="display mt-8 text-3xl font-extrabold">Three months. One honest direction.</h2><div className="mt-8 space-y-5">{[['01', 'Week 1–2', 'Find the through-line in your experience and choose the roles worth your energy.'], ['02', 'Week 3–8', 'Strengthen your proof, applications and interview stories through live feedback.'], ['03', 'Week 9–12', 'Build a repeatable search rhythm you can keep after the programme ends.']].map(([number, title, copy]) => <div key={number} className="flex gap-4 border-t border-primary-foreground/15 pt-4"><span className="mono text-xs text-secondary">{number}</span><div><h3 className="text-sm font-bold">{title}</h3><p className="mt-1 text-xs leading-5 text-primary-foreground/60">{copy}</p></div></div>)}</div></div><div className="mt-4 flex gap-3 rounded-2xl border border-border bg-card p-4 text-xs leading-5 text-muted-foreground"><LockKeyhole size={16} className="mt-0.5 shrink-0 text-accent-foreground" />Your story is treated as private working material, not training data.</div></div>
-      <form onSubmit={submit} className="rounded-3xl border border-border bg-card p-6 shadow-[5px_5px_0_hsl(var(--border)/.65)] md:p-8"><div className="mb-7"><p className="mono text-[10px] uppercase tracking-[.2em] text-accent-foreground">A short intake</p><h2 className="display mt-2 text-2xl font-extrabold text-primary">Tell us what’s real right now.</h2></div><div className="grid gap-4 sm:grid-cols-2"><Field label="Your name" value={form.name} onChange={(value) => update('name', value)} placeholder="Noluthando M." testId="input-coaching-name" required /><Field label="Email address" value={form.email} onChange={(value) => update('email', value)} placeholder="you@example.com" type="email" testId="input-coaching-email" required /></div><label className="mt-4 block"><span className="mb-2 block text-xs font-bold text-primary">Where are you in your career?</span><textarea required value={form.experience} onChange={(event) => update('experience', event.target.value)} placeholder="A few lines on your experience, current work or the transition you’re navigating." className="min-h-24 w-full resize-y rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/10" data-testid="textarea-coaching-experience" /></label><label className="mt-4 block"><span className="mb-2 block text-xs font-bold text-primary">What would make 12 weeks worthwhile?</span><textarea required value={form.goals} onChange={(event) => update('goals', event.target.value)} placeholder="Be specific: a role, a better story, confidence in interviews, a plan." className="min-h-24 w-full resize-y rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/10" data-testid="textarea-coaching-goals" /></label><div className="mt-5"><span className="mb-2 block text-xs font-bold text-primary">Payment preference</span><div className="grid gap-2 sm:grid-cols-2">{[['monthly', 'Monthly plan', 'R1,250 × 3'], ['upfront', 'Pay upfront', 'R3,375 total']].map(([value, label, price]) => <button type="button" key={value} onClick={() => update('paymentPlan', value)} className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left ${form.paymentPlan === value ? 'border-primary bg-primary/5' : 'border-border'}`} data-testid={`button-payment-${value}`}><span><span className="block text-sm font-bold text-primary">{label}</span><span className="mt-1 block text-xs text-muted-foreground">{price}</span></span><span className={`h-4 w-4 rounded-full border-4 ${form.paymentPlan === value ? 'border-secondary bg-primary' : 'border-border'}`} /></button>)}</div></div>{apply.isError && <p className="mt-4 text-xs text-destructive">We couldn’t submit this just now. Your details are still here — try again.</p>}<button disabled={apply.isPending} className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl bg-secondary px-5 py-3.5 text-sm font-bold text-secondary-foreground disabled:opacity-50" data-testid="button-submit-coaching">{apply.isPending ? 'Sending your intake…' : 'Send my application'} <ArrowRight size={16} /></button><p className="mt-3 text-center text-[11px] text-muted-foreground">No payment is taken until your place is confirmed.</p></form>
+
+  if (submitted) {
+    return (
+      <div className="mx-auto max-w-3xl px-5 py-20 text-center md:px-8">
+        <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-secondary text-primary">
+          <CheckCircle2 size={30} />
+        </div>
+        <p className="mt-7 text-xs font-semibold uppercase tracking-[0.16em] text-primary">Application received</p>
+        <h1 className="display mt-3 text-4xl font-semibold text-foreground">We'll be in touch.</h1>
+        <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-muted-foreground">
+          {submitted.message ||
+            'Your programme interest is in. You can also activate full access instantly from Pricing.'}
+        </p>
+        <div className="mt-8 flex flex-wrap justify-center gap-3">
+          <Link href="/pricing" className="btn-primary" data-testid="link-coaching-to-pricing">
+            Join the programme <ArrowRight size={15} />
+          </Link>
+          <Link href="/" className="btn-secondary" data-testid="link-coaching-done">
+            Back to overview
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-6xl px-5 py-12 md:px-8 md:py-16">
+      <PageHeading
+        eyebrow="3-Month Career Transformation Programme"
+        title="STOP SOUNDING LIKE EVERYONE ELSE."
+        description="A structured R2,000 once-off programme — not another AI subscription. Full platform access for 3 months, plus training that keeps your authentic professional voice."
+        action={
+          <Link href="/pricing" className="btn-primary" data-testid="link-coaching-pricing-cta">
+            JOIN THE PROGRAMME <ArrowRight size={15} />
+          </Link>
+        }
+      />
+      <div className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
+        <div>
+          <div className="rounded-3xl bg-primary p-7 text-primary-foreground md:p-8">
+            <HeartHandshake size={28} />
+            <h2 className="display mt-8 text-3xl font-semibold">Three months. Full access. Your voice.</h2>
+            <p className="mt-4 text-sm leading-6 text-primary-foreground/80">
+              Use AI as a tool. Don't let AI become your voice. Designed to help you become
+              interview-ready and improve your chances of securing interviews.
+            </p>
+            <div className="mt-8 space-y-5">
+              {[
+                ['01', 'Month 1 — Build Your Foundation', 'Value, transferable skills, CV positioning, job-search strategy, strategic AI.'],
+                ['02', 'Month 2 — Stand Out From The Crowd', 'Authentic voice, career stories, applications, LinkedIn, recruiter psychology.'],
+                ['03', 'Month 3 — Interview & Job-Search Mastery', 'STAR, difficult questions, mock interviews, salary talk, follow-up.'],
+              ].map(([number, title, copy]) => (
+                <div key={number} className="flex gap-4 border-t border-primary-foreground/20 pt-4">
+                  <span className="text-xs font-bold text-primary-foreground/80">{number}</span>
+                  <div>
+                    <h3 className="text-sm font-semibold">{title}</h3>
+                    <p className="mt-1 text-xs leading-5 text-primary-foreground/70">{copy}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-8 text-xs font-bold uppercase tracking-[0.12em] text-primary-foreground/90">
+              R2,000 once-off · 3 months · Full platform access
+            </p>
+          </div>
+        </div>
+        <form onSubmit={submit} className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8">
+          <div className="mb-7">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Programme intake</p>
+            <h2 className="display mt-2 text-2xl font-semibold text-foreground">Tell us where you are.</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Prefer instant access? Activate the programme on{' '}
+              <Link href="/pricing" className="font-semibold text-primary hover:underline">
+                Pricing
+              </Link>
+              .
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Your name"
+              value={form.name}
+              onChange={(value) => update('name', value)}
+              placeholder="Noluthando M."
+              testId="input-coaching-name"
+              required
+            />
+            <Field
+              label="Email address"
+              value={form.email}
+              onChange={(value) => update('email', value)}
+              placeholder="you@example.com"
+              type="email"
+              testId="input-coaching-email"
+              required
+            />
+          </div>
+          <label className="mt-4 block">
+            <span className="mb-2 block text-xs font-semibold text-foreground">Where are you in your career?</span>
+            <textarea
+              required
+              value={form.experience}
+              onChange={(event) => update('experience', event.target.value)}
+              placeholder="A few lines on your experience, current work or the transition you're navigating."
+              className="field-input min-h-24 resize-y"
+              data-testid="textarea-coaching-experience"
+            />
+          </label>
+          <label className="mt-4 block">
+            <span className="mb-2 block text-xs font-semibold text-foreground">
+              What would make 3 months worthwhile?
+            </span>
+            <textarea
+              required
+              value={form.goals}
+              onChange={(event) => update('goals', event.target.value)}
+              placeholder="Be specific: interviews, confidence, a clearer story, standing out from AI-sounding candidates."
+              className="field-input min-h-24 resize-y"
+              data-testid="textarea-coaching-goals"
+            />
+          </label>
+          <div className="mt-5 rounded-2xl border border-primary/30 bg-secondary/50 px-4 py-3">
+            <p className="text-sm font-semibold text-foreground">Stand-alone programme</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              R2,000 once-off · Full Free + Job Seeker + Career Pro access for 3 months
+            </p>
+          </div>
+          {apply.isError && (
+            <p className="mt-4 text-xs text-destructive">
+              We couldn't submit this just now. Your details are still here — try again.
+            </p>
+          )}
+          <button
+            disabled={apply.isPending}
+            className="btn-primary mt-7 w-full disabled:opacity-50"
+            data-testid="button-submit-coaching"
+          >
+            {apply.isPending ? 'Sending your intake…' : 'Send programme interest'} <ArrowRight size={16} />
+          </button>
+          <p className="mt-3 text-center text-[11px] text-muted-foreground">
+            Does not guarantee employment, a job offer, a specific salary, or an interview.
+          </p>
+        </form>
+      </div>
     </div>
-  </div>;
+  );
 }
 
-function Field({ label, value, onChange, placeholder, type = 'text', testId, required = false }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; type?: string; testId: string; required?: boolean }) {
-  return <label className="block"><span className="mb-2 block text-xs font-bold text-primary">{label}</span><input required={required} type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/10" data-testid={testId} /></label>;
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = 'text',
+  testId,
+  required = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  type?: string;
+  testId: string;
+  required?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-semibold text-foreground">{label}</span>
+      <input
+        required={required}
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="field-input"
+        data-testid={testId}
+      />
+    </label>
+  );
 }
 
 function Router() {
-  return <RoutedErrorBoundary><AppShell><Switch><Route path="/" component={Home} /><Route path="/diagnostic" component={DiagnosticPage} /><Route path="/jobs" component={JobsPage} /><Route path="/interview" component={InterviewPage} /><Route path="/coaching" component={CoachingPage} /><Route component={NotFound} /></Switch></AppShell></RoutedErrorBoundary>;
+  const [location] = useLocation();
+  const isAdmin = location === '/admin' || location.startsWith('/admin/');
+
+  if (isAdmin) {
+    return (
+      <RoutedErrorBoundary>
+        <AdminRoute />
+      </RoutedErrorBoundary>
+    );
+  }
+
+  return (
+    <RoutedErrorBoundary>
+      <AppShell>
+        <Switch>
+          <Route path="/" component={Home} />
+          <Route path="/login" component={LoginPage} />
+          <Route path="/signup" component={SignupPage} />
+          <Route path="/profile" component={ProfilePage} />
+          <Route path="/diagnostic" component={DiagnosticPage} />
+          <Route path="/jobs/:id" component={JobDetailPage} />
+          <Route path="/jobs" component={JobsPage} />
+          <Route path="/interview" component={InterviewPage} />
+          <Route path="/pricing" component={PricingPage} />
+          <Route path="/programme" component={ProgrammePage} />
+          <Route path="/cv-builder" component={CvBuilderPage} />
+          <Route path="/coaching" component={CoachingPage} />
+          <Route component={NotFound} />
+        </Switch>
+      </AppShell>
+    </RoutedErrorBoundary>
+  );
 }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) {
@@ -408,7 +3425,16 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function App() {
-  return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router /></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+          <Router />
+        </WouterRouter>
+        <Toaster />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
 }
 
 export default App;

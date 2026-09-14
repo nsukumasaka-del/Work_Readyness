@@ -1,0 +1,26 @@
+{
+  "name": "bonlist-android",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "BonList / CareerBridge Android app (Capacitor wrapper)",
+  "scripts": {
+    "sync:web": "node ./scripts/sync-web.mjs",
+    "build:web": "node ./scripts/sync-web.mjs --build",
+    "cap:sync": "npx cap sync android",
+    "cap:open": "npx cap open android",
+    "android:sync": "npm run build:web && npx cap sync android",
+    "dev:live": "node ./scripts/dev-live.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/app": "^7.1.0",
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/splash-screen": "^7.0.3",
+    "@capacitor/status-bar": "^7.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3",
+    "typescript": "~5.9.3"
+  }
+}

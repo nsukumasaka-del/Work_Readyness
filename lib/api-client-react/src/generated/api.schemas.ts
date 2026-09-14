@@ -14,6 +14,26 @@ export interface CareerOverview {
   jobMatchCount: number;
   interviewProgress: number;
   latestRole: string;
+  profileCount: number;
+}
+
+export interface UserProfileInput {
+  name: string;
+  email: string;
+  phone?: string;
+  location?: string;
+  targetRole?: string;
+}
+
+export interface UserProfile {
+  id: number;
+  name: string;
+  email: string;
+  phone?: string;
+  location?: string;
+  targetRole?: string;
+  createdAt: string;
+  profileCount: number;
 }
 
 export interface JobMatch {
@@ -26,21 +46,81 @@ export interface JobMatch {
   match: number;
   posted: string;
   tags: string[];
+  source?: string;
+  url?: string;
+  description?: string;
+}
+
+export interface DiagnosticJobSearch {
+  query: string;
+  queriedBoards: string[];
+  liveResults: boolean;
 }
 
 export interface DiagnosticInput {
   fileName: string;
   role?: string;
+  location?: string;
+  profileId?: number;
+}
+
+export interface DiagnosticScoreBreakdown {
+  clarity: number;
+  impact: number;
+  structure: number;
+  keywordFit: number;
+  authenticity: number;
+  ats: number;
+}
+
+export interface DiagnosticFinding {
+  title: string;
+  detail: string;
+  priority?: string;
+}
+
+export interface DiagnosticSectionReview {
+  section: string;
+  score: number;
+  status: string;
+  findings: string[];
+}
+
+export interface DiagnosticRewrite {
+  before: string;
+  after: string;
 }
 
 export interface DiagnosticReport {
   id: number;
   fileName: string;
+  targetRole: string;
+  summary: string;
+  overallScore: number;
   authenticityScore: number;
   atsScore: number;
+  scores: DiagnosticScoreBreakdown;
+  strengths: DiagnosticFinding[];
+  improvements: DiagnosticFinding[];
+  sectionReviews: DiagnosticSectionReview[];
   flaggedPhrases: string[];
   missingKeywords: string[];
+  rewriteExamples: DiagnosticRewrite[];
   prompts: string[];
+  relatedJobs: JobMatch[];
+  jobSearch: DiagnosticJobSearch;
+}
+
+export interface SmokeyInput {
+  message: string;
+  role?: string;
+  fileName?: string;
+  cvDocument?: any;
+}
+
+export interface SmokeyReply {
+  reply: string;
+  suggestions: string[];
 }
 
 export interface InterviewQuestion {
@@ -71,7 +151,6 @@ export interface CoachingApplication {
 }
 
 export type ListJobsParams = {
-location?: string;
-sector?: string;
+  location?: string;
+  sector?: string;
 };
-

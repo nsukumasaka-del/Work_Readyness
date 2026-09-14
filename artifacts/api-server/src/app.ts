@@ -26,9 +26,31 @@ app.use(
   }),
 );
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 app.use("/api", router);
+
+app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+
+  const isBodySyntaxError =
+    err instanceof SyntaxError &&
+    typeof err === "object" &&
+    err !== null &&
+    "body" in err;
+
+  if (isBodySyntaxError) {
+    res.status(400).json({ error: "Invalid JSON in request body" });
+    return;
+  }
+
+  const message = err instanceof Error ? err.message : "Internal server error";
+  logger.error({ err }, "Unhandled API error");
+  res.status(500).json({ error: message });
+});
 
 export default app;

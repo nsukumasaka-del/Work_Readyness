@@ -1,0 +1,89 @@
+name: Build BonList Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: "Optional live site URL for the WebView (e.g. https://your-bonlist.app). Leave empty to bundle local web assets."
+        required: false
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - "mobile/bonlist-android/**"
+      - "artifacts/careerbridge-sa/**"
+      - ".github/workflows/build-android-apk.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install monorepo deps
+        run: pnpm install
+
+      - name: Build web app
+        run: pnpm --filter @workspace/careerbridge-sa run build
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Capacitor deps + sync
+        working-directory: mobile/bonlist-android
+        env:
+          LIVE_APP_URL: ${{ github.event.inputs.server_url }}
+          CAP_SERVER_URL: ${{ github.event.inputs.server_url }}
+        run: |
+          npm install
+          node ./scripts/sync-web.mjs
+          npx cap sync android
+
+      - name: Build debug APK
+        working-directory: mobile/bonlist-android/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Stage APK for web download
+        run: |
+          mkdir -p artifacts/careerbridge-sa/public/downloads
+          cp mobile/bonlist-android/android/app/build/outputs/apk/debug/app-debug.apk \
+            artifacts/careerbridge-sa/public/downloads/BonList.apk
+          ls -lh artifacts/careerbridge-sa/public/downloads/BonList.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BonList-apk
+          path: artifacts/careerbridge-sa/public/downloads/BonList.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v${{ github.run_number }}
+          name: BonList Android ${{ github.run_number }}
+          files: artifacts/careerbridge-sa/public/downloads/BonList.apk
+          generate_release_notes: true

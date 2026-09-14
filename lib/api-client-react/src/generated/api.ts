@@ -28,7 +28,11 @@ import type {
   HealthStatus,
   InterviewPrep,
   JobMatch,
-  ListJobsParams
+  ListJobsParams,
+  SmokeyInput,
+  SmokeyReply,
+  UserProfile,
+  UserProfileInput
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -207,11 +211,75 @@ export function useGetCareerOverview<TData = Awaited<ReturnType<typeof getCareer
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getCreateProfileUrl = () => {
+  return `/api/career/profile`
+}
 
+/**
+ * @summary Create a visitor profile before CV upload
+ */
+export const createProfile = async (userProfileInput: UserProfileInput, options?: Parameters<typeof customFetch>[1]): Promise<UserProfile> => {
+  const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return customFetch<UserProfile>(getCreateProfileUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(userProfileInput)
+  }
+);}
 
+export const getCreateProfileMutationKey = () => ['createProfile'] as const;
 
+export const getCreateProfileMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProfile>>, TError,CreateProfileMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createProfile>>, TError,CreateProfileMutationVariables, TContext> => {
+  const mutationKey = getCreateProfileMutationKey();
+  const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
 
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof createProfile>>, CreateProfileMutationVariables> = (props) => {
+    const {data} = props ?? {};
+    return createProfile(data, requestOptions)
+  }
 
+  return { mutationFn, ...mutationOptions }
+}
+
+export type CreateProfileMutationResult = NonNullable<Awaited<ReturnType<typeof createProfile>>>
+export type CreateProfileMutationBody = BodyType<UserProfileInput>
+export type CreateProfileMutationError = ErrorType<unknown>
+export type CreateProfileMutationVariables = {data: BodyType<UserProfileInput>}
+
+/**
+ * @summary Create a visitor profile before CV upload
+ */
+export const useCreateProfile = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProfile>>, TError,CreateProfileMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createProfile>>,
+        TError,
+        CreateProfileMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateProfileMutationOptions(options));
+    }
 
 export const getListJobsUrl = (params?: ListJobsParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -383,6 +451,76 @@ export const useCreateDiagnostic = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateDiagnosticMutationOptions(options));
+    }
+
+export const getAskSmokeyUrl = () => {
+  return `/api/career/smokey`
+}
+
+/**
+ * @summary Ask Smokey, the career agent
+ */
+export const askSmokey = async (smokeyInput: SmokeyInput, options?: Parameters<typeof customFetch>[1]): Promise<SmokeyReply> => {
+  const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return customFetch<SmokeyReply>(getAskSmokeyUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(smokeyInput)
+  }
+);}
+
+export const getAskSmokeyMutationKey = () => ['askSmokey'] as const;
+
+export const getAskSmokeyMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askSmokey>>, TError,AskSmokeyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof askSmokey>>, TError,AskSmokeyMutationVariables, TContext> => {
+  const mutationKey = getAskSmokeyMutationKey();
+  const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof askSmokey>>, AskSmokeyMutationVariables> = (props) => {
+    const {data} = props ?? {};
+    return askSmokey(data, requestOptions)
+  }
+
+  return { mutationFn, ...mutationOptions }
+}
+
+export type AskSmokeyMutationResult = NonNullable<Awaited<ReturnType<typeof askSmokey>>>
+export type AskSmokeyMutationBody = BodyType<SmokeyInput>
+export type AskSmokeyMutationError = ErrorType<unknown>
+export type AskSmokeyMutationVariables = {data: BodyType<SmokeyInput>}
+
+/**
+ * @summary Ask Smokey, the career agent
+ */
+export const useAskSmokey = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askSmokey>>, TError,AskSmokeyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof askSmokey>>,
+        TError,
+        AskSmokeyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAskSmokeyMutationOptions(options));
     }
 
 export const getGetInterviewPrepUrl = () => {

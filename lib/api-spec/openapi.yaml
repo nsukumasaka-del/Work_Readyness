@@ -38,6 +38,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CareerOverview"
+  /career/profile:
+    post:
+      operationId: createProfile
+      tags: [career]
+      summary: Create a visitor profile before CV upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserProfileInput"
+      responses:
+        "201":
+          description: Profile created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
   /career/jobs:
     get:
       operationId: listJobs
@@ -81,6 +99,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DiagnosticReport"
+  /career/smokey:
+    post:
+      operationId: askSmokey
+      tags: [career]
+      summary: Ask Smokey, the career agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SmokeyInput"
+      responses:
+        "200":
+          description: Smokey reply
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmokeyReply"
   /career/interview:
     get:
       operationId: getInterviewPrep
@@ -122,7 +158,7 @@ components:
         - status
     CareerOverview:
       type: object
-      required: [diagnosticScore, jobMatchCount, interviewProgress, latestRole]
+      required: [diagnosticScore, jobMatchCount, interviewProgress, latestRole, profileCount]
       properties:
         diagnosticScore:
           type: integer
@@ -132,6 +168,42 @@ components:
           type: integer
         latestRole:
           type: string
+        profileCount:
+          type: integer
+    UserProfileInput:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        location:
+          type: string
+        targetRole:
+          type: string
+    UserProfile:
+      type: object
+      required: [id, name, email, createdAt, profileCount]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        location:
+          type: string
+        targetRole:
+          type: string
+        createdAt:
+          type: string
+        profileCount:
+          type: integer
     JobMatch:
       type: object
       required: [id, title, company, location, sector, salary, match, posted, tags]
@@ -156,6 +228,25 @@ components:
           type: array
           items:
             type: string
+        source:
+          type: string
+        url:
+          type: string
+        description:
+          type: string
+          description: Job specification summary shown on BonList before applying on the source board.
+    DiagnosticJobSearch:
+      type: object
+      required: [query, queriedBoards, liveResults]
+      properties:
+        query:
+          type: string
+        queriedBoards:
+          type: array
+          items:
+            type: string
+        liveResults:
+          type: boolean
     DiagnosticInput:
       type: object
       required: [fileName]
@@ -164,18 +255,107 @@ components:
           type: string
         role:
           type: string
+        location:
+          type: string
+        profileId:
+          type: integer
+    DiagnosticScoreBreakdown:
+      type: object
+      required: [clarity, impact, structure, keywordFit, authenticity, ats]
+      properties:
+        clarity:
+          type: integer
+        impact:
+          type: integer
+        structure:
+          type: integer
+        keywordFit:
+          type: integer
+        authenticity:
+          type: integer
+        ats:
+          type: integer
+    DiagnosticFinding:
+      type: object
+      required: [title, detail]
+      properties:
+        title:
+          type: string
+        detail:
+          type: string
+        priority:
+          type: string
+    DiagnosticSectionReview:
+      type: object
+      required: [section, score, status, findings]
+      properties:
+        section:
+          type: string
+        score:
+          type: integer
+        status:
+          type: string
+        findings:
+          type: array
+          items:
+            type: string
+    DiagnosticRewrite:
+      type: object
+      required: [before, after]
+      properties:
+        before:
+          type: string
+        after:
+          type: string
     DiagnosticReport:
       type: object
-      required: [id, fileName, authenticityScore, atsScore, flaggedPhrases, missingKeywords, prompts]
+      required:
+        - id
+        - fileName
+        - targetRole
+        - summary
+        - overallScore
+        - authenticityScore
+        - atsScore
+        - scores
+        - strengths
+        - improvements
+        - sectionReviews
+        - flaggedPhrases
+        - missingKeywords
+        - rewriteExamples
+        - prompts
+        - relatedJobs
+        - jobSearch
       properties:
         id:
           type: integer
         fileName:
           type: string
+        targetRole:
+          type: string
+        summary:
+          type: string
+        overallScore:
+          type: integer
         authenticityScore:
           type: integer
         atsScore:
           type: integer
+        scores:
+          $ref: "#/components/schemas/DiagnosticScoreBreakdown"
+        strengths:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosticFinding"
+        improvements:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosticFinding"
+        sectionReviews:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosticSectionReview"
         flaggedPhrases:
           type: array
           items:
@@ -184,7 +364,37 @@ components:
           type: array
           items:
             type: string
+        rewriteExamples:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosticRewrite"
         prompts:
+          type: array
+          items:
+            type: string
+        relatedJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobMatch"
+        jobSearch:
+          $ref: "#/components/schemas/DiagnosticJobSearch"
+    SmokeyInput:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        role:
+          type: string
+        fileName:
+          type: string
+    SmokeyReply:
+      type: object
+      required: [reply, suggestions]
+      properties:
+        reply:
+          type: string
+        suggestions:
           type: array
           items:
             type: string

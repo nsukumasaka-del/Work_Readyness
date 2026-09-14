@@ -694,7 +694,12 @@ router.post("/career/signup", async (req, res) => {
       expiresAt: challenge.expiresAt.toISOString(),
       message: challenge.emailSent
         ? "We sent a verification code to your email. Enter it to finish creating your account."
-        : "Enter the verification code from your email to finish creating your account.",
+        : challenge.verificationCode
+          ? "Email SMTP is not configured yet — use the on-screen code (local/dev only)."
+          : "Enter the verification code from your email to finish creating your account.",
+      ...(challenge.verificationCode
+        ? { verificationCode: challenge.verificationCode, devOtp: true }
+        : {}),
     });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : "Could not send verification code" });

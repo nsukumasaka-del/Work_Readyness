@@ -1972,10 +1972,17 @@ function SignupPage() {
       if (!response.ok) throw new Error(payload.error || 'Sign up failed');
       if (payload.requiresOtp) {
         setChallengeId(payload.challengeId);
-        setInfo(
-          payload.message ||
-            `We sent a 6-digit code to ${form.email.trim()}. Check your inbox (and spam folder).`,
-        );
+        if (payload.verificationCode && payload.devOtp) {
+          setCode(String(payload.verificationCode));
+          setInfo(
+            `Dev mode: email SMTP is not configured. Your verification code is ${payload.verificationCode}. (Set SMTP_PASS in .env for real email delivery.)`,
+          );
+        } else {
+          setInfo(
+            payload.message ||
+              `We sent a 6-digit code to ${form.email.trim()}. Check your inbox (and spam folder).`,
+          );
+        }
         setStep('otp');
         return;
       }

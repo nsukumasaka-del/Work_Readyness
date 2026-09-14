@@ -18,7 +18,14 @@ export async function createEmailChallenge(input: {
   email: string;
   purpose: "signup";
   payload: Record<string, unknown>;
-}): Promise<{ challengeId: string; expiresAt: Date; emailSent: boolean; provider: string }> {
+}): Promise<{
+  challengeId: string;
+  expiresAt: Date;
+  emailSent: boolean;
+  provider: string;
+  /** Only when AUTH_ALLOW_DEV_OTP=true */
+  verificationCode?: string;
+}> {
   const email = input.email.toLowerCase().trim();
   const code = generateOtpCode();
   const challengeId = randomBytes(24).toString("hex");
@@ -62,10 +69,8 @@ export async function createEmailChallenge(input: {
     "Auth OTP created",
   );
 
-  // Never attach the raw code to the return value for API clients.
-  // Dev codes (if AUTH_ALLOW_DEV_OTP) are only written to server logs above.
   if (delivery.devCode) {
-    logger.warn({ challengeId }, "Dev OTP available in server logs only — not returned to the client");
+    logger.warn({ challengeId }, "Dev OTP available — returned to client only because AUTH_ALLOW_DEV_OTP=true");
   }
 
   return {
@@ -73,6 +78,7 @@ export async function createEmailChallenge(input: {
     expiresAt,
     emailSent: delivery.sent,
     provider: delivery.provider,
+    ...(delivery.devCode ? { verificationCode: delivery.devCode } : {}),
   };
 }
 

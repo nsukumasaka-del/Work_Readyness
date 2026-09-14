@@ -141,6 +141,15 @@ export async function sendAuthCodeEmail(input: SendInput): Promise<EmailDelivery
     return { sent: false, provider: "none", devCode: input.code };
   }
 
+  const host = process.env.SMTP_HOST?.trim();
+  const user = process.env.SMTP_USER?.trim();
+  const pass = process.env.SMTP_PASS?.trim();
+  if (host && user && !pass) {
+    throw new Error(
+      "SMTP_PASS is empty. Create a Gmail App Password (Google Account → Security → 2-Step Verification → App passwords), set SMTP_PASS in .env, then restart the API.",
+    );
+  }
+
   throw new Error(
     "Email delivery is not configured. Add SMTP_HOST/SMTP_USER/SMTP_PASS (or RESEND_API_KEY) to your .env, then restart the server.",
   );

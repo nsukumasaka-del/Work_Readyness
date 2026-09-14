@@ -1,14 +1,20 @@
-# BonList — Cloudflare Pages (static web app)
+# BonList — Cloudflare Worker (static assets)
 #
-# Cloudflare dashboard → Workers & Pages → your project → Settings → Builds:
+# Cloudflare dashboard (Workers Builds / Git integration):
 #   Root directory:   /
-#   Build command:    (leave empty — deploy script builds)
-#   Deploy command:   pnpm run deploy
-#   OR                pnpm run cf:deploy
+#   Build command:    (leave empty — deploy shim builds the web app)
+#   Deploy command:   npx wrangler deploy
+#                     OR  pnpm run deploy
 #
-# Do NOT use plain `npx wrangler deploy` at the monorepo root — it fails with
-# "application detection logic has been run in the root of a workspace".
+# Monorepo note: bare `wrangler deploy` normally fails at a pnpm workspace root.
+# Root postinstall installs a shim so Cloudflare's default command works.
+# Prefer: npx wrangler deploy -c wrangler.toml
 
 name = "bonlist"
 compatibility_date = "2025-09-01"
-pages_build_output_dir = "artifacts/careerbridge-sa/dist/public"
+workers_dev = true
+
+# Serve the Vite build as a static Worker (SPA).
+[assets]
+directory = "./artifacts/careerbridge-sa/dist/public"
+not_found_handling = "single-page-application"

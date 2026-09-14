@@ -149,4 +149,6 @@ overrides:
 
 onlyBuiltDependencies:
   - esbuild
+  - workerd
+  - sharp
 

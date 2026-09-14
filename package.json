@@ -16,7 +16,8 @@
     "mobile:dev": "node ./mobile/bonlist-android/scripts/dev-live.mjs",
     "cf:build": "node ./scripts/cf-build.mjs",
     "cf:deploy": "node ./scripts/cf-deploy.mjs",
-    "deploy": "node ./scripts/cf-deploy.mjs"
+    "deploy": "node ./scripts/cf-deploy.mjs",
+    "postinstall": "node ./scripts/shim-wrangler-deploy.mjs"
   },
   "devDependencies": {
     "prettier": "^3.9.6",

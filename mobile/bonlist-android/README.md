@@ -20,7 +20,7 @@ In the repo root `.env`:
 LIVE_APP_URL=https://YOUR-DEPLOYED-BONLIST-SITE
 ```
 
-That URL must serve both the website **and** `/api` (same as your Replit/production deploy).
+That URL must serve both the website **and** `/api` (same as your production deploy).
 
 Then rebuild/sync the APK:
 

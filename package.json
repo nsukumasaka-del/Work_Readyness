@@ -14,13 +14,13 @@
     "mobile:copy": "node ./mobile/bonlist-android/scripts/sync-web.mjs --cap-sync",
     "mobile:open": "npm --prefix ./mobile/bonlist-android run cap:open",
     "mobile:dev": "node ./mobile/bonlist-android/scripts/dev-live.mjs",
-    "cf:build": "node ./scripts/cf-build.mjs"
-  },
-  "dependencies": {
-    "@replit/connectors-sdk": "^0.4.3"
+    "cf:build": "node ./scripts/cf-build.mjs",
+    "cf:deploy": "node ./scripts/cf-deploy.mjs",
+    "deploy": "node ./scripts/cf-deploy.mjs"
   },
   "devDependencies": {
     "prettier": "^3.9.6",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "wrangler": "^4.131.2"
   }
 }

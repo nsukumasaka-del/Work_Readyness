@@ -1,15 +1,13 @@
-# Cloudflare Pages build configuration for BonList.
+# BonList — Cloudflare Pages (static web app)
 #
-# In the Cloudflare dashboard (Workers & Pages → your project → Settings → Builds):
-#   Root directory:        /
-#   Build command:         pnpm run cf:build
-#   Build output directory: artifacts/careerbridge-sa/dist/public
-#   Environment variables:
-#     NODE_VERSION=22
-#     SKIP_DEPENDENCY_INSTALL=1
+# Cloudflare dashboard → Workers & Pages → your project → Settings → Builds:
+#   Root directory:   /
+#   Build command:    (leave empty — deploy script builds)
+#   Deploy command:   pnpm run deploy
+#   OR                pnpm run cf:deploy
 #
-# SKIP_DEPENDENCY_INSTALL=1 makes Cloudflare skip its frozen `pnpm install`
-# so cf:build can install with --no-frozen-lockfile (fixes ERR_PNPM_LOCKFILE_CONFIG_MISMATCH).
+# Do NOT use plain `npx wrangler deploy` at the monorepo root — it fails with
+# "application detection logic has been run in the root of a workspace".
 
 name = "bonlist"
 compatibility_date = "2025-09-01"

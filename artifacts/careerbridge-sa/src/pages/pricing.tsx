@@ -158,6 +158,9 @@ export default function PricingPage() {
           ? "You are on the Free plan."
           : `${payload.entitlement.planName} is now active.`,
       );
+      if (plan !== "free") {
+        sessionStorage.setItem("careerbridge-premium-security-nudge", "1");
+      }
       window.dispatchEvent(new Event("careerbridge-entitlement-updated"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update plan");
@@ -195,9 +198,43 @@ export default function PricingPage() {
   };
 
   const programmeActive = entitlement.programme?.status === "active";
+  const [premiumNudge, setPremiumNudge] = useState(false);
+  useEffect(() => {
+    setPremiumNudge(sessionStorage.getItem("careerbridge-premium-security-nudge") === "1");
+  }, [message]);
 
   return (
     <div className="mx-auto max-w-6xl px-5 py-12 md:px-8 md:py-16">
+      {premiumNudge ? (
+        <div className="mb-8 rounded-2xl border border-teal-200 bg-teal-50 px-5 py-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-3">
+              <ShieldCheck className="mt-0.5 shrink-0 text-teal-800" size={20} />
+              <div>
+                <p className="text-sm font-semibold text-teal-950">Protect your Premium account</p>
+                <p className="mt-1 text-xs leading-5 text-teal-900/80">
+                  Your account contains personal information and saved CVs. We recommend enabling a passkey or authenticator app.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Link href="/settings/security" className="btn-primary">
+                Secure my account
+              </Link>
+              <button
+                type="button"
+                className="rounded-xl px-3 py-2 text-sm font-semibold text-teal-900"
+                onClick={() => {
+                  sessionStorage.removeItem("careerbridge-premium-security-nudge");
+                  setPremiumNudge(false);
+                }}
+              >
+                Later
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="max-w-3xl">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Pricing</p>
         <h1 className="display mt-3 text-4xl font-semibold text-foreground md:text-5xl">

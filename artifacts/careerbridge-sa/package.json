@@ -71,5 +71,8 @@
     "vite": "catalog:",
     "wouter": "^3.3.5",
     "zod": "catalog:"
+  },
+  "dependencies": {
+    "@simplewebauthn/browser": "^14.0.0"
   }
 }

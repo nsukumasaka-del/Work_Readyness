@@ -1,4 +1,4 @@
-import { type ReactNode, type FormEvent, useState, useEffect, useRef } from 'react';
+﻿import { type ReactNode, type FormEvent, useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -59,6 +59,28 @@ import { isNativeApp } from '@/lib/platform';
 import { describeApiMisconfiguration } from '@/lib/api-base';
 import { triggerAndroidApkDownload } from '@/lib/download-apk';
 import {
+  clearAuthSession,
+  dismissSecurityNudgeLocal,
+  hasProfile as hasAuthProfile,
+  isAdminUser as isAuthAdminUser,
+  persistAdminAccess,
+  persistProfile,
+  readApiJson,
+  readProfile,
+  shouldShowSecurityNudge,
+  authFetch,
+} from '@/lib/auth-session';
+import {
+  AdminMfaSetupPage,
+  AuthCallbackPage,
+  ForgotPasswordPage,
+  LoginPage,
+  ResetPasswordPage,
+  SecurityNudgeBanner,
+  SecuritySettingsPage,
+  SignupPage,
+} from '@/pages/auth/AuthPages';
+import {
   Link,
   Route,
   Switch,
@@ -69,11 +91,8 @@ import {
 
 const queryClient = new QueryClient();
 
-const PROFILE_KEY = 'careerbridge-profile';
 const REPORT_KEY = 'careerbridge-report';
 const SELECTED_JOB_KEY = 'careerbridge-selected-job';
-const ADMIN_TOKEN_KEY = 'careerbridge-admin-token';
-const ADMIN_FLAG_KEY = 'careerbridge-is-admin';
 
 function persistSelectedJob(job: JobMatch) {
   sessionStorage.setItem(SELECTED_JOB_KEY, JSON.stringify(job));
@@ -118,41 +137,12 @@ const navItems = [
 
 const primaryNavHrefs = new Set(['/', '/cv-builder', '/diagnostic', '/jobs', '/interview', '/pricing']);
 
-function readProfile(): UserProfile | null {
-  try {
-    const stored = sessionStorage.getItem(PROFILE_KEY);
-    return stored ? (JSON.parse(stored) as UserProfile) : null;
-  } catch {
-    return null;
-  }
-}
-
 function hasProfile() {
-  return Boolean(readProfile());
+  return hasAuthProfile();
 }
 
 function isAdminUser() {
-  return sessionStorage.getItem(ADMIN_FLAG_KEY) === '1' && Boolean(sessionStorage.getItem(ADMIN_TOKEN_KEY));
-}
-
-function clearAuthSession() {
-  sessionStorage.removeItem(PROFILE_KEY);
-  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-  sessionStorage.removeItem(ADMIN_FLAG_KEY);
-}
-
-function persistProfile(profile: UserProfile) {
-  sessionStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
-}
-
-function persistAdminAccess(adminToken?: string, isAdmin?: boolean) {
-  if (isAdmin && adminToken) {
-    sessionStorage.setItem(ADMIN_TOKEN_KEY, adminToken);
-    sessionStorage.setItem(ADMIN_FLAG_KEY, '1');
-    return;
-  }
-  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-  sessionStorage.removeItem(ADMIN_FLAG_KEY);
+  return isAuthAdminUser();
 }
 
 function hasCvReport() {
@@ -205,6 +195,15 @@ function HeaderAuthActions({
           <span className={compact ? 'max-w-[14rem] truncate font-medium' : 'hidden max-w-[7rem] truncate sm:inline xl:max-w-[9rem]'}>
             {compact ? profile.name : profile.name.split(' ')[0]}
           </span>
+        </Link>
+        <Link
+          href="/settings/security"
+          className={`rounded-xl px-2.5 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground xl:px-3 ${
+            compact ? 'w-full border border-border text-center' : 'hidden sm:inline'
+          }`}
+          data-testid="link-header-security"
+        >
+          Security
         </Link>
         <button
           type="button"
@@ -683,6 +682,7 @@ function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   const handleLogout = () => {
+    void authFetch('/api/career/auth/logout', { method: 'POST', body: '{}' }).catch(() => undefined);
     clearAuthSession();
     setProfile(null);
     setIsAdmin(false);
@@ -690,11 +690,31 @@ function AppShell({ children }: { children: ReactNode }) {
     setLocation('/');
   };
 
+  const [showNudge, setShowNudge] = useState(false);
+  useEffect(() => {
+    setShowNudge(Boolean(profile) && shouldShowSecurityNudge());
+  }, [profile]);
+
   const isCvBuilder = location === '/cv-builder' || location.startsWith('/cv-builder/');
   const inNativeApp = isNativeApp();
 
   return (
     <div className={`min-h-[100dvh] bg-background text-foreground ${isCvBuilder ? 'flex flex-col' : ''}`}>
+      {showNudge ? (
+        <SecurityNudgeBanner
+          onSecure={() => {
+            dismissSecurityNudgeLocal();
+            setShowNudge(false);
+            void authFetch('/api/career/auth/security-nudge/dismiss', { method: 'POST', body: '{}' }).catch(() => undefined);
+            setLocation('/settings/security');
+          }}
+          onLater={() => {
+            dismissSecurityNudgeLocal();
+            setShowNudge(false);
+            void authFetch('/api/career/auth/security-nudge/dismiss', { method: 'POST', body: '{}' }).catch(() => undefined);
+          }}
+        />
+      ) : null}
       <header className="app-safe-header sticky top-0 z-40 border-b border-border/70 bg-background/90 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:h-16 sm:px-5 md:px-8">
           <div className="min-w-0 shrink-0">
@@ -1776,368 +1796,6 @@ function Home() {
         </div>
       </section>
     </div>
-  );
-}
-
-function AuthCard({
-  eyebrow,
-  title,
-  description,
-  children,
-  footer,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  children: ReactNode;
-  footer: ReactNode;
-}) {
-  return (
-    <div className="app-safe-page mx-auto w-full max-w-md px-5 py-8 sm:py-12 md:px-8 md:py-16">
-      <div className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-6 md:p-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">{eyebrow}</p>
-        <h1 className="display mt-2 text-2xl font-semibold text-foreground sm:text-3xl">{title}</h1>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p>
-        <div className="mt-6">{children}</div>
-        <div className="mt-6 border-t border-border pt-4 text-center text-sm text-muted-foreground">{footer}</div>
-      </div>
-    </div>
-  );
-}
-
-async function completeAuthSession(payload: {
-  isAdmin?: boolean;
-  adminToken?: string;
-}) {
-  persistProfile(payload as UserProfile);
-  persistAdminAccess(payload.adminToken, Boolean(payload.isAdmin));
-}
-
-async function readApiJson(response: Response): Promise<Record<string, any>> {
-  const text = await response.text();
-  if (!text.trim()) {
-    throw new Error(
-      response.ok
-        ? 'Server returned an empty response. Please try again.'
-        : `Request failed (${response.status}). The API may be restarting — try again in a moment.`,
-    );
-  }
-  try {
-    return JSON.parse(text) as Record<string, any>;
-  } catch {
-    const looksLikeHtml = /^\s*</.test(text) || /<!doctype html/i.test(text);
-    if (looksLikeHtml) {
-      throw new Error(
-        describeApiMisconfiguration() ||
-          'Could not reach the BonList API (got a web page instead of data). Check that the API is running and LIVE_APP_URL points at your live site.',
-      );
-    }
-    throw new Error(
-      `Server returned a non-JSON response (${response.status}). Please try again.`,
-    );
-  }
-}
-
-function LoginPage() {
-  const [, setLocation] = useLocation();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (isAdminUser()) setLocation('/admin');
-    else if (hasProfile()) setLocation('/profile');
-  }, [setLocation]);
-
-  const submitLogin = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      const response = await fetch('/api/career/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password }),
-      });
-      const payload = await readApiJson(response);
-      if (!response.ok) throw new Error(payload.error || 'Login failed');
-      await completeAuthSession(payload);
-      if (payload.isAdmin) {
-        setLocation('/admin');
-        return;
-      }
-      setLocation('/');
-      window.setTimeout(() => {
-        document.getElementById('cv-check')?.scrollIntoView({ behavior: 'smooth' });
-      }, 80);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <AuthCard
-      eyebrow="Welcome back"
-      title="Log in to BonList"
-      description="Access your profile, CV reviews, and personalised role matches."
-      footer={
-        <>
-          New here?{' '}
-          <Link href="/signup" className="font-semibold text-primary" data-testid="link-login-to-signup">
-            Create an account
-          </Link>
-        </>
-      }
-    >
-      <form onSubmit={submitLogin} className="space-y-4" data-testid="form-login">
-        <Field
-          label="Email address"
-          value={email}
-          onChange={setEmail}
-          placeholder="you@example.com"
-          type="email"
-          testId="input-login-email"
-          required
-        />
-        <Field
-          label="Password"
-          value={password}
-          onChange={setPassword}
-          placeholder="Your password"
-          type="password"
-          testId="input-login-password"
-          required
-        />
-        {error ? <p className="text-xs text-destructive">{error}</p> : null}
-        <button
-          type="submit"
-          disabled={loading || !email.trim() || !password}
-          className="btn-primary w-full disabled:opacity-50"
-          data-testid="button-login-submit"
-        >
-          {loading ? 'Signing in…' : 'Log in'} <ArrowRight size={15} />
-        </button>
-      </form>
-    </AuthCard>
-  );
-}
-
-function SignupPage() {
-  const [, setLocation] = useLocation();
-  const [step, setStep] = useState<'details' | 'otp'>('details');
-  const [form, setForm] = useState({
-    name: '',
-    email: '',
-    password: '',
-    phone: '',
-    location: '',
-    targetRole: '',
-  });
-  const [challengeId, setChallengeId] = useState('');
-  const [code, setCode] = useState('');
-  const [info, setInfo] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (isAdminUser()) setLocation('/admin');
-    else if (hasProfile()) setLocation('/profile');
-  }, [setLocation]);
-
-  const update = (key: keyof typeof form, value: string) =>
-    setForm((current) => ({ ...current, [key]: value }));
-
-  const submitDetails = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setLoading(true);
-    setError('');
-    setInfo('');
-    try {
-      const response = await fetch('/api/career/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.name.trim(),
-          email: form.email.trim(),
-          password: form.password,
-          phone: form.phone.trim() || undefined,
-          location: form.location.trim() || undefined,
-          targetRole: form.targetRole.trim() || undefined,
-        }),
-      });
-      const payload = await readApiJson(response);
-      if (!response.ok) throw new Error(payload.error || 'Sign up failed');
-      if (payload.requiresOtp) {
-        setChallengeId(payload.challengeId);
-        if (payload.verificationCode && payload.devOtp) {
-          setCode(String(payload.verificationCode));
-          setInfo(
-            `Dev mode: email SMTP is not configured. Your verification code is ${payload.verificationCode}. (Set SMTP_PASS in .env for real email delivery.)`,
-          );
-        } else {
-          setInfo(
-            payload.message ||
-              `We sent a 6-digit code to ${form.email.trim()}. Check your inbox (and spam folder).`,
-          );
-        }
-        setStep('otp');
-        return;
-      }
-      await completeAuthSession(payload);
-      setLocation('/');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sign up failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const submitOtp = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      const response = await fetch('/api/career/auth/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ challengeId, code: code.trim() }),
-      });
-      const payload = await readApiJson(response);
-      if (!response.ok) throw new Error(payload.error || 'Verification failed');
-      await completeAuthSession(payload);
-      setLocation('/');
-      window.setTimeout(() => {
-        document.getElementById('cv-check')?.scrollIntoView({ behavior: 'smooth' });
-      }, 80);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Verification failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <AuthCard
-      eyebrow={step === 'details' ? 'Get started' : 'Step 2 · Verify email'}
-      title={step === 'details' ? 'Create your BonList account' : 'Enter your verification code'}
-      description={
-        step === 'details'
-          ? 'Sign up to upload your CV, get a readiness review, and unlock trusted job matches.'
-          : `We sent a 6-digit code to ${form.email}. Enter it below to activate your account.`
-      }
-      footer={
-        step === 'details' ? (
-          <>
-            Already have an account?{' '}
-            <Link href="/login" className="font-semibold text-primary" data-testid="link-signup-to-login">
-              Log in
-            </Link>
-          </>
-        ) : (
-          <button
-            type="button"
-            className="font-semibold text-primary"
-            onClick={() => {
-              setStep('details');
-              setCode('');
-              setError('');
-            }}
-            data-testid="button-signup-back"
-          >
-            Edit your details
-          </button>
-        )
-      }
-    >
-      {step === 'details' ? (
-        <form onSubmit={submitDetails} className="space-y-4" data-testid="form-signup">
-          <Field
-            label="Full name"
-            value={form.name}
-            onChange={(value) => update('name', value)}
-            placeholder="Noluthando M."
-            testId="input-signup-name"
-            required
-          />
-          <Field
-            label="Email address"
-            value={form.email}
-            onChange={(value) => update('email', value)}
-            placeholder="you@example.com"
-            type="email"
-            testId="input-signup-email"
-            required
-          />
-          <Field
-            label="Password"
-            value={form.password}
-            onChange={(value) => update('password', value)}
-            placeholder="At least 6 characters"
-            type="password"
-            testId="input-signup-password"
-            required
-          />
-          <label className="block">
-            <span className="mb-2 block text-xs font-semibold text-foreground">Location (optional)</span>
-            <select
-              value={form.location}
-              onChange={(event) => update('location', event.target.value)}
-              className="field-input"
-              data-testid="select-signup-location"
-            >
-              <option value="">Select area</option>
-              <option value="Cape Town">Cape Town / Western Cape</option>
-              <option value="Johannesburg">Johannesburg / Gauteng</option>
-              <option value="Durban">Durban / KZN</option>
-              <option value="Hybrid">Hybrid / Remote</option>
-            </select>
-          </label>
-          <Field
-            label="Target role (optional)"
-            value={form.targetRole}
-            onChange={(value) => update('targetRole', value)}
-            placeholder="e.g. Software Engineer"
-            testId="input-signup-role"
-          />
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
-          <button
-            type="submit"
-            disabled={loading || !form.name.trim() || !form.email.trim() || form.password.length < 6}
-            className="btn-primary w-full disabled:opacity-50"
-            data-testid="button-signup-submit"
-          >
-            {loading ? 'Sending code…' : 'Send verification code'} <ArrowRight size={15} />
-          </button>
-        </form>
-      ) : (
-        <form onSubmit={submitOtp} className="space-y-4" data-testid="form-signup-otp">
-          {info ? <p className="text-xs leading-5 text-muted-foreground">{info}</p> : null}
-          <p className="rounded-xl border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
-            Check <strong className="text-foreground">{form.email}</strong> for a 6-digit BonList code. It expires in 10 minutes.
-          </p>
-          <Field
-            label="Verification code"
-            value={code}
-            onChange={setCode}
-            placeholder="6-digit code"
-            testId="input-signup-otp"
-            required
-          />
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
-          <button
-            type="submit"
-            disabled={loading || code.trim().length !== 6}
-            className="btn-primary w-full disabled:opacity-50"
-            data-testid="button-signup-verify"
-          >
-            {loading ? 'Verifying…' : 'Verify & create account'} <ArrowRight size={15} />
-          </button>
-        </form>
-      )}
-    </AuthCard>
   );
 }
 

@@ -228,6 +228,80 @@ async function ensureLocalSchema(
       updated_at timestamptz NOT NULL DEFAULT now()
     )
   `);
+
+  // ---- Auth hardening (additive) ----
+  await db.execute(sql`ALTER TABLE career_profiles ADD COLUMN IF NOT EXISTS email_verified_at timestamptz`);
+  await db.execute(sql`ALTER TABLE career_profiles ADD COLUMN IF NOT EXISTS mfa_enabled integer NOT NULL DEFAULT 0`);
+  await db.execute(sql`ALTER TABLE career_profiles ADD COLUMN IF NOT EXISTS totp_secret_enc text`);
+  await db.execute(sql`ALTER TABLE career_profiles ADD COLUMN IF NOT EXISTS totp_verified_at timestamptz`);
+  await db.execute(sql`ALTER TABLE career_profiles ADD COLUMN IF NOT EXISTS security_nudge_dismissed_at timestamptz`);
+  await db.execute(sql`ALTER TABLE auth_challenges ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0`);
+  await db.execute(sql`ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS mfa_enabled integer NOT NULL DEFAULT 0`);
+  await db.execute(sql`ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS totp_secret_enc text`);
+  await db.execute(sql`ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS totp_verified_at timestamptz`);
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS auth_identities (
+      id SERIAL PRIMARY KEY,
+      profile_id integer NOT NULL,
+      provider text NOT NULL,
+      provider_subject text NOT NULL,
+      email text,
+      email_verified integer NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS auth_identities_provider_subject_uidx
+    ON auth_identities (provider, provider_subject)
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      id SERIAL PRIMARY KEY,
+      profile_id integer NOT NULL,
+      token_hash text NOT NULL UNIQUE,
+      user_agent text,
+      ip_address text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      expires_at timestamptz NOT NULL,
+      revoked_at timestamptz,
+      last_seen_at timestamptz
+    )
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
+      id SERIAL PRIMARY KEY,
+      profile_id integer NOT NULL,
+      code_hash text NOT NULL,
+      used_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id SERIAL PRIMARY KEY,
+      profile_id integer NOT NULL,
+      token_hash text NOT NULL UNIQUE,
+      expires_at timestamptz NOT NULL,
+      used_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS webauthn_credentials (
+      id SERIAL PRIMARY KEY,
+      profile_id integer NOT NULL,
+      credential_id text NOT NULL UNIQUE,
+      public_key text NOT NULL,
+      counter integer NOT NULL DEFAULT 0,
+      device_type text,
+      backed_up integer NOT NULL DEFAULT 0,
+      transports text,
+      nickname text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      last_used_at timestamptz
+    )
+  `);
 }
 
 async function createDatabase() {
@@ -245,6 +319,8 @@ async function createDatabase() {
 
   const pool = new Pool({ connectionString: databaseUrl });
   const db = drizzlePg(pool, { schema });
+  // Keep Postgres schemas in sync with the same additive DDL used for pglite.
+  await ensureLocalSchema(db as unknown as ReturnType<typeof drizzlePglite>);
   return { db, pool };
 }
 

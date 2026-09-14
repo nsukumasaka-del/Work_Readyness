@@ -129,16 +129,24 @@ function AdminGate() {
         <Lock className="mx-auto text-sky-300" size={28} />
         <h1 className="mt-4 text-2xl font-semibold tracking-tight">Admin access only</h1>
         <p className="mt-3 text-sm leading-6 text-slate-300">
-          This console is hidden from the public site. Log in with your admin email on the main BonList login
-          page — the system will recognise you automatically.
+          Sign in with your admin email on the main BonList login page. Administrators must complete authenticator MFA
+          before the dashboard unlocks.
         </p>
-        <Link
-          href="/login"
-          className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-sky-500 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-sky-400"
-          data-testid="link-admin-gate-login"
-        >
-          Go to Log in <ArrowRight size={15} />
-        </Link>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+          <Link
+            href="/login"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-500 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-sky-400"
+            data-testid="link-admin-gate-login"
+          >
+            Go to Log in <ArrowRight size={15} />
+          </Link>
+          <Link
+            href="/security/admin-mfa"
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-600 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-slate-800"
+          >
+            Complete MFA setup
+          </Link>
+        </div>
       </div>
     </div>
   );

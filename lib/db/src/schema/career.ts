@@ -62,9 +62,72 @@ export const profilesTable = pgTable("career_profiles", {
   location: text("location"),
   targetRole: text("target_role"),
   passwordHash: text("password_hash"),
+  emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+  mfaEnabled: integer("mfa_enabled").notNull().default(0),
+  totpSecretEnc: text("totp_secret_enc"),
+  totpVerifiedAt: timestamp("totp_verified_at", { withTimezone: true }),
+  securityNudgeDismissedAt: timestamp("security_nudge_dismissed_at", { withTimezone: true }),
   status: text("status").notNull().default("active"),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Linked auth methods for one BonList account (password, google, …). */
+export const authIdentitiesTable = pgTable("auth_identities", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").notNull(),
+  provider: text("provider").notNull(), // password | google | passkey
+  providerSubject: text("provider_subject").notNull(),
+  email: text("email"),
+  emailVerified: integer("email_verified").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Opaque user sessions (hashed tokens). Works for web + Android. */
+export const userSessionsTable = pgTable("user_sessions", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  userAgent: text("user_agent"),
+  ipAddress: text("ip_address"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+});
+
+/** Hashed single-use MFA recovery codes. */
+export const mfaRecoveryCodesTable = pgTable("mfa_recovery_codes", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").notNull(),
+  codeHash: text("code_hash").notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Password reset tokens (hashed, single-use, expiring). */
+export const passwordResetTokensTable = pgTable("password_reset_tokens", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** WebAuthn / passkey credentials. */
+export const webauthnCredentialsTable = pgTable("webauthn_credentials", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").notNull(),
+  credentialId: text("credential_id").notNull(),
+  publicKey: text("public_key").notNull(),
+  counter: integer("counter").notNull().default(0),
+  deviceType: text("device_type"),
+  backedUp: integer("backed_up").notNull().default(0),
+  transports: text("transports"),
+  nickname: text("nickname"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
 });
 
 export const siteVisitsTable = pgTable("site_visits", {
@@ -92,6 +155,9 @@ export const adminUsersTable = pgTable("admin_users", {
   isPrimary: integer("is_primary").notNull().default(0),
   role: text("role").notNull().default("admin"),
   status: text("status").notNull().default("active"),
+  mfaEnabled: integer("mfa_enabled").notNull().default(0),
+  totpSecretEnc: text("totp_secret_enc"),
+  totpVerifiedAt: timestamp("totp_verified_at", { withTimezone: true }),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -103,6 +169,7 @@ export const authChallengesTable = pgTable("auth_challenges", {
   purpose: text("purpose").notNull(),
   codeHash: text("code_hash").notNull(),
   payload: text("payload").notNull().default("{}"),
+  attemptCount: integer("attempt_count").notNull().default(0),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   consumedAt: timestamp("consumed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -236,6 +303,11 @@ export type SiteVisit = typeof siteVisitsTable.$inferSelect;
 export type AdminSession = typeof adminSessionsTable.$inferSelect;
 export type AdminUser = typeof adminUsersTable.$inferSelect;
 export type AuthChallenge = typeof authChallengesTable.$inferSelect;
+export type AuthIdentity = typeof authIdentitiesTable.$inferSelect;
+export type UserSession = typeof userSessionsTable.$inferSelect;
+export type MfaRecoveryCode = typeof mfaRecoveryCodesTable.$inferSelect;
+export type PasswordResetToken = typeof passwordResetTokensTable.$inferSelect;
+export type WebauthnCredential = typeof webauthnCredentialsTable.$inferSelect;
 export type AdminAuditLog = typeof adminAuditLogTable.$inferSelect;
 export type AdminNotification = typeof adminNotificationsTable.$inferSelect;
 export type PlatformSetting = typeof platformSettingsTable.$inferSelect;

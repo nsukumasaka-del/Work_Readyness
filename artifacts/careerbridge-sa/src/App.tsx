@@ -56,6 +56,7 @@ import {
   type Entitlement,
 } from '@/lib/entitlements';
 import { isNativeApp } from '@/lib/platform';
+import { describeApiMisconfiguration } from '@/lib/api-base';
 import { triggerAndroidApkDownload } from '@/lib/download-apk';
 import {
   Link,
@@ -693,9 +694,9 @@ function AppShell({ children }: { children: ReactNode }) {
   const inNativeApp = isNativeApp();
 
   return (
-    <div className={`min-h-[100dvh] overflow-x-hidden bg-background text-foreground ${isCvBuilder ? 'flex flex-col' : ''}`}>
-      <header className="sticky top-0 z-40 border-b border-border/70 bg-background/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:px-5 md:px-8">
+    <div className={`min-h-[100dvh] bg-background text-foreground ${isCvBuilder ? 'flex flex-col' : ''}`}>
+      <header className="app-safe-header sticky top-0 z-40 border-b border-border/70 bg-background/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:h-16 sm:px-5 md:px-8">
           <div className="min-w-0 shrink-0">
             <LogoMark />
           </div>
@@ -1383,11 +1384,12 @@ function AppShell({ children }: { children: ReactNode }) {
         onSelectTopic={(id) => setGuideModalTopic(id)}
       />
 
+      <div className={`min-w-0 overflow-x-hidden ${isCvBuilder ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
       <main className={`min-w-0 ${location === '/' ? '' : 'page-enter'} ${isCvBuilder ? 'flex-1 flex flex-col' : ''}`}>{children}</main>
 
       {!isCvBuilder && (
         <footer className="mt-16 border-t border-border bg-card">
-          <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10 md:flex-row md:items-center md:justify-between md:px-8">
+          <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10 pb-[max(2.5rem,calc(2.5rem+var(--safe-bottom)))] md:flex-row md:items-center md:justify-between md:px-8">
             <div className="space-y-3">
               <LogoMark />
               <p className="max-w-md text-sm leading-6 text-muted-foreground">
@@ -1409,6 +1411,7 @@ function AppShell({ children }: { children: ReactNode }) {
         </footer>
       )}
       <SmokeyAgent />
+      </div>
     </div>
   );
 }
@@ -1792,10 +1795,10 @@ function AuthCard({
   footer: ReactNode;
 }) {
   return (
-    <div className="mx-auto max-w-md px-5 py-12 md:px-8 md:py-16">
-      <div className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8">
+    <div className="app-safe-page mx-auto w-full max-w-md px-5 py-8 sm:py-12 md:px-8 md:py-16">
+      <div className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-6 md:p-8">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">{eyebrow}</p>
-        <h1 className="display mt-2 text-3xl font-semibold text-foreground">{title}</h1>
+        <h1 className="display mt-2 text-2xl font-semibold text-foreground sm:text-3xl">{title}</h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p>
         <div className="mt-6">{children}</div>
         <div className="mt-6 border-t border-border pt-4 text-center text-sm text-muted-foreground">{footer}</div>
@@ -1824,6 +1827,13 @@ async function readApiJson(response: Response): Promise<Record<string, any>> {
   try {
     return JSON.parse(text) as Record<string, any>;
   } catch {
+    const looksLikeHtml = /^\s*</.test(text) || /<!doctype html/i.test(text);
+    if (looksLikeHtml) {
+      throw new Error(
+        describeApiMisconfiguration() ||
+          'Could not reach the BonList API (got a web page instead of data). Check that the API is running and LIVE_APP_URL points at your live site.',
+      );
+    }
     throw new Error(
       `Server returned a non-JSON response (${response.status}). Please try again.`,
     );

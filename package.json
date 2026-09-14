@@ -8,7 +8,8 @@
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
-    "mobile:sync": "node ./mobile/bonlist-android/scripts/sync-web.mjs --build && npm --prefix ./mobile/bonlist-android run cap:sync",
+    "mobile:sync": "node ./mobile/bonlist-android/scripts/sync-web.mjs --build --cap-sync",
+    "mobile:copy": "node ./mobile/bonlist-android/scripts/sync-web.mjs --cap-sync",
     "mobile:open": "npm --prefix ./mobile/bonlist-android run cap:open",
     "mobile:dev": "node ./mobile/bonlist-android/scripts/dev-live.mjs"
   },

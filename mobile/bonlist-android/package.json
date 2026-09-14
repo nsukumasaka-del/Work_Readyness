@@ -7,9 +7,9 @@
   "scripts": {
     "sync:web": "node ./scripts/sync-web.mjs",
     "build:web": "node ./scripts/sync-web.mjs --build",
-    "cap:sync": "npx cap sync android",
+    "cap:sync": "node ./scripts/write-capacitor-config.mjs && npx cap sync android",
     "cap:open": "npx cap open android",
-    "android:sync": "npm run build:web && npx cap sync android",
+    "android:sync": "npm run build:web && npm run cap:sync",
     "dev:live": "node ./scripts/dev-live.mjs"
   },
   "dependencies": {

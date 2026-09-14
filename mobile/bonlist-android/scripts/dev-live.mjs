@@ -14,8 +14,19 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const mobileRoot = resolve(__dirname, "..");
 const liveUrl = (process.env.CAP_LIVE_RELOAD_URL || "http://10.0.2.2:19678").trim();
 
-console.log(`[bonlist] Syncing Android to live web server: ${liveUrl}`);
+console.log("[bonlist] Syncing Android to live web server:", liveUrl);
 console.log("[bonlist] Emulator → use 10.0.2.2:<port>; physical device → use your PC LAN IP.");
+
+const write = spawnSync("node", [resolve(__dirname, "write-capacitor-config.mjs")], {
+  cwd: mobileRoot,
+  stdio: "inherit",
+  env: {
+    ...process.env,
+    CAP_LIVE_RELOAD: "1",
+    CAP_LIVE_RELOAD_URL: liveUrl,
+  },
+});
+if (write.status !== 0) process.exit(write.status || 1);
 
 const result = spawnSync("npx", ["cap", "sync", "android"], {
   cwd: mobileRoot,

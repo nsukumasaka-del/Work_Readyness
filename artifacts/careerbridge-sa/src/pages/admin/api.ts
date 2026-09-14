@@ -339,7 +339,11 @@ export async function adminFetch<T>(path: string, token: string, init?: RequestI
     throw new Error(payload?.error || `Request failed (${response.status})`);
   }
   if (response.status === 204 || !text.trim()) return undefined as T;
-  if (!payload) throw new Error(`Server returned a non-JSON response (${response.status})`);
+  if (!payload) {
+    throw new Error(
+      `Server returned a non-JSON response (${response.status}). If you are on Android, set LIVE_APP_URL to your deployed BonList site and rebuild.`,
+    );
+  }
   return payload as T;
 }
 

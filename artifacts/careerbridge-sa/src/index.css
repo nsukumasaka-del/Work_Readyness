@@ -220,15 +220,35 @@
     @apply border-border;
   }
 
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+  }
+
   body {
     @apply font-sans antialiased bg-background text-foreground;
     min-width: 0;
     overflow-x: hidden;
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
+    padding-bottom: var(--safe-bottom);
   }
 
   html {
     scroll-behavior: smooth;
     overflow-x: hidden;
+  }
+
+  /* Sticky app chrome clears notches / status bars on phones */
+  .app-safe-header {
+    padding-top: var(--safe-top);
+  }
+
+  .app-safe-page {
+    padding-left: max(1.25rem, var(--safe-left));
+    padding-right: max(1.25rem, var(--safe-right));
   }
 
   img,

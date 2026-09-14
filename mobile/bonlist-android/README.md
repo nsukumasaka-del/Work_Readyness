@@ -20,15 +20,32 @@ In the repo root `.env`:
 LIVE_APP_URL=https://YOUR-DEPLOYED-BONLIST-SITE
 ```
 
-Then rebuild/sync the APK once. After that, **deploying the website updates the phone app** (WebView loads the live site). Web and Android always show the same product.
+That URL must serve both the website **and** `/api` (same as your Replit/production deploy).
+
+Then rebuild/sync the APK:
+
+```bash
+pnpm mobile:sync
+```
+
+After that:
+- The WebView can load your live site (Capacitor `server.url`)
+- Bundled builds also bake that origin as the API base so signup/login work
+
+Without `LIVE_APP_URL`, the APK only has static files — `/api` calls return the HTML app shell and signup shows a non-JSON error.
 
 ## Commands (repo root)
 
 | Command | Purpose |
 |--------|---------|
-| `pnpm mobile:sync` | Build web UI → mirror → Capacitor sync |
+| `pnpm mobile:sync` | **Build web UI → mirror → Capacitor sync** (use this after web changes) |
+| `pnpm mobile:copy` | Mirror existing web dist + cap sync (no rebuild) |
 | `pnpm mobile:open` | Open Android Studio |
 | `pnpm mobile:dev` | Point Android at local Vite (`CAP_LIVE_RELOAD`) for instant edits |
+
+> Editing the web app in `pnpm dev` does **not** update the installed APK by itself.
+> After UI changes you want on the phone: run `pnpm mobile:sync`, then reinstall/run the app in Android Studio.
+> For instant feedback while coding, use `pnpm dev` + `pnpm mobile:dev` instead.
 
 ### Local live reload
 

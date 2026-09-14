@@ -443,7 +443,7 @@ export function AdminApp() {
   const showCustomRange = section === "overview" || section === "traffic";
 
   return (
-    <div className="min-h-[100dvh] overflow-x-hidden bg-slate-100 text-slate-900" data-testid="admin-dashboard">
+    <div className="min-h-[100dvh] overflow-x-hidden bg-slate-100 pt-[env(safe-area-inset-top,0px)] text-slate-900" data-testid="admin-dashboard">
       <div className="mx-auto grid max-w-7xl gap-0 lg:grid-cols-[minmax(200px,220px)_minmax(0,1fr)]">
         <aside className="relative z-20 border-b border-slate-800 bg-slate-950 px-4 py-5 text-slate-100 lg:min-h-[100dvh] lg:border-b-0 lg:border-r lg:border-slate-200">
           <div className="mb-4 flex items-center justify-between gap-3 px-2">

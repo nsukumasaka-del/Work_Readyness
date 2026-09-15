@@ -4,7 +4,6 @@ import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import pg from "pg";
 import * as schema from "./schema";
 
@@ -306,9 +305,11 @@ async function ensureLocalSchema(
 
 async function createDatabase() {
   if (usePglite) {
+    // Prefer an explicit dir. Do NOT derive from import.meta.url — after esbuild
+    // bundles the API into dist/, that path points at dist/ and breaks on Render.
     const dataDir = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../../../.data/pglite",
+      process.env.PGLITE_DATA_DIR?.trim() ||
+        path.join(process.cwd(), ".data", "pglite"),
     );
     mkdirSync(dataDir, { recursive: true });
     const client = new PGlite(dataDir);

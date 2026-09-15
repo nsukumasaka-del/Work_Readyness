@@ -21,6 +21,8 @@ services:
         value: "8080"
       - key: DATABASE_URL
         value: pglite
+      - key: PGLITE_DATA_DIR
+        value: /tmp/bonlist-pglite
       - key: STATIC_DIR
         value: artifacts/careerbridge-sa/dist/public
       - key: BONLIST_SKIP_MOBILE_POSTBUILD

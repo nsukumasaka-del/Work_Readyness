@@ -51,7 +51,7 @@ export function sanitizeExtractedCvText(raw: string): string {
 
   let text = raw
     .replace(/\u0000/g, "")
-    .replace(/[\uFFFD\uFFFE\uFFFF]/g, " ")
+    .replace(/[\uFFFD\uFFFE\uFFFF]+/g, " ")
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ");
 
   // Drop entire PDF binary dumps early
@@ -94,7 +94,50 @@ function decodeDataUrlOrBase64(fileData: string): Buffer {
   return Buffer.from(base64Data, "base64");
 }
 
+/**
+ * pdf.js (via pdf-parse) expects browser geometry APIs. On Node/Render these are missing
+ * and surface as "DOMMatrix is not defined".
+ */
+let pdfDomPolyfillPromise: Promise<void> | null = null;
+
+async function ensurePdfDomPolyfills(): Promise<void> {
+  if (typeof (globalThis as { DOMMatrix?: unknown }).DOMMatrix !== "undefined") {
+    return;
+  }
+  if (!pdfDomPolyfillPromise) {
+    pdfDomPolyfillPromise = (async () => {
+      try {
+        const canvas = await import("@napi-rs/canvas");
+        const g = globalThis as Record<string, unknown>;
+        if (canvas.DOMMatrix) g.DOMMatrix = canvas.DOMMatrix;
+        if (canvas.ImageData) g.ImageData = canvas.ImageData;
+        if (canvas.Path2D) g.Path2D = canvas.Path2D;
+      } catch (err) {
+        console.warn(
+          "[bonlist] @napi-rs/canvas unavailable for PDF polyfill:",
+          (err as Error)?.message,
+        );
+      }
+
+      // Pure-JS fallback when native canvas is not installed (local/Windows) or fails to load.
+      if (typeof (globalThis as { DOMMatrix?: unknown }).DOMMatrix === "undefined") {
+        const mod = await import("dommatrix");
+        const DOMMatrixCtor =
+          (mod as { default?: unknown; DOMMatrix?: unknown }).default ||
+          (mod as { DOMMatrix?: unknown }).DOMMatrix;
+        if (!DOMMatrixCtor) {
+          throw new Error("dommatrix polyfill did not export a constructor");
+        }
+        (globalThis as Record<string, unknown>).DOMMatrix = DOMMatrixCtor;
+      }
+    })();
+  }
+  await pdfDomPolyfillPromise;
+}
+
 async function extractPdfText(buffer: Buffer): Promise<string> {
+  await ensurePdfDomPolyfills();
+
   const pdfParseModule = await import("pdf-parse");
   const { PDFParse } = pdfParseModule as typeof import("pdf-parse");
 

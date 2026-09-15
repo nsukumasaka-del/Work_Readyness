@@ -1901,11 +1901,25 @@ function ProfilePage() {
     setError('');
     setSuccess('');
     try {
+      // D1 auth may store a UUID id — ensure a numeric career profile exists on the API.
+      let profileId: number | string = existing.id;
+      if (!Number.isFinite(Number(profileId)) || Number(profileId) <= 0) {
+        const ensured = await ensureCvProfile({
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone.trim() || undefined,
+          location: form.location.trim() || undefined,
+          targetRole: form.targetRole.trim() || undefined,
+        });
+        profileId = ensured.id;
+      }
+
       const response = await fetch('/api/career/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
-          id: existing.id,
+          id: profileId,
           name: form.name.trim(),
           email: form.email.trim(),
           phone: form.phone.trim() || undefined,
@@ -1918,6 +1932,9 @@ function ProfilePage() {
       persistProfile(payload as UserProfile);
       setSuccess('Your profile has been updated.');
       window.dispatchEvent(new Event('careerbridge-profile-updated'));
+      if (Number.isFinite(Number(payload.id)) && Number(payload.id) > 0) {
+        void fetchEntitlement(Number(payload.id)).then(setEntitlement);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update profile');
     } finally {

@@ -825,17 +825,14 @@ router.post("/career/profile", async (req, res) => {
 });
 
 router.patch("/career/profile", async (req, res) => {
-  const id = Number(req.body?.id);
+  const rawId = req.body?.id;
+  const numericId = Number(rawId);
   const name = String(req.body?.name || "").trim();
   const email = String(req.body?.email || "").trim().toLowerCase();
   const phone = req.body?.phone != null ? String(req.body.phone).trim() : undefined;
   const location = req.body?.location != null ? String(req.body.location).trim() : undefined;
   const targetRole = req.body?.targetRole != null ? String(req.body.targetRole).trim() : undefined;
 
-  if (!Number.isFinite(id) || id <= 0) {
-    res.status(400).json({ error: "A valid profile id is required" });
-    return;
-  }
   if (!name || name.length < 2) {
     res.status(400).json({ error: "Please enter your full name" });
     return;
@@ -845,9 +842,42 @@ router.patch("/career/profile", async (req, res) => {
     return;
   }
 
-  const [current] = await db.select().from(profilesTable).where(eq(profilesTable.id, id)).limit(1);
+  // D1 auth uses UUID string ids; career profiles on Render use integer ids.
+  // Accept either a numeric profile id or look up / create by email.
+  let current:
+    | (typeof profilesTable.$inferSelect)
+    | undefined;
+
+  if (Number.isFinite(numericId) && numericId > 0) {
+    const [byId] = await db.select().from(profilesTable).where(eq(profilesTable.id, numericId)).limit(1);
+    current = byId;
+  }
+
   if (!current) {
-    res.status(404).json({ error: "Profile not found. Please log in again." });
+    const [byEmail] = await db
+      .select()
+      .from(profilesTable)
+      .where(eq(profilesTable.email, email))
+      .limit(1);
+    current = byEmail;
+  }
+
+  if (!current) {
+    const [created] = await db
+      .insert(profilesTable)
+      .values({
+        name,
+        email,
+        phone: phone || undefined,
+        location: location || undefined,
+        targetRole: targetRole || undefined,
+      })
+      .returning();
+    current = created;
+  }
+
+  if (!current) {
+    res.status(400).json({ error: "A valid profile id is required" });
     return;
   }
   if (current.status && current.status !== "active") {
@@ -859,7 +889,7 @@ router.patch("/career/profile", async (req, res) => {
     const [emailTaken] = await db
       .select()
       .from(profilesTable)
-      .where(and(eq(profilesTable.email, email), ne(profilesTable.id, id)))
+      .where(and(eq(profilesTable.email, email), ne(profilesTable.id, current.id)))
       .limit(1);
     if (emailTaken) {
       res.status(409).json({ error: "That email is already used by another account." });
@@ -876,7 +906,7 @@ router.patch("/career/profile", async (req, res) => {
       location: location || null,
       targetRole: targetRole || null,
     })
-    .where(eq(profilesTable.id, id))
+    .where(eq(profilesTable.id, current.id))
     .returning();
 
   if (email !== current.email.toLowerCase() || name !== current.name) {

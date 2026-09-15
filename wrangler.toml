@@ -15,6 +15,15 @@ workers_dev = true
 # CV / jobs / diagnostics API (Render). Auth itself uses D1 and does not need this.
 [vars]
 API_UPSTREAM_URL = "https://bonlist-api-yj0d.onrender.com"
+# Set to "true" only while testing without Resend — returns codes/links in API JSON.
+AUTH_ALLOW_DEV_OTP = "true"
+# Public site origin used in password-reset emails (optional; defaults to request origin).
+# APP_BASE_URL = "https://bonlist.nsukumasaka.workers.dev"
+
+# Secrets (set via CLI, not committed):
+#   npx wrangler secret put RESEND_API_KEY
+#   npx wrangler secret put EMAIL_FROM
+# EMAIL_FROM example: BonList <onboarding@yourdomain.com>
 
 [[d1_databases]]
 binding = "DB"

@@ -181,16 +181,27 @@ function afterAuthNavigate(
 
 export function SignupPage() {
   const [, setLocation] = useLocation();
+  const [step, setStep] = useState<'details' | 'otp'>('details');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [challengeId, setChallengeId] = useState('');
+  const [maskedEmail, setMaskedEmail] = useState('');
+  const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
 
   useEffect(() => {
     if (isAdminUser()) setLocation('/admin');
     else if (hasProfile()) setLocation('/');
   }, [setLocation]);
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = window.setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => window.clearTimeout(t);
+  }, [resendIn]);
 
   const submitDetails = async (event: FormEvent) => {
     event.preventDefault();
@@ -198,7 +209,6 @@ export function SignupPage() {
     setError('');
     setInfo('');
     try {
-      // Cloudflare D1 auth — account is ready immediately (no email OTP).
       const response = await authFetch('/api/auth/register', {
         method: 'POST',
         body: JSON.stringify({
@@ -209,11 +219,19 @@ export function SignupPage() {
       });
       const payload = await readApiJson(response);
       if (!response.ok) throw new Error(payload.error || 'Sign up failed');
-      if (!payload.sessionToken && !payload.id) {
-        throw new Error('Account created but sign-in failed. Please go to Sign in.');
+      if (!payload.challengeId) {
+        throw new Error(payload.error || 'Could not start email verification.');
       }
-      await completeAuthSession(payload as any);
-      afterAuthNavigate(setLocation, payload, '/');
+      setChallengeId(String(payload.challengeId));
+      setMaskedEmail(String(payload.maskedEmail || email));
+      if (payload.verificationCode && payload.devOtp) {
+        setCode(String(payload.verificationCode));
+        setInfo('Dev mode: email is not configured — use the code shown below.');
+      } else {
+        setInfo('We emailed a 6-digit code. It expires in 15 minutes.');
+      }
+      setResendIn(30);
+      setStep('otp');
     } catch (err) {
       setError(friendlyClientError(err, "We couldn't create your account. Please try again."));
     } finally {
@@ -221,57 +239,166 @@ export function SignupPage() {
     }
   };
 
+  const submitOtp = async (event: FormEvent) => {
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const response = await authFetch('/api/auth/verify', {
+        method: 'POST',
+        body: JSON.stringify({ challengeId, code: code.trim() }),
+      });
+      const payload = await readApiJson(response);
+      if (!response.ok) throw new Error(payload.error || 'Verification failed');
+      await completeAuthSession(payload as any);
+      afterAuthNavigate(setLocation, payload, '/');
+    } catch (err) {
+      setError(friendlyClientError(err, 'That code was incorrect or expired.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resend = async () => {
+    if (resendIn > 0 || !challengeId) return;
+    setLoading(true);
+    setError('');
+    try {
+      const response = await authFetch('/api/auth/resend', {
+        method: 'POST',
+        body: JSON.stringify({ challengeId, email: email.trim() }),
+      });
+      const payload = await readApiJson(response);
+      if (!response.ok) throw new Error(payload.error || 'Could not resend');
+      setChallengeId(String(payload.challengeId || challengeId));
+      setMaskedEmail(String(payload.maskedEmail || email));
+      if (payload.verificationCode && payload.devOtp) {
+        setCode(String(payload.verificationCode));
+        setInfo('Dev mode: use the new code shown below.');
+      } else {
+        setInfo('A new code was sent. Check your inbox and spam folder.');
+      }
+      setResendIn(30);
+    } catch (err) {
+      setError(friendlyClientError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <AuthShell
-      title="Create your account"
-      description="Start reviewing CVs and matching roles in minutes. No email code required — you are signed in right away."
+      title={step === 'details' ? 'Create your account' : 'Check your email'}
+      description={
+        step === 'details'
+          ? 'Start reviewing CVs and matching roles in minutes. We will email a verification code to confirm your address.'
+          : `Enter the 6-digit code we sent to ${maskedEmail || email}. Wrong email? Change it below and resend.`
+      }
       footer={
-        <>
-          Already have an account?{' '}
-          <Link href="/login" className="font-semibold text-primary">
-            Sign in
-          </Link>
-        </>
+        step === 'details' ? (
+          <>
+            Already have an account?{' '}
+            <Link href="/login" className="font-semibold text-primary">
+              Sign in
+            </Link>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="font-semibold text-primary"
+            onClick={() => {
+              setStep('details');
+              setCode('');
+              setError('');
+              setInfo('');
+            }}
+          >
+            Change email
+          </button>
+        )
       }
     >
-      <GoogleButton label="Continue with Google" returnTo="/" />
-      <Divider />
-      <form onSubmit={submitDetails} className="space-y-4" data-testid="form-signup">
-        <label className="block">
-          <span className="mb-2 block text-xs font-semibold text-foreground">Email</span>
-          <input
-            type="email"
-            className="field-input"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            autoComplete="email"
-            required
-            data-testid="input-signup-email"
-          />
-        </label>
-        <PasswordField
-          label="Password"
-          value={password}
-          onChange={setPassword}
-          placeholder="At least 8 characters"
-          testId="input-signup-password"
-          autoComplete="new-password"
-        />
-        {info ? <p className="text-xs text-muted-foreground">{info}</p> : null}
-        {error ? <p className="text-xs text-destructive">{error}</p> : null}
-        <button
-          type="submit"
-          disabled={loading || !email.trim() || password.length < 8}
-          className="btn-primary w-full disabled:opacity-50"
-          data-testid="button-signup-submit"
-        >
-          {loading ? 'Creating…' : 'Create account'} <ArrowRight size={15} />
-        </button>
-        <p className="text-center text-[11px] leading-5 text-muted-foreground">
-          By continuing, you agree to BonList&apos;s Terms of Service and Privacy Policy.
-        </p>
-      </form>
+      {step === 'details' ? (
+        <>
+          <GoogleButton label="Continue with Google" returnTo="/" />
+          <Divider />
+          <form onSubmit={submitDetails} className="space-y-4" data-testid="form-signup">
+            <label className="block">
+              <span className="mb-2 block text-xs font-semibold text-foreground">Email</span>
+              <input
+                type="email"
+                className="field-input"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+                required
+                data-testid="input-signup-email"
+              />
+            </label>
+            <PasswordField
+              label="Password"
+              value={password}
+              onChange={setPassword}
+              placeholder="At least 8 characters"
+              testId="input-signup-password"
+              autoComplete="new-password"
+            />
+            {error ? <p className="text-xs text-destructive">{error}</p> : null}
+            <button
+              type="submit"
+              disabled={loading || !email.trim() || password.length < 8}
+              className="btn-primary w-full disabled:opacity-50"
+              data-testid="button-signup-submit"
+            >
+              {loading ? 'Sending code…' : 'Continue'} <ArrowRight size={15} />
+            </button>
+            <p className="text-center text-[11px] leading-5 text-muted-foreground">
+              By continuing, you agree to BonList&apos;s Terms of Service and Privacy Policy.
+            </p>
+          </form>
+        </>
+      ) : (
+        <form onSubmit={submitOtp} className="space-y-5" data-testid="form-signup-otp">
+          {info ? <p className="text-xs text-muted-foreground">{info}</p> : null}
+          <label className="block">
+            <span className="mb-2 block text-xs font-semibold text-foreground">
+              Email for this code
+            </span>
+            <input
+              type="email"
+              className="field-input"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              data-testid="input-signup-otp-email"
+            />
+            <span className="mt-1 block text-[11px] text-muted-foreground">
+              Mistyped your address? Fix it here, then tap Resend code.
+            </span>
+          </label>
+          <OtpBoxes value={code} onChange={setCode} />
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          <button
+            type="submit"
+            disabled={loading || code.length !== 6}
+            className="btn-primary w-full disabled:opacity-50"
+          >
+            {loading ? 'Verifying…' : 'Verify email'}
+          </button>
+          <p className="text-center text-sm text-muted-foreground">
+            Didn&apos;t receive the code?{' '}
+            <button
+              type="button"
+              className="font-semibold text-primary disabled:opacity-50"
+              disabled={resendIn > 0 || loading}
+              onClick={() => void resend()}
+            >
+              {resendIn > 0 ? `Resend in ${resendIn}s` : 'Resend code'}
+            </button>
+          </p>
+        </form>
+      )}
     </AuthShell>
   );
 }
@@ -544,6 +671,7 @@ export function LoginPage() {
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [done, setDone] = useState(false);
+  const [devResetUrl, setDevResetUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -551,13 +679,17 @@ export function ForgotPasswordPage() {
     event.preventDefault();
     setLoading(true);
     setError('');
+    setDevResetUrl('');
     try {
-      const response = await authFetch('/api/career/auth/forgot-password', {
+      const response = await authFetch('/api/auth/forgot-password', {
         method: 'POST',
         body: JSON.stringify({ email: email.trim() }),
       });
       const payload = await readApiJson(response);
       if (!response.ok) throw new Error(payload.error || 'Request failed');
+      if (payload.resetUrl && payload.devOtp) {
+        setDevResetUrl(String(payload.resetUrl));
+      }
       setDone(true);
     } catch (err) {
       setError(friendlyClientError(err));
@@ -577,9 +709,20 @@ export function ForgotPasswordPage() {
       }
     >
       {done ? (
-        <p className="text-sm leading-6 text-muted-foreground">
-          If an account exists for that email, we sent password reset instructions. Check your inbox and spam folder.
-        </p>
+        <div className="space-y-3 text-sm leading-6 text-muted-foreground">
+          <p>
+            If an account exists for that email, we sent password reset instructions. Check your inbox and spam
+            folder.
+          </p>
+          {devResetUrl ? (
+            <p>
+              Dev mode (email not configured):{' '}
+              <a href={devResetUrl} className="font-semibold text-primary break-all">
+                Open reset link
+              </a>
+            </p>
+          ) : null}
+        </div>
       ) : (
         <form onSubmit={submit} className="space-y-4">
           <label className="block">
@@ -615,7 +758,7 @@ export function ResetPasswordPage() {
     setLoading(true);
     setError('');
     try {
-      const response = await authFetch('/api/career/auth/reset-password', {
+      const response = await authFetch('/api/auth/reset-password', {
         method: 'POST',
         body: JSON.stringify({ token, password }),
       });

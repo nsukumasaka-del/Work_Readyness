@@ -1,63 +1,52 @@
 # Cloudflare D1 auth for BonList
 
-## What this gives you
-- Durable **users** + **sessions** in Cloudflare D1 (SQLite) — free tier, survives redeploys
-- Worker routes:
-  - `POST /api/auth/register`
-  - `POST /api/auth/login`
-  - `GET /api/auth/me`
-  - `POST /api/auth/logout`
-- BonList UI aliases (`/api/career/login`, `/api/career/signup`, …) also hit D1
+## Features
+- Durable **users** + **sessions** in D1
+- **Signup email OTP** (verify before account is created)
+- **Forgot / reset password** via emailed link
+- Login is password-only (no OTP)
 
-CV / jobs / diagnostics still proxy to Render via `API_UPSTREAM_URL` when set.
+## Routes
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/api/auth/register` | Start signup + send code |
+| POST | `/api/auth/verify` | Confirm code → create user + session |
+| POST | `/api/auth/resend` | Resend code (optional new email) |
+| POST | `/api/auth/login` | Password login |
+| GET | `/api/auth/me` | Current user |
+| POST | `/api/auth/logout` | End session |
+| POST | `/api/auth/forgot-password` | Email reset link |
+| POST | `/api/auth/reset-password` | Set new password from token |
 
-## One-time setup
+## One-time D1 setup
 
 ```bash
-# 1) Create the D1 database
 npx wrangler d1 create bonlist-db
+# paste database_id into wrangler.toml
 
-# 2) Copy the returned database_id into wrangler.toml:
-#    [[d1_databases]]
-#    binding = "DB"
-#    database_name = "bonlist-db"
-#    database_id = "<paste-id-here>"
-#    preview_database_id = "<paste-id-here>"
-
-# 3) Apply schema (local + production)
-npx wrangler d1 execute bonlist-db --local --file=./workers/d1/schema.sql
 npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/schema.sql
+npx wrangler d1 execute bonlist-db --local --file=./workers/d1/schema.sql
 
-# 4) Deploy Worker + SPA
+# If DB already existed from v1:
+npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0002_email_verification.sql
+npx wrangler d1 execute bonlist-db --local --file=./workers/d1/migrations/0002_email_verification.sql
+```
+
+## Email (Resend)
+
+```bash
+npx wrangler secret put RESEND_API_KEY
+# paste re_... key
+
+npx wrangler secret put EMAIL_FROM
+# e.g. BonList <onboarding@your-verified-domain.com>
+```
+
+For local testing without Resend, set in `wrangler.toml` `[vars]`:
+`AUTH_ALLOW_DEV_OTP = "true"` — codes / reset URLs are returned in the API JSON.
+
+## Deploy
+
+```bash
 pnpm run cf:deploy
 ```
-
-## Verify
-
-```bash
-# Local worker (optional)
-npx wrangler dev -c wrangler.toml
-
-# Register
-curl -i -X POST http://127.0.0.1:8787/api/auth/register \
-  -H "content-type: application/json" \
-  -d "{\"email\":\"you@example.com\",\"password\":\"password123\",\"name\":\"You\"}"
-
-# Login
-curl -i -c cookies.txt -X POST http://127.0.0.1:8787/api/auth/login \
-  -H "content-type: application/json" \
-  -d "{\"email\":\"you@example.com\",\"password\":\"password123\"}"
-
-# Me
-curl -i -b cookies.txt http://127.0.0.1:8787/api/auth/me
-
-# Logout
-curl -i -b cookies.txt -X POST http://127.0.0.1:8787/api/auth/logout
-```
-
-## Files
-- `workers/d1/schema.sql` — D1 tables
-- `workers/d1/crypto.ts` — PBKDF2 via Web Crypto
-- `workers/d1/auth.ts` — auth handlers
-- `workers/gateway.ts` — routes D1 auth first, then proxies other `/api`
-- `wrangler.toml` — `[[d1_databases]]` binding `DB`

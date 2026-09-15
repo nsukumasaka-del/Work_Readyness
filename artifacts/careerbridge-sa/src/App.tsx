@@ -3180,6 +3180,8 @@ function Router() {
           <Route path="/" component={Home} />
           <Route path="/login" component={LoginPage} />
           <Route path="/signup" component={SignupPage} />
+          <Route path="/forgot-password" component={ForgotPasswordPage} />
+          <Route path="/reset-password" component={ResetPasswordPage} />
           <Route path="/profile" component={ProfilePage} />
           <Route path="/diagnostic" component={DiagnosticPage} />
           <Route path="/jobs/:id" component={JobDetailPage} />

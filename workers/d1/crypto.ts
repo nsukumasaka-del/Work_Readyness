@@ -59,6 +59,12 @@ export async function verifyPassword(password: string, stored: string): Promise<
   return diff === 0;
 }
 
+export async function sha256Hex(value: string): Promise<string> {
+  const data = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export function randomId(): string {
   return crypto.randomUUID();
 }
@@ -66,4 +72,9 @@ export function randomId(): string {
 export function randomToken(bytes = 32): string {
   const buf = crypto.getRandomValues(new Uint8Array(bytes));
   return bytesToB64(buf).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export function randomOtpCode(): string {
+  const n = crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000;
+  return String(n).padStart(6, "0");
 }

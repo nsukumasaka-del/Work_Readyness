@@ -303,16 +303,36 @@ async function ensureLocalSchema(
   `);
 }
 
-async function createDatabase() {
-  if (usePglite) {
-    // Prefer an explicit dir. Do NOT derive from import.meta.url — after esbuild
-    // bundles the API into dist/, that path points at dist/ and breaks on Render.
-    const dataDir = path.resolve(
-      process.env.PGLITE_DATA_DIR?.trim() ||
-        path.join(process.cwd(), ".data", "pglite"),
-    );
+async function openPglite(): Promise<PGlite> {
+  // Never derive the data dir from import.meta.url — after esbuild bundles into
+  // dist/, that resolves under dist/ and PGlite fails with ENOENT on pglite.data.
+  const configured = process.env.PGLITE_DATA_DIR?.trim();
+  const dataDir = path.resolve(
+    configured && configured.length > 0
+      ? configured
+      : path.join(process.cwd(), ".data", "pglite"),
+  );
+
+  try {
     mkdirSync(dataDir, { recursive: true });
     const client = new PGlite(dataDir);
+    await client.waitReady;
+    return client;
+  } catch (err) {
+    // Ephemeral hosts / read-only FS: still boot with an in-memory DB.
+    console.warn(
+      `[db] PGlite disk open failed at ${dataDir}; falling back to in-memory.`,
+      err,
+    );
+    const memory = new PGlite();
+    await memory.waitReady;
+    return memory;
+  }
+}
+
+async function createDatabase() {
+  if (usePglite) {
+    const client = await openPglite();
     const db = drizzlePglite(client, { schema });
     await ensureLocalSchema(db);
     return { db, pool: null as pg.Pool | null };

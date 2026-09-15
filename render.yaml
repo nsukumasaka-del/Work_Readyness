@@ -12,7 +12,9 @@ services:
     plan: free
     region: frankfurt
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @workspace/careerbridge-sa run build && pnpm --filter @workspace/api-server run build
-    startCommand: pnpm --filter @workspace/api-server run start
+    # Bake PGLITE_DATA_DIR into start so existing Render services still work
+    # even if blueprint env vars were not re-synced.
+    startCommand: sh -c 'export PGLITE_DATA_DIR="${PGLITE_DATA_DIR:-/tmp/bonlist-pglite}"; export DATABASE_URL="${DATABASE_URL:-pglite}"; pnpm --filter @workspace/api-server run start'
     healthCheckPath: /api/healthz
     envVars:
       - key: NODE_VERSION

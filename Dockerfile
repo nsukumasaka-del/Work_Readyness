@@ -23,6 +23,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
 ENV DATABASE_URL=pglite
+ENV PGLITE_DATA_DIR=/tmp/bonlist-pglite
 ENV STATIC_DIR=/app/artifacts/careerbridge-sa/dist/public
 RUN corepack enable
 COPY --from=build /app /app

@@ -156,6 +156,9 @@ importers:
 
   artifacts/api-server:
     dependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.3.15
+        version: 0.3.16
       '@simplewebauthn/server':
         specifier: ^14.0.2
         version: 14.0.2

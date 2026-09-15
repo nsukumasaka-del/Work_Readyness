@@ -1,7 +1,7 @@
 import { readStoredProfile } from "@/lib/entitlements";
 
 export type CareerProfile = {
-  id: number;
+  id: number | string;
   name: string;
   email: string;
   phone?: string;

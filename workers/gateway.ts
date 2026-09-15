@@ -1,11 +1,12 @@
 /**
  * Cloudflare Worker gateway for BonList.
- * - Proxies /api/* to the Express API (API_UPSTREAM_URL)
+ * - Handles /api/auth/* (and BonList career auth aliases) on Cloudflare D1
+ * - Proxies other /api/* to the Express API (API_UPSTREAM_URL) when configured
  * - Serves the Vite SPA from static assets for everything else
- *
- * Without API_UPSTREAM_URL, /api requests return a clear JSON error instead of HTTP 405.
  */
-export interface Env {
+import { handleD1Auth, type D1Env } from "./d1/auth";
+
+export interface Env extends D1Env {
   ASSETS: Fetcher;
   API_UPSTREAM_URL?: string;
 }
@@ -53,6 +54,12 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+      // Durable auth on D1 — never depends on Render / PGlite.
+      if (env.DB) {
+        const authResponse = await handleD1Auth(request, env);
+        if (authResponse) return authResponse;
+      }
+
       const upstream = String(env.API_UPSTREAM_URL || "")
         .trim()
         .replace(/\/+$/, "");
@@ -60,7 +67,7 @@ export default {
       if (!upstream) {
         return jsonError(
           503,
-          "BonList API is not connected yet. In Cloudflare → Worker → Settings → Variables, set API_UPSTREAM_URL to your API server URL (the Node server that serves /api).",
+          "This BonList API route needs the Node API. In Cloudflare → Worker → Settings → Variables, set API_UPSTREAM_URL to your Render API URL (e.g. https://bonlist-api-….onrender.com).",
         );
       }
 

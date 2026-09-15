@@ -1,15 +1,23 @@
-# BonList — Cloudflare Worker (static SPA + /api gateway)
+# BonList — Cloudflare Worker (static SPA + D1 auth + optional /api gateway)
 #
-# Cloudflare dashboard → Workers & Pages → bonlist → Settings → Variables:
+# Auth (login/register/sessions) runs on Cloudflare D1 — free & durable.
+# Optional: set API_UPSTREAM_URL for CV/jobs/coaching Express routes on Render.
+#
 #   API_UPSTREAM_URL = https://YOUR-NODE-API-HOST   (no trailing slash)
 #
-# That upstream must be the Express api-server (serves /api/*).
-# Deploy command can stay: npx wrangler deploy
+# Deploy: pnpm run cf:deploy
 
 name = "bonlist"
 main = "workers/gateway.ts"
 compatibility_date = "2025-09-01"
 workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bonlist-db"
+# Replace after: npx wrangler d1 create bonlist-db
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+preview_database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
 [assets]
 directory = "./artifacts/careerbridge-sa/dist/public"

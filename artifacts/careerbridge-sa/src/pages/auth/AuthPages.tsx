@@ -208,12 +208,21 @@ export function SignupPage() {
     setLoading(true);
     setError('');
     try {
-      const response = await authFetch('/api/career/signup', {
+      // Prefer durable Cloudflare D1 register; falls back to legacy OTP signup path naming.
+      const response = await authFetch('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ email: email.trim(), password, name: email.trim().split('@')[0] }),
       });
       const payload = await readApiJson(response);
       if (!response.ok) throw new Error(payload.error || 'Sign up failed');
+
+      // D1 register returns a session immediately (no email OTP required).
+      if (payload.sessionToken || payload.id) {
+        await completeAuthSession(payload as any);
+        afterAuthNavigate(setLocation, payload, '/');
+        return;
+      }
+
       setChallengeId(payload.challengeId);
       setMaskedEmail(payload.maskedEmail || email);
       if (payload.verificationCode && payload.devOtp) {
@@ -409,7 +418,7 @@ export function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      const response = await authFetch('/api/career/login', {
+      const response = await authFetch('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email: email.trim(), password }),
       });
@@ -796,7 +805,7 @@ export function SecuritySettingsPage() {
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
-    const response = await authFetch('/api/career/auth/me');
+    const response = await authFetch('/api/auth/me');
     const payload = await readApiJson(response);
     if (!response.ok) {
       setLocation('/login');
@@ -872,7 +881,7 @@ export function SecuritySettingsPage() {
   };
 
   const logoutAll = async () => {
-    await authFetch('/api/career/auth/logout-all', { method: 'POST', body: '{}' });
+    await authFetch('/api/auth/logout', { method: 'POST', body: '{}' });
     setInfo('Signed out of other devices.');
     await load();
   };

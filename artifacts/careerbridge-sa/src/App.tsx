@@ -682,7 +682,7 @@ function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   const handleLogout = () => {
-    void authFetch('/api/career/auth/logout', { method: 'POST', body: '{}' }).catch(() => undefined);
+    void authFetch('/api/auth/logout', { method: 'POST', body: '{}' }).catch(() => undefined);
     clearAuthSession();
     setProfile(null);
     setIsAdmin(false);

@@ -15,9 +15,8 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "bonlist-db"
-# Replace after: npx wrangler d1 create bonlist-db
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
-preview_database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "32f06e98-d912-43ce-9ebf-206c82224b6e"
+preview_database_id = "32f06e98-d912-43ce-9ebf-206c82224b6e"
 
 [assets]
 directory = "./artifacts/careerbridge-sa/dist/public"

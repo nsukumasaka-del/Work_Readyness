@@ -17,6 +17,9 @@ workers_dev = true
 API_UPSTREAM_URL = "https://bonlist-api-yj0d.onrender.com"
 # Set to "true" only while testing without Resend — returns codes/links in API JSON.
 AUTH_ALLOW_DEV_OTP = "true"
+# Primary admin (D1). Password can also be set as a Worker secret PRIMARY_ADMIN_PASSWORD.
+PRIMARY_ADMIN_EMAIL = "nsukumasaka@gmail.com"
+PRIMARY_ADMIN_NAME = "Ntokozo Sukumasaka"
 # Public site origin used in password-reset emails (optional; defaults to request origin).
 # APP_BASE_URL = "https://bonlist.nsukumasaka.workers.dev"
 

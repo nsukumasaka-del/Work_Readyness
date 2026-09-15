@@ -23,6 +23,9 @@ const RESET_HOURS = 1;
 export type D1Env = MailEnv & {
   DB: D1Database;
   API_UPSTREAM_URL?: string;
+  PRIMARY_ADMIN_EMAIL?: string;
+  PRIMARY_ADMIN_PASSWORD?: string;
+  PRIMARY_ADMIN_NAME?: string;
 };
 
 type UserRow = {
@@ -31,6 +34,7 @@ type UserRow = {
   password_hash: string;
   name: string;
   email_verified?: number;
+  is_admin?: number;
   created_at: string;
 };
 
@@ -139,7 +143,22 @@ function appOrigin(request: Request, env: D1Env): string {
   return new URL(request.url).origin;
 }
 
-function toAuthPayload(user: UserRow, sessionToken?: string) {
+function primaryAdminConfig(env: D1Env) {
+  return {
+    email: String(env.PRIMARY_ADMIN_EMAIL || "nsukumasaka@gmail.com")
+      .trim()
+      .toLowerCase(),
+    password: String(env.PRIMARY_ADMIN_PASSWORD || "Bohlale.99"),
+    name: String(env.PRIMARY_ADMIN_NAME || "Ntokozo Sukumasaka").trim() || "Ntokozo Sukumasaka",
+  };
+}
+
+function toAuthPayload(
+  user: UserRow,
+  sessionToken?: string,
+  extras?: { adminToken?: string; isPrimaryAdmin?: boolean },
+) {
+  const isAdmin = Boolean(user.is_admin);
   return {
     id: user.id,
     name: user.name || nameFromEmail(user.email),
@@ -149,6 +168,13 @@ function toAuthPayload(user: UserRow, sessionToken?: string) {
     sessionToken,
     emailVerified: Boolean(user.email_verified ?? 1),
     mfaEnabled: false,
+    isAdmin: isAdmin && Boolean(extras?.adminToken || sessionToken),
+    adminToken: isAdmin ? extras?.adminToken || sessionToken : undefined,
+    adminName: isAdmin ? user.name || nameFromEmail(user.email) : undefined,
+    isPrimaryAdmin: Boolean(extras?.isPrimaryAdmin ?? isAdmin),
+    // Signup uses email OTP only — never force authenticator MFA after login.
+    adminRequiresMfaSetup: false,
+    showSecurityNudge: false,
   };
 }
 
@@ -156,10 +182,95 @@ async function findUserByEmail(db: D1Database, email: string): Promise<UserRow |
   return (
     (await db
       .prepare(
-        "SELECT id, email, password_hash, name, email_verified, created_at FROM users WHERE email = ? COLLATE NOCASE LIMIT 1",
+        "SELECT id, email, password_hash, name, email_verified, is_admin, created_at FROM users WHERE email = ? COLLATE NOCASE LIMIT 1",
       )
       .bind(email.toLowerCase())
       .first<UserRow>()) || null
+  );
+}
+
+/** Ensure the primary admin account exists in D1 with a known password. */
+async function ensurePrimaryAdmin(env: D1Env): Promise<UserRow> {
+  const primary = primaryAdminConfig(env);
+  const existing = await findUserByEmail(env.DB, primary.email);
+  const passwordHash = await hashPassword(primary.password);
+
+  if (!existing) {
+    const id = randomId();
+    await env.DB.prepare(
+      `INSERT INTO users (id, email, password_hash, name, email_verified, is_admin, created_at)
+       VALUES (?, ?, ?, ?, 1, 1, datetime('now'))`,
+    )
+      .bind(id, primary.email, passwordHash, primary.name)
+      .run();
+    return (await findUserByEmail(env.DB, primary.email))!;
+  }
+
+  const passwordOk = await verifyPassword(primary.password, existing.password_hash);
+  if (!passwordOk || !existing.is_admin || existing.email_verified === 0 || existing.name !== primary.name) {
+    await env.DB.prepare(
+      `UPDATE users
+       SET password_hash = ?, name = ?, email_verified = 1, is_admin = 1
+       WHERE id = ?`,
+    )
+      .bind(passwordOk ? existing.password_hash : passwordHash, primary.name, existing.id)
+      .run();
+  }
+
+  return (await findUserByEmail(env.DB, primary.email))!;
+}
+
+/** Ask Render API for an admin dashboard token (admin_sessions live there). */
+async function mintUpstreamAdminToken(
+  env: D1Env,
+  email: string,
+  password: string,
+): Promise<string | null> {
+  const upstream = String(env.API_UPSTREAM_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  if (!upstream) return null;
+
+  try {
+    const response = await fetch(`${upstream}/api/career/login`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (typeof data.adminToken === "string" && data.adminToken) return data.adminToken;
+    return null;
+  } catch (err) {
+    console.error("[bonlist-auth] upstream admin mint failed", err);
+    return null;
+  }
+}
+
+async function buildLoginResponse(
+  request: Request,
+  env: D1Env,
+  user: UserRow,
+  password: string,
+): Promise<Response> {
+  const { token, expiresAt } = await createSession(env.DB, user.id);
+  const headers = new Headers();
+  headers.append("Set-Cookie", sessionCookie(token, expiresAt, isSecureRequest(request)));
+
+  let adminToken: string | undefined;
+  if (user.is_admin) {
+    adminToken = (await mintUpstreamAdminToken(env, user.email, password)) || token;
+  }
+
+  return json(
+    toAuthPayload(user, token, {
+      adminToken,
+      isPrimaryAdmin: Boolean(user.is_admin),
+    }),
+    200,
+    headers,
   );
 }
 
@@ -183,7 +294,7 @@ async function resolveSession(
   const row = await db
     .prepare(
       `SELECT s.id AS session_id, s.user_id, s.token, s.expires_at, s.created_at AS session_created_at,
-              u.id AS id, u.email, u.password_hash, u.name, u.email_verified, u.created_at
+              u.id AS id, u.email, u.password_hash, u.name, u.email_verified, u.is_admin, u.created_at
        FROM sessions s
        INNER JOIN users u ON u.id = s.user_id
        WHERE s.token = ?
@@ -213,6 +324,7 @@ async function resolveSession(
       password_hash: row.password_hash,
       name: row.name,
       email_verified: row.email_verified,
+      is_admin: row.is_admin,
       created_at: row.created_at,
     },
     session: {
@@ -269,6 +381,8 @@ async function issueSignupChallenge(
 
 /** Start signup: store pending credentials + email a 6-digit code (no session yet). */
 export async function handleRegister(request: Request, env: D1Env): Promise<Response> {
+  await ensurePrimaryAdmin(env);
+
   const body = await readJsonBody(request);
   const email = String(body.email || "")
     .trim()
@@ -350,8 +464,8 @@ export async function handleVerifySignup(request: Request, env: D1Env): Promise<
   const userId = randomId();
   try {
     await env.DB.prepare(
-      `INSERT INTO users (id, email, password_hash, name, email_verified, created_at)
-       VALUES (?, ?, ?, ?, 1, datetime('now'))`,
+      `INSERT INTO users (id, email, password_hash, name, email_verified, is_admin, created_at)
+       VALUES (?, ?, ?, ?, 1, 0, datetime('now'))`,
     )
       .bind(userId, challenge.email.toLowerCase(), challenge.password_hash, challenge.name || nameFromEmail(challenge.email))
       .run();
@@ -422,6 +536,8 @@ export async function handleResendSignup(request: Request, env: D1Env): Promise<
 }
 
 export async function handleLogin(request: Request, env: D1Env): Promise<Response> {
+  await ensurePrimaryAdmin(env);
+
   const body = await readJsonBody(request);
   const email = String(body.email || "")
     .trim()
@@ -438,10 +554,7 @@ export async function handleLogin(request: Request, env: D1Env): Promise<Respons
     return error(403, "Please verify your email before signing in. Complete signup with the code we emailed you.");
   }
 
-  const { token, expiresAt } = await createSession(env.DB, user.id);
-  const headers = new Headers();
-  headers.append("Set-Cookie", sessionCookie(token, expiresAt, isSecureRequest(request)));
-  return json(toAuthPayload(user, token), 200, headers);
+  return buildLoginResponse(request, env, user, password);
 }
 
 export async function handleMe(request: Request, env: D1Env): Promise<Response> {
@@ -451,7 +564,13 @@ export async function handleMe(request: Request, env: D1Env): Promise<Response> 
   const resolved = await resolveSession(env.DB, token);
   if (!resolved) return error(401, "Your session has expired. Please sign in again.");
 
-  return json(toAuthPayload(resolved.user, token));
+  const user = resolved.user;
+  return json(
+    toAuthPayload(user, token, {
+      adminToken: user.is_admin ? token : undefined,
+      isPrimaryAdmin: Boolean(user.is_admin),
+    }),
+  );
 }
 
 export async function handleLogout(request: Request, env: D1Env): Promise<Response> {

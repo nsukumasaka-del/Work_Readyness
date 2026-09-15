@@ -164,16 +164,17 @@ function afterAuthNavigate(
   payload: Record<string, any>,
   fallback = '/',
 ) {
+  // Prefer admin home when we already have admin access (MFA is not required for login).
+  if (payload.isAdmin && payload.adminToken) {
+    setLocation('/admin');
+    return;
+  }
   if (payload.adminRequiresMfaSetup) {
     setLocation('/security/admin-mfa');
     return;
   }
   if (payload.requiresMfa && payload.mfaToken) {
     setLocation(`/login?mfaToken=${payload.mfaToken}`);
-    return;
-  }
-  if (payload.isAdmin) {
-    setLocation('/admin');
     return;
   }
   setLocation(fallback);
@@ -226,7 +227,9 @@ export function SignupPage() {
       setMaskedEmail(String(payload.maskedEmail || email));
       if (payload.verificationCode && payload.devOtp) {
         setCode(String(payload.verificationCode));
-        setInfo('Dev mode: email is not configured — use the code shown below.');
+        setInfo(
+          `Dev mode: email delivery is not configured yet. Your signup verification code is ${payload.verificationCode}.`,
+        );
       } else {
         setInfo('We emailed a 6-digit code. It expires in 15 minutes.');
       }
@@ -361,6 +364,11 @@ export function SignupPage() {
       ) : (
         <form onSubmit={submitOtp} className="space-y-5" data-testid="form-signup-otp">
           {info ? <p className="text-xs text-muted-foreground">{info}</p> : null}
+          {code.length === 6 && info.includes('verification code is') ? (
+            <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-center text-lg font-semibold tracking-[0.35em]">
+              {code}
+            </p>
+          ) : null}
           <label className="block">
             <span className="mb-2 block text-xs font-semibold text-foreground">
               Email for this code

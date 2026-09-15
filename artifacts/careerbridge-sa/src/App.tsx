@@ -3182,6 +3182,8 @@ function Router() {
           <Route path="/signup" component={SignupPage} />
           <Route path="/forgot-password" component={ForgotPasswordPage} />
           <Route path="/reset-password" component={ResetPasswordPage} />
+          <Route path="/settings/security" component={SecuritySettingsPage} />
+          <Route path="/security/admin-mfa" component={AdminMfaSetupPage} />
           <Route path="/profile" component={ProfilePage} />
           <Route path="/diagnostic" component={DiagnosticPage} />
           <Route path="/jobs/:id" component={JobDetailPage} />

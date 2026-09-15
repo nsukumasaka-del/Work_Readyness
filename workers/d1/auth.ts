@@ -311,7 +311,13 @@ export async function handleD1Auth(request: Request, env: D1Env): Promise<Respon
     }
     return error(
       400,
-      "Email verification is not required with BonList D1 auth. Please sign in with your password.",
+      "Email verification is not required. Please sign in with your email and password.",
+    );
+  }
+  if (method === "POST" && path === "/api/career/auth/resend") {
+    return error(
+      400,
+      "Email codes are not used with BonList cloud auth. Sign in with your password instead.",
     );
   }
 

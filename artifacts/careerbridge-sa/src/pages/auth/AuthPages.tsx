@@ -181,56 +181,39 @@ function afterAuthNavigate(
 
 export function SignupPage() {
   const [, setLocation] = useLocation();
-  const [step, setStep] = useState<'details' | 'otp'>('details');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [challengeId, setChallengeId] = useState('');
-  const [maskedEmail, setMaskedEmail] = useState('');
-  const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
-  const [resendIn, setResendIn] = useState(0);
 
   useEffect(() => {
     if (isAdminUser()) setLocation('/admin');
     else if (hasProfile()) setLocation('/');
   }, [setLocation]);
 
-  useEffect(() => {
-    if (resendIn <= 0) return;
-    const t = window.setTimeout(() => setResendIn((s) => s - 1), 1000);
-    return () => window.clearTimeout(t);
-  }, [resendIn]);
-
   const submitDetails = async (event: FormEvent) => {
     event.preventDefault();
     setLoading(true);
     setError('');
+    setInfo('');
     try {
-      // Prefer durable Cloudflare D1 register; falls back to legacy OTP signup path naming.
+      // Cloudflare D1 auth — account is ready immediately (no email OTP).
       const response = await authFetch('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim(), password, name: email.trim().split('@')[0] }),
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          name: email.trim().split('@')[0] || 'BonList user',
+        }),
       });
       const payload = await readApiJson(response);
       if (!response.ok) throw new Error(payload.error || 'Sign up failed');
-
-      // D1 register returns a session immediately (no email OTP required).
-      if (payload.sessionToken || payload.id) {
-        await completeAuthSession(payload as any);
-        afterAuthNavigate(setLocation, payload, '/');
-        return;
+      if (!payload.sessionToken && !payload.id) {
+        throw new Error('Account created but sign-in failed. Please go to Sign in.');
       }
-
-      setChallengeId(payload.challengeId);
-      setMaskedEmail(payload.maskedEmail || email);
-      if (payload.verificationCode && payload.devOtp) {
-        setCode(String(payload.verificationCode));
-        setInfo('Dev mode: use the code shown below (email is not configured).');
-      }
-      setResendIn(30);
-      setStep('otp');
+      await completeAuthSession(payload as any);
+      afterAuthNavigate(setLocation, payload, '/');
     } catch (err) {
       setError(friendlyClientError(err, "We couldn't create your account. Please try again."));
     } finally {
@@ -238,136 +221,57 @@ export function SignupPage() {
     }
   };
 
-  const submitOtp = async (event: FormEvent) => {
-    event.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      const response = await authFetch('/api/career/auth/verify', {
-        method: 'POST',
-        body: JSON.stringify({ challengeId, code: code.trim() }),
-      });
-      const payload = await readApiJson(response);
-      if (!response.ok) throw new Error(payload.error || 'Verification failed');
-      await completeAuthSession(payload as any);
-      afterAuthNavigate(setLocation, payload, '/');
-    } catch (err) {
-      setError(friendlyClientError(err, 'That code was incorrect or expired.'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resend = async () => {
-    if (resendIn > 0) return;
-    setLoading(true);
-    setError('');
-    try {
-      const response = await authFetch('/api/career/auth/resend', {
-        method: 'POST',
-        body: JSON.stringify({ challengeId, email }),
-      });
-      const payload = await readApiJson(response);
-      if (!response.ok) throw new Error(payload.error || 'Could not resend');
-      setChallengeId(payload.challengeId);
-      if (payload.verificationCode && payload.devOtp) setCode(String(payload.verificationCode));
-      setResendIn(30);
-      setInfo('A new code was sent.');
-    } catch (err) {
-      setError(friendlyClientError(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <AuthShell
-      title={step === 'details' ? 'Create your account' : 'Check your email'}
-      description={
-        step === 'details'
-          ? 'Start reviewing CVs and matching roles in minutes.'
-          : `We sent a 6-digit verification code to ${maskedEmail || email}`
-      }
+      title="Create your account"
+      description="Start reviewing CVs and matching roles in minutes. No email code required — you are signed in right away."
       footer={
-        step === 'details' ? (
-          <>
-            Already have an account?{' '}
-            <Link href="/login" className="font-semibold text-primary">
-              Sign in
-            </Link>
-          </>
-        ) : (
-          <button type="button" className="font-semibold text-primary" onClick={() => setStep('details')}>
-            Change email
-          </button>
-        )
+        <>
+          Already have an account?{' '}
+          <Link href="/login" className="font-semibold text-primary">
+            Sign in
+          </Link>
+        </>
       }
     >
-      {step === 'details' ? (
-        <>
-          <GoogleButton label="Continue with Google" returnTo="/" />
-          <Divider />
-          <form onSubmit={submitDetails} className="space-y-4" data-testid="form-signup">
-            <label className="block">
-              <span className="mb-2 block text-xs font-semibold text-foreground">Email</span>
-              <input
-                type="email"
-                className="field-input"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                autoComplete="email"
-                required
-                data-testid="input-signup-email"
-              />
-            </label>
-            <PasswordField
-              label="Password"
-              value={password}
-              onChange={setPassword}
-              placeholder="At least 8 characters"
-              testId="input-signup-password"
-              autoComplete="new-password"
-            />
-            {error ? <p className="text-xs text-destructive">{error}</p> : null}
-            <button
-              type="submit"
-              disabled={loading || !email.trim() || password.length < 8}
-              className="btn-primary w-full disabled:opacity-50"
-              data-testid="button-signup-submit"
-            >
-              {loading ? 'Creating…' : 'Create account'} <ArrowRight size={15} />
-            </button>
-            <p className="text-center text-[11px] leading-5 text-muted-foreground">
-              By continuing, you agree to BonList&apos;s Terms of Service and Privacy Policy.
-            </p>
-          </form>
-        </>
-      ) : (
-        <form onSubmit={submitOtp} className="space-y-5" data-testid="form-signup-otp">
-          {info ? <p className="text-xs text-muted-foreground">{info}</p> : null}
-          <OtpBoxes value={code} onChange={setCode} />
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
-          <button
-            type="submit"
-            disabled={loading || code.length !== 6}
-            className="btn-primary w-full disabled:opacity-50"
-          >
-            {loading ? 'Verifying…' : 'Verify email'}
-          </button>
-          <p className="text-center text-sm text-muted-foreground">
-            Didn&apos;t receive the code?{' '}
-            <button
-              type="button"
-              className="font-semibold text-primary disabled:opacity-50"
-              disabled={resendIn > 0 || loading}
-              onClick={() => void resend()}
-            >
-              {resendIn > 0 ? `Resend in ${resendIn}s` : 'Resend code'}
-            </button>
-          </p>
-        </form>
-      )}
+      <GoogleButton label="Continue with Google" returnTo="/" />
+      <Divider />
+      <form onSubmit={submitDetails} className="space-y-4" data-testid="form-signup">
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold text-foreground">Email</span>
+          <input
+            type="email"
+            className="field-input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            autoComplete="email"
+            required
+            data-testid="input-signup-email"
+          />
+        </label>
+        <PasswordField
+          label="Password"
+          value={password}
+          onChange={setPassword}
+          placeholder="At least 8 characters"
+          testId="input-signup-password"
+          autoComplete="new-password"
+        />
+        {info ? <p className="text-xs text-muted-foreground">{info}</p> : null}
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        <button
+          type="submit"
+          disabled={loading || !email.trim() || password.length < 8}
+          className="btn-primary w-full disabled:opacity-50"
+          data-testid="button-signup-submit"
+        >
+          {loading ? 'Creating…' : 'Create account'} <ArrowRight size={15} />
+        </button>
+        <p className="text-center text-[11px] leading-5 text-muted-foreground">
+          By continuing, you agree to BonList&apos;s Terms of Service and Privacy Policy.
+        </p>
+      </form>
     </AuthShell>
   );
 }

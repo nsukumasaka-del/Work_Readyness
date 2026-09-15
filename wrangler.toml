@@ -12,6 +12,10 @@ main = "workers/gateway.ts"
 compatibility_date = "2025-09-01"
 workers_dev = true
 
+# CV / jobs / diagnostics API (Render). Auth itself uses D1 and does not need this.
+[vars]
+API_UPSTREAM_URL = "https://bonlist-api-yj0d.onrender.com"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "bonlist-db"

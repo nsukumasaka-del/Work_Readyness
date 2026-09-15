@@ -35,6 +35,7 @@ export const diagnosticReportsTable = pgTable("career_diagnostic_reports", {
   profileEmail: text("profile_email"),
   targetRole: text("target_role"),
   status: text("status").notNull().default("completed"),
+  reportJson: text("report_json"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

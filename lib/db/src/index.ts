@@ -129,6 +129,7 @@ async function ensureLocalSchema(
   await db.execute(sql`ALTER TABLE career_diagnostic_reports ADD COLUMN IF NOT EXISTS profile_email text`);
   await db.execute(sql`ALTER TABLE career_diagnostic_reports ADD COLUMN IF NOT EXISTS target_role text`);
   await db.execute(sql`ALTER TABLE career_diagnostic_reports ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'completed'`);
+  await db.execute(sql`ALTER TABLE career_diagnostic_reports ADD COLUMN IF NOT EXISTS report_json text`);
   await db.execute(sql`ALTER TABLE career_coaching_applications ADD COLUMN IF NOT EXISTS priority text NOT NULL DEFAULT 'normal'`);
   await db.execute(sql`ALTER TABLE career_coaching_applications ADD COLUMN IF NOT EXISTS assigned_coach text`);
   await db.execute(sql`ALTER TABLE career_coaching_applications ADD COLUMN IF NOT EXISTS internal_notes text`);

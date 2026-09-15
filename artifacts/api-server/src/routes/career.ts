@@ -4,7 +4,6 @@ import {
   ApplyForCoachingResponse,
   AskSmokeyBody,
   AskSmokeyResponse,
-  CreateDiagnosticBody,
   CreateDiagnosticResponse,
   CreateProfileBody,
   CreateProfileResponse,
@@ -281,6 +280,39 @@ async function ensureJobs() {
   }
 }
 
+function documentFromExtracted(extracted: ExtractedCvData, targetRole: string): GeneratedCvDocument {
+  return {
+    structure: "classic",
+    structureLabel: "Classic",
+    structureDescription: "Diagnostic analysis document",
+    templateType: "single_column",
+    fullName: extracted.personal?.fullName || "Candidate",
+    headline: extracted.personal?.professionalTitle || targetRole || "Professional",
+    contactLine: [extracted.personal?.email, extracted.personal?.phone, extracted.personal?.location]
+      .filter(Boolean)
+      .join(" · "),
+    email: extracted.personal?.email || "",
+    phone: extracted.personal?.phone,
+    location: extracted.personal?.location,
+    linkedin: extracted.personal?.linkedin,
+    website: extracted.personal?.website,
+    summary: extracted.summary || "",
+    experiences: extracted.experiences || [],
+    education: extracted.education || [],
+    skillGroups: [],
+    skills: extracted.skills || [],
+    projects: extracted.projects,
+    certifications: extracted.certifications,
+    languages: extracted.languages,
+    references: extracted.references,
+    keywords: extracted.skills || [],
+    sections: [],
+    footerNote: "",
+    authenticityScore: 80,
+    aiFeedback: extracted.ai_feedback,
+  };
+}
+
 function buildDiagnosticPayload(input: {
   fileName: string;
   role?: string;
@@ -305,10 +337,31 @@ function buildDiagnosticPayload(input: {
     queriedBoards: string[];
     liveResults: boolean;
   };
+  analysis?: {
+    authenticityScore: number;
+    atsScore: number;
+    overallScore: number;
+    scores: {
+      clarity: number;
+      impact: number;
+      structure: number;
+      keywordFit: number;
+      authenticity: number;
+      ats: number;
+    };
+    strengths: Array<{ title: string; detail: string; priority?: string }>;
+    improvements: Array<{ title: string; detail: string; priority?: string }>;
+    sectionReviews: Array<{ section: string; score: number; status: string; findings: string[] }>;
+    flaggedPhrases: string[];
+    missingKeywords: string[];
+    rewriteExamples: Array<{ before: string; after: string }>;
+    prompts: string[];
+    summary: string;
+  };
 }) {
   const targetRole = input.role?.trim() || "Marketing & Growth";
   const locationLabel = input.location?.trim() || "South Africa";
-  const scores = {
+  const scores = input.analysis?.scores ?? {
     clarity: 74,
     impact: 61,
     structure: 79,
@@ -316,23 +369,27 @@ function buildDiagnosticPayload(input: {
     authenticity: 82,
     ats: 68,
   };
-  const overallScore = Math.round(
-    (scores.clarity + scores.impact + scores.structure + scores.keywordFit + scores.authenticity + scores.ats) / 6,
-  );
+  const overallScore =
+    input.analysis?.overallScore ??
+    Math.round(
+      (scores.clarity + scores.impact + scores.structure + scores.keywordFit + scores.authenticity + scores.ats) / 6,
+    );
   const searchNote = input.jobSearch.liveResults
     ? ` We also searched trusted boards (${input.jobSearch.queriedBoards.slice(0, 4).join(", ")}) for recently listed ${targetRole} roles in ${locationLabel}.`
     : ` Live board search was limited just now, so recommendations use verified BonList matches while we keep querying trusted SA boards.`;
+
+  const defaultSummary = `Your CV reads as credible for ${targetRole}, with solid structure and authentic voice. Impact language is the main gap — recruiters in ${locationLabel} need clearer proof of what changed because of your work.${searchNote}`;
 
   return {
     id: input.reportId,
     fileName: input.fileName,
     targetRole,
-    summary: `Your CV reads as credible for ${targetRole}, with solid structure and authentic voice. Impact language is the main gap — recruiters in ${locationLabel} need clearer proof of what changed because of your work.${searchNote}`,
+    summary: input.analysis?.summary ? `${input.analysis.summary}${searchNote}` : defaultSummary,
     overallScore,
-    authenticityScore: scores.authenticity,
-    atsScore: scores.ats,
+    authenticityScore: input.analysis?.authenticityScore ?? scores.authenticity,
+    atsScore: input.analysis?.atsScore ?? scores.ats,
     scores,
-    strengths: [
+    strengths: input.analysis?.strengths ?? [
       {
         title: "Clear professional through-line",
         detail: "Your experience progression is easy to follow and supports a coherent career story.",
@@ -346,7 +403,7 @@ function buildDiagnosticPayload(input: {
         detail: "Headings and ordering help both humans and ATS parsers scan quickly.",
       },
     ],
-    improvements: [
+    improvements: input.analysis?.improvements ?? [
       {
         priority: "high",
         title: "Quantify outcomes, not activity",
@@ -368,7 +425,7 @@ function buildDiagnosticPayload(input: {
         detail: `Mirror language from live ${targetRole} postings only where your experience can prove it.`,
       },
     ],
-    sectionReviews: [
+    sectionReviews: input.analysis?.sectionReviews ?? [
       {
         section: "Professional summary",
         score: 71,
@@ -406,25 +463,32 @@ function buildDiagnosticPayload(input: {
         ],
       },
     ],
-    flaggedPhrases: ["results-driven", "spearheaded", "delve", "passionate about", "team player"],
-    missingKeywords: [
+    flaggedPhrases: input.analysis?.flaggedPhrases ?? [
+      "results-driven",
+      "spearheaded",
+      "delve",
+      "passionate about",
+      "team player",
+    ],
+    missingKeywords: input.analysis?.missingKeywords ?? [
       "Lifecycle marketing",
       "Go-to-market",
       "CRM",
       "Stakeholder management",
       "Campaign analytics",
     ],
-    rewriteExamples: [
+    rewriteExamples: input.analysis?.rewriteExamples ?? [
       {
         before: "Spearheaded campaigns to drive engagement across channels.",
-        after: "Owned a 3-channel lifecycle campaign that lifted email click-through from 2.1% to 3.4% in one quarter.",
+        after:
+          "Owned a 3-channel lifecycle campaign that lifted email click-through from 2.1% to 3.4% in one quarter.",
       },
       {
         before: "Results-driven marketer with strong communication skills.",
         after: `${targetRole} candidate who improved qualified lead volume by 20% through clearer messaging and tighter CRM handoffs.`,
       },
     ],
-    prompts: [
+    prompts: input.analysis?.prompts ?? [
       "What changed because of your work? Add a measurable outcome with a baseline.",
       "Name the audience, channel, budget, or team size you owned.",
       "Replace one general claim with a single real example a hiring manager can verify.",
@@ -434,6 +498,175 @@ function buildDiagnosticPayload(input: {
     jobSearch: input.jobSearch,
   };
 }
+
+function analyzeUploadedCv(params: {
+  extracted: ExtractedCvData;
+  targetRole: string;
+  locationLabel: string;
+}) {
+  const { extracted, targetRole, locationLabel } = params;
+  const doc = documentFromExtracted(extracted, targetRole);
+  const ats = evaluateAts(doc, targetRole);
+  const quality = evaluateQualityScore(doc, targetRole);
+  const authenticity = auditAuthenticity(doc, { userProvidedMetrics: true });
+
+  const allBullets = doc.experiences.flatMap((e) => e.bullets);
+  const rewriteExamples = (ats.weakBullets || [])
+    .slice(0, 3)
+    .map((item) => ({
+      before: item.bullet,
+      after: item.suggestedImprovement || item.bullet,
+    }));
+
+  const flaggedPhrases = authenticity.flaggedItems
+    .map((item) => {
+      const match = /"([^"]+)"/.exec(item.reason);
+      return match?.[1] || item.text.slice(0, 40);
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+
+  const strengths: Array<{ title: string; detail: string }> = [];
+  if (doc.summary.length >= 80) {
+    strengths.push({
+      title: "Professional summary present",
+      detail: "Your summary gives recruiters a readable opening for your story.",
+    });
+  }
+  if (doc.experiences.length >= 1) {
+    strengths.push({
+      title: "Work history detected",
+      detail: `${doc.experiences.length} role${doc.experiences.length === 1 ? "" : "s"} parsed from your upload.`,
+    });
+  }
+  if (doc.skills.length >= 4) {
+    strengths.push({
+      title: "Skills section readable",
+      detail: `${doc.skills.length} skills indexed for ATS and keyword matching.`,
+    });
+  }
+  if (authenticity.score >= 85) {
+    strengths.push({
+      title: "Authentic voice",
+      detail: "Low buzzword density — your wording reads closer to real experience than template filler.",
+    });
+  }
+  if (strengths.length === 0) {
+    strengths.push({
+      title: "Document accepted",
+      detail: "We could read your CV text. Next edits should focus on proof and role keywords.",
+    });
+  }
+
+  const improvements: Array<{ title: string; detail: string; priority: string }> = [];
+  for (const fix of (ats.recommendedFixes || []).slice(0, 3)) {
+    improvements.push({ priority: "high", title: "ATS improvement", detail: fix });
+  }
+  for (const inquiry of authenticity.inquiries.slice(0, 2)) {
+    improvements.push({
+      priority: "medium",
+      title: inquiry.field,
+      detail: inquiry.question,
+    });
+  }
+  if (improvements.length === 0) {
+    improvements.push({
+      priority: "medium",
+      title: "Align to target role language",
+      detail: `Mirror phrasing from live ${targetRole} postings in ${locationLabel} only where you can prove it.`,
+    });
+  }
+
+  const sectionReviews = [
+    {
+      section: "Professional summary",
+      score: Math.min(100, Math.round(doc.summary.length >= 120 ? 82 : doc.summary.length >= 40 ? 64 : 45)),
+      status: doc.summary.length >= 80 ? "Solid" : "Needs sharpening",
+      findings: [
+        doc.summary.length >= 80
+          ? "Summary length is in a useful range for recruiters."
+          : "Expand the summary with domain focus and one proof point.",
+        doc.headline && doc.headline !== "Professional"
+          ? `Headline "${doc.headline}" helps indexing.`
+          : "Add a specific professional headline aligned to your target role.",
+      ],
+    },
+    {
+      section: "Experience bullets",
+      score: Math.min(100, Math.round(ats.categories.actionVerbs * 0.5 + ats.categories.quantifiedMetrics * 0.5)),
+      status: allBullets.length >= 4 ? "Priority rewrite" : "Needs more detail",
+      findings: [
+        `${allBullets.length} experience bullets detected.`,
+        ats.weakBullets.length
+          ? `${ats.weakBullets.length} bullets need stronger verbs or metrics.`
+          : "Bullets already lean on action and proof.",
+      ],
+    },
+    {
+      section: "Skills & tools",
+      score: Math.min(100, 40 + doc.skills.length * 6),
+      status: doc.skills.length >= 5 ? "Solid" : "Expand",
+      findings: [
+        `${doc.skills.length} skills extracted.`,
+        ats.missingKeywords.length
+          ? `Consider proving: ${ats.missingKeywords.slice(0, 3).join(", ")}.`
+          : "Keyword coverage looks reasonable for the target role.",
+      ],
+    },
+    {
+      section: "Formatting & ATS",
+      score: ats.categories.formatCompliance,
+      status: ats.overallScore >= 75 ? "Competitive" : "Improve parseability",
+      findings: [
+        `ATS grade: ${ats.grade}.`,
+        "Keep standard section labels and avoid image-only text.",
+      ],
+    },
+  ];
+
+  const scores = {
+    clarity: quality.pillars.clarity.score,
+    impact: Math.round((ats.categories.quantifiedMetrics + ats.categories.actionVerbs) / 2),
+    structure: quality.pillars.presentation.score,
+    keywordFit: ats.categories.keywordMatch,
+    authenticity: authenticity.score,
+    ats: ats.overallScore,
+  };
+
+  return {
+    authenticityScore: authenticity.score,
+    atsScore: ats.overallScore,
+    overallScore: Math.round(
+      (scores.clarity + scores.impact + scores.structure + scores.keywordFit + scores.authenticity + scores.ats) / 6,
+    ),
+    scores,
+    strengths,
+    improvements,
+    sectionReviews,
+    flaggedPhrases: flaggedPhrases.length
+      ? flaggedPhrases
+      : ["results-driven", "spearheaded", "passionate about"],
+    missingKeywords: (ats.missingKeywords || []).slice(0, 8),
+    rewriteExamples:
+      rewriteExamples.length > 0
+        ? rewriteExamples
+        : [
+            {
+              before: "Responsible for daily operations and stakeholder updates.",
+              after: `Coordinated ${targetRole} delivery across stakeholders, cutting turnaround time by a measurable weekly target.`,
+            },
+          ],
+    prompts: [
+      "What changed because of your work? Add a measurable outcome with a baseline.",
+      "Name the audience, channel, budget, or team size you owned.",
+      authenticity.inquiries[0]?.question ||
+        "Replace one general claim with a single real example a hiring manager can verify.",
+      `Which keyword from recent ${targetRole} listings can you prove in one sentence?`,
+    ],
+    summary: `We analysed your uploaded CV for ${targetRole}. Overall readiness sits at a composite view of authenticity (${authenticity.score}) and ATS fit (${ats.overallScore}). Focus next on stronger proof language and role-aligned keywords for ${locationLabel}.`,
+  };
+}
+
 
 function smokeyReply(message: string, role?: string, fileName?: string, cvDocument?: any) {
   const lower = message.toLowerCase();
@@ -709,127 +942,273 @@ router.get("/career/jobs", async (req, res) => {
 });
 
 router.post("/career/diagnostic", async (req, res) => {
-  await ensureJobs();
-  const input = CreateDiagnosticBody.parse(req.body);
-  const targetRole = input.role?.trim() || "Marketing & Growth";
-
-  const liveSearch = await searchTrustedJobBoards({
-    role: targetRole,
-    location: input.location,
-    limit: 4,
-  });
-
-  let relatedJobs = liveSearch.jobs;
-  let jobSearch = {
-    query: liveSearch.query,
-    queriedBoards: liveSearch.queriedBoards,
-    liveResults: liveSearch.liveResults,
-  };
-
-  if (relatedJobs.length < 4) {
-    const jobs = await db.select().from(jobsTable);
-    const fallback = [...jobs]
-      .filter((job) => !job.status || job.status === "published")
-      .map((job) => ({
-        job,
-        relevance: scoreJobRelevance(job, targetRole, input.location),
-      }))
-      .sort((a, b) => b.relevance - a.relevance)
-      .slice(0, 4 - relatedJobs.length)
-      .map(({ job, relevance }, index) => {
-        const applyUrl = `https://www.careerjunction.co.za/jobs?keywords=${encodeURIComponent(job.title)}&location=${encodeURIComponent(job.location.split("·")[0]?.trim() || "South Africa")}`;
-        return {
-          id: job.id,
-          title: job.title,
-          company: job.company,
-          location: job.location,
-          sector: job.sector,
-          salary: job.salary,
-          match:
-            relatedJobs.length === 0 && index === 0
-              ? Math.max(90, Math.min(99, relevance))
-              : Math.min(89, Math.max(62, relevance - index * 3)),
-          posted: job.posted,
-          tags: [...job.tags, "BonList verified"],
-          source: "CareerJunction",
-          url: applyUrl,
-          description: `${job.title} at ${job.company}. Location: ${job.location}. Sector: ${job.sector}. Salary: ${job.salary}. This BonList match opens a trusted board search so you can review the live job specification and apply on the listing site.`,
-        };
-      });
-
-    const seen = new Set(relatedJobs.map((job) => job.title.toLowerCase()));
-    for (const job of fallback) {
-      if (seen.has(job.title.toLowerCase())) continue;
-      relatedJobs.push(job);
-      if (relatedJobs.length >= 4) break;
-    }
-
-    if (!liveSearch.liveResults) {
-      jobSearch = {
-        query: `${targetRole} · ${input.location || "South Africa"}`,
-        queriedBoards: getTrustedBoardLabels(),
-        liveResults: false,
-      };
-    }
-  }
-
-  const [report] = await db
-    .insert(diagnosticReportsTable)
-    .values({
-      fileName: input.fileName,
-      authenticityScore: 82,
-      atsScore: 68,
-      flaggedPhrases: ["results-driven", "spearheaded", "delve", "passionate about", "team player"],
-      missingKeywords: [
-        "Lifecycle marketing",
-        "Go-to-market",
-        "CRM",
-        "Stakeholder management",
-        "Campaign analytics",
-      ],
-      prompts: [
-        "What changed because of your work? Add a measurable outcome with a baseline.",
-        "Name the audience, channel, budget, or team size you owned.",
-        "Replace one general claim with a single real example a hiring manager can verify.",
-        "Which keyword from recent trusted board listings can you prove in one sentence?",
-      ],
-      targetRole,
-      status: "completed",
-    })
-    .returning();
-
   try {
-    await createAdminNotification({
-      type: "diagnostic.created",
-      title: "New CV review",
-      body: `${report.fileName} · ATS ${report.atsScore} · Authenticity ${report.authenticityScore}`,
-      entityType: "diagnostic",
-      entityId: report.id,
-    });
-  } catch {
-    /* ignore */
-  }
+    await ensureJobs();
+    const body = (req.body || {}) as Record<string, unknown>;
+    const fileName = String(body.fileName || "").trim();
+    if (!fileName) {
+      res.status(400).json({ error: "fileName is required" });
+      return;
+    }
 
-  const data = CreateDiagnosticResponse.parse(
-    buildDiagnosticPayload({
-      fileName: report.fileName,
-      role: input.role,
-      location: input.location,
-      reportId: report.id,
+    const profile = await resolveOrUpsertCvProfile(body);
+    if (!profile) {
+      res.status(400).json({
+        error: "A valid profile is required. Please sign in before uploading your CV.",
+      });
+      return;
+    }
+
+    const roleFromBody = typeof body.role === "string" ? body.role.trim() : "";
+    const locationFromBody = typeof body.location === "string" ? body.location.trim() : "";
+    const targetRole = roleFromBody || profile.targetRole || "Marketing & Growth";
+    const locationLabel = locationFromBody || profile.location || "South Africa";
+
+    const fileData = typeof body.fileData === "string" ? body.fileData : undefined;
+    const pastedText = typeof body.text === "string" ? body.text : undefined;
+
+    let analysis: ReturnType<typeof analyzeUploadedCv> | undefined;
+    if (fileData || pastedText) {
+      try {
+        const extractedDoc = await extractTextFromUpload({
+          text: pastedText,
+          fileName,
+          fileData,
+        });
+        if (!extractedDoc.text || extractedDoc.text.trim().length < 20) {
+          res.status(400).json({
+            error:
+              "No readable CV text was found. Scanned/image-only PDFs are not supported — upload a text PDF, Word (.docx), or paste the CV text.",
+          });
+          return;
+        }
+        const extracted = extractCvDataFromText(extractedDoc.text, fileName);
+        analysis = analyzeUploadedCv({
+          extracted,
+          targetRole,
+          locationLabel,
+        });
+      } catch (extractErr) {
+        const message =
+          extractErr instanceof DocumentExtractionError
+            ? extractErr.message
+            : "Failed to read the uploaded document. Please upload a text-based PDF, Word (.docx), or .txt file.";
+        req.log.warn({ err: extractErr, fileName }, "CV diagnostic text extraction failed");
+        res.status(400).json({ error: message });
+        return;
+      }
+    }
+
+    const liveSearch = await searchTrustedJobBoards({
+      role: targetRole,
+      location: locationLabel,
+      limit: 4,
+    });
+
+    let relatedJobs = liveSearch.jobs;
+    let jobSearch = {
+      query: liveSearch.query,
+      queriedBoards: liveSearch.queriedBoards,
+      liveResults: liveSearch.liveResults,
+    };
+
+    if (relatedJobs.length < 4) {
+      const jobs = await db.select().from(jobsTable);
+      const fallback = [...jobs]
+        .filter((job) => !job.status || job.status === "published")
+        .map((job) => ({
+          job,
+          relevance: scoreJobRelevance(job, targetRole, locationLabel),
+        }))
+        .sort((a, b) => b.relevance - a.relevance)
+        .slice(0, 4 - relatedJobs.length)
+        .map(({ job, relevance }, index) => {
+          const applyUrl = `https://www.careerjunction.co.za/jobs?keywords=${encodeURIComponent(job.title)}&location=${encodeURIComponent(job.location.split("·")[0]?.trim() || "South Africa")}`;
+          return {
+            id: job.id,
+            title: job.title,
+            company: job.company,
+            location: job.location,
+            sector: job.sector,
+            salary: job.salary,
+            match:
+              relatedJobs.length === 0 && index === 0
+                ? Math.max(90, Math.min(99, relevance))
+                : Math.min(89, Math.max(62, relevance - index * 3)),
+            posted: job.posted,
+            tags: [...job.tags, "BonList verified"],
+            source: "CareerJunction",
+            url: applyUrl,
+            description: `${job.title} at ${job.company}. Location: ${job.location}. Sector: ${job.sector}. Salary: ${job.salary}. This BonList match opens a trusted board search so you can review the live job specification and apply on the listing site.`,
+          };
+        });
+
+      const seen = new Set(relatedJobs.map((job) => job.title.toLowerCase()));
+      for (const job of fallback) {
+        if (seen.has(job.title.toLowerCase())) continue;
+        relatedJobs.push(job);
+        if (relatedJobs.length >= 4) break;
+      }
+
+      if (!liveSearch.liveResults) {
+        jobSearch = {
+          query: `${targetRole} · ${locationLabel}`,
+          queriedBoards: getTrustedBoardLabels(),
+          liveResults: false,
+        };
+      }
+    }
+
+    const draftPayload = buildDiagnosticPayload({
+      fileName,
+      role: targetRole,
+      location: locationLabel,
+      reportId: 0,
       relatedJobs: relatedJobs.slice(0, 4),
       jobSearch,
-    }),
+      analysis,
+    });
+
+    const [report] = await db
+      .insert(diagnosticReportsTable)
+      .values({
+        fileName,
+        authenticityScore: draftPayload.authenticityScore,
+        atsScore: draftPayload.atsScore,
+        flaggedPhrases: draftPayload.flaggedPhrases,
+        missingKeywords: draftPayload.missingKeywords,
+        prompts: draftPayload.prompts,
+        profileId: profile.id,
+        profileEmail: profile.email.toLowerCase(),
+        targetRole,
+        status: "completed",
+        reportJson: JSON.stringify({ ...draftPayload, id: undefined }),
+      })
+      .returning();
+
+    const data = CreateDiagnosticResponse.parse(
+      buildDiagnosticPayload({
+        fileName: report.fileName,
+        role: targetRole,
+        location: locationLabel,
+        reportId: report.id,
+        relatedJobs: relatedJobs.slice(0, 4),
+        jobSearch,
+        analysis,
+      }),
+    );
+
+    await db
+      .update(diagnosticReportsTable)
+      .set({ reportJson: JSON.stringify(data) })
+      .where(eq(diagnosticReportsTable.id, report.id));
+
+    try {
+      await createAdminNotification({
+        type: "diagnostic.created",
+        title: "New CV review",
+        body: `${report.fileName} · ATS ${report.atsScore} · Authenticity ${report.authenticityScore} · ${profile.email}`,
+        entityType: "diagnostic",
+        entityId: report.id,
+      });
+    } catch {
+      /* ignore */
+    }
+
+    req.log.info(
+      {
+        reportId: report.id,
+        profileId: profile.id,
+        fileName: report.fileName,
+        analyzed: Boolean(analysis),
+        liveResults: jobSearch.liveResults,
+        relatedJobs: relatedJobs.length,
+      },
+      "CV diagnostic created with trusted board search",
+    );
+    res.status(201).json(data);
+  } catch (err) {
+    req.log.error({ err }, "Error in /career/diagnostic");
+    if (err && typeof err === "object" && "issues" in err) {
+      res.status(400).json({ error: "Invalid diagnostic request" });
+      return;
+    }
+    res.status(500).json({ error: "Could not complete CV review. Please try again." });
+  }
+});
+
+router.get("/career/diagnostic/latest", async (req, res) => {
+  const profileId = Number(req.query.profileId);
+  const email = String(req.query.email || "")
+    .trim()
+    .toLowerCase();
+  if ((!Number.isFinite(profileId) || profileId <= 0) && !email) {
+    res.status(400).json({ error: "profileId or email is required" });
+    return;
+  }
+
+  const [row] = await db
+    .select()
+    .from(diagnosticReportsTable)
+    .where(
+      Number.isFinite(profileId) && profileId > 0
+        ? eq(diagnosticReportsTable.profileId, profileId)
+        : eq(diagnosticReportsTable.profileEmail, email),
+    )
+    .orderBy(desc(diagnosticReportsTable.createdAt))
+    .limit(1);
+
+  if (!row) {
+    res.status(404).json({ error: "No CV review found yet" });
+    return;
+  }
+
+  if (row.reportJson) {
+    try {
+      const parsed = JSON.parse(row.reportJson);
+      res.json(CreateDiagnosticResponse.parse({ ...parsed, id: row.id }));
+      return;
+    } catch {
+      // fall through to rebuild
+    }
+  }
+
+  res.json(
+    CreateDiagnosticResponse.parse(
+      buildDiagnosticPayload({
+        fileName: row.fileName,
+        role: row.targetRole || undefined,
+        reportId: row.id,
+        relatedJobs: [],
+        jobSearch: {
+          query: row.targetRole || "South Africa",
+          queriedBoards: getTrustedBoardLabels(),
+          liveResults: false,
+        },
+        analysis: {
+          authenticityScore: row.authenticityScore,
+          atsScore: row.atsScore,
+          overallScore: Math.round((row.authenticityScore + row.atsScore) / 2),
+          scores: {
+            clarity: row.authenticityScore,
+            impact: row.atsScore,
+            structure: 70,
+            keywordFit: 65,
+            authenticity: row.authenticityScore,
+            ats: row.atsScore,
+          },
+          strengths: [],
+          improvements: [],
+          sectionReviews: [],
+          flaggedPhrases: row.flaggedPhrases || [],
+          missingKeywords: row.missingKeywords || [],
+          rewriteExamples: [],
+          prompts: row.prompts || [],
+          summary: `Saved review for ${row.fileName}.`,
+        },
+      }),
+    ),
   );
-  req.log.info(
-    {
-      reportId: report.id,
-      fileName: report.fileName,
-      liveResults: jobSearch.liveResults,
-      relatedJobs: relatedJobs.length,
-    },
-    "CV diagnostic created with trusted board search",
-  );
-  res.status(201).json(data);
 });
 
 router.post("/career/smokey", (req, res) => {

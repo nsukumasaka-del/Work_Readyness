@@ -34,7 +34,6 @@ import {
 import {
   getGetInterviewPrepQueryKey,
   useApplyForCoaching,
-  useCreateDiagnostic,
   useGetInterviewPrep,
 } from '@workspace/api-client-react';
 import type {
@@ -55,6 +54,7 @@ import {
   fetchEntitlement,
   type Entitlement,
 } from '@/lib/entitlements';
+import { ensureCvProfile } from '@/lib/cv-profile';
 import { isNativeApp } from '@/lib/platform';
 import { describeApiMisconfiguration } from '@/lib/api-base';
 import { triggerAndroidApkDownload } from '@/lib/download-apk';
@@ -147,7 +147,7 @@ function isAdminUser() {
 
 function hasCvReport() {
   try {
-    return Boolean(sessionStorage.getItem(REPORT_KEY));
+    return Boolean(sessionStorage.getItem(REPORT_KEY) || sessionStorage.getItem('bonlist-report'));
   } catch {
     return false;
   }
@@ -1520,22 +1520,29 @@ function HeroProductVisual() {
 
 function Home() {
   const [, setLocation] = useLocation();
-  const diagnostic = useCreateDiagnostic();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [fileName, setFileName] = useState('');
+  const [cvFile, setCvFile] = useState<File | null>(null);
   const [role, setRole] = useState('');
   const [locationArea, setLocationArea] = useState('');
   const [scanStep, setScanStep] = useState(0);
+  const [isReviewing, setIsReviewing] = useState(false);
+  const [reviewError, setReviewError] = useState('');
 
   useEffect(() => {
-    const current = readProfile();
-    setProfile(current);
-    if (current?.targetRole) setRole(current.targetRole);
-    if (current?.location) setLocationArea(current.location);
+    const sync = () => {
+      const current = readProfile();
+      setProfile(current);
+      if (current?.targetRole) setRole((prev) => prev || current.targetRole || '');
+      if (current?.location) setLocationArea((prev) => prev || current.location || '');
+    };
+    sync();
+    window.addEventListener('careerbridge-profile-updated', sync);
+    return () => window.removeEventListener('careerbridge-profile-updated', sync);
   }, []);
 
   useEffect(() => {
-    if (!diagnostic.isPending) {
+    if (!isReviewing) {
       setScanStep(0);
       return;
     }
@@ -1547,27 +1554,66 @@ function Home() {
       setScanStep(steps[index]);
     }, 900);
     return () => window.clearInterval(timer);
-  }, [diagnostic.isPending]);
+  }, [isReviewing]);
 
-  const submitDiagnostic = (event: FormEvent<HTMLFormElement>) => {
+  const readFileAsDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Could not read that file. Please try another PDF or Word document.'));
+      reader.readAsDataURL(file);
+    });
+
+  const submitDiagnostic = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!profile || !fileName) return;
-    diagnostic.mutate(
-      {
-        data: {
+    if (!fileName || !cvFile) return;
+    setIsReviewing(true);
+    setReviewError('');
+    try {
+      const ensured = await ensureCvProfile({
+        name: profile?.name,
+        email: profile?.email,
+        phone: profile?.phone,
+        location: locationArea || profile?.location,
+        targetRole: role || profile?.targetRole,
+      });
+      setProfile(ensured as UserProfile);
+      persistProfile(ensured as UserProfile);
+
+      const fileData = await readFileAsDataUrl(cvFile);
+      const response = await fetch('/api/career/diagnostic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
           fileName,
-          role: role || profile.targetRole || undefined,
-          location: locationArea || profile.location || undefined,
-          profileId: profile.id,
-        },
-      },
-      {
-        onSuccess: (report) => {
-          sessionStorage.setItem(REPORT_KEY, JSON.stringify(report));
-          setLocation('/diagnostic');
-        },
-      },
-    );
+          fileData,
+          role: role || ensured.targetRole || undefined,
+          location: locationArea || ensured.location || undefined,
+          profileId: ensured.id,
+          name: ensured.name,
+          email: ensured.email,
+          phone: ensured.phone,
+          targetRole: role || ensured.targetRole || undefined,
+        }),
+      });
+      const payload = await readApiJson(response);
+      if (!response.ok) {
+        throw new Error(payload.error || 'We could not review that CV. Please try again.');
+      }
+      sessionStorage.setItem(REPORT_KEY, JSON.stringify(payload));
+      try {
+        sessionStorage.setItem('bonlist-report', JSON.stringify(payload));
+      } catch {
+        // ignore
+      }
+      window.dispatchEvent(new Event('careerbridge-report-updated'));
+      setLocation('/diagnostic');
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : 'We could not review that CV. Please try again.');
+    } finally {
+      setIsReviewing(false);
+    }
   };
 
   return (
@@ -1642,7 +1688,7 @@ function Home() {
             onSubmit={submitDiagnostic}
             className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8"
           >
-            {diagnostic.isPending ? (
+            {isReviewing ? (
               <div className="space-y-5 py-4" data-testid="cv-scan-progress">
                 <div className="flex items-center gap-3">
                   <span className="grid h-11 w-11 place-items-center rounded-2xl bg-secondary text-primary">
@@ -1690,9 +1736,14 @@ function Home() {
                   >
                     <input
                       type="file"
-                      accept=".pdf,.doc,.docx"
+                      accept=".pdf,.doc,.docx,.txt"
                       className="sr-only"
-                      onChange={(event) => setFileName(event.target.files?.[0]?.name ?? '')}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] ?? null;
+                        setCvFile(file);
+                        setFileName(file?.name ?? '');
+                        setReviewError('');
+                      }}
                       data-testid="input-cv-file"
                     />
                     <FileText size={18} className={fileName ? 'text-primary' : 'text-muted-foreground'} />
@@ -1737,13 +1788,13 @@ function Home() {
                     <option value="Hybrid">Hybrid / Remote</option>
                   </select>
                 </label>
-                {diagnostic.isError && (
-                  <p className="mt-3 text-xs text-destructive">
-                    We couldn&apos;t read that just now. Please try again.
+                {reviewError && (
+                  <p className="mt-3 text-xs text-destructive" data-testid="text-diagnostic-error">
+                    {reviewError}
                   </p>
                 )}
                 <button
-                  disabled={!fileName || diagnostic.isPending}
+                  disabled={!fileName || !cvFile || isReviewing}
                   className="btn-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-50"
                   data-testid="button-submit-diagnostic"
                 >
@@ -2006,6 +2057,7 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
 
 function DiagnosticPage() {
   const [report, setReport] = useState<DiagnosticReport | null>(null);
+  const [loading, setLoading] = useState(true);
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -2013,20 +2065,72 @@ function DiagnosticPage() {
       setLocation('/signup');
       return;
     }
-    const stored = sessionStorage.getItem(REPORT_KEY);
-    if (stored) {
-      try {
-        setReport(JSON.parse(stored) as DiagnosticReport);
-      } catch {
-        setReport(null);
+
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      const stored = sessionStorage.getItem(REPORT_KEY) || sessionStorage.getItem('bonlist-report');
+      if (stored) {
+        try {
+          if (!cancelled) setReport(JSON.parse(stored) as DiagnosticReport);
+          setLoading(false);
+          return;
+        } catch {
+          // fall through to API
+        }
       }
-    }
+
+      try {
+        const profile = readProfile();
+        if (!profile?.id && !profile?.email) {
+          if (!cancelled) setReport(null);
+          return;
+        }
+        const params = new URLSearchParams();
+        if (profile.id) params.set('profileId', String(profile.id));
+        if (profile.email) params.set('email', profile.email);
+        const response = await fetch(`/api/career/diagnostic/latest?${params.toString()}`, {
+          credentials: 'include',
+        });
+        if (!response.ok) {
+          if (!cancelled) setReport(null);
+          return;
+        }
+        const payload = (await response.json()) as DiagnosticReport;
+        sessionStorage.setItem(REPORT_KEY, JSON.stringify(payload));
+        try {
+          sessionStorage.setItem('bonlist-report', JSON.stringify(payload));
+        } catch {
+          // ignore
+        }
+        if (!cancelled) setReport(payload);
+      } catch {
+        if (!cancelled) setReport(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [setLocation]);
 
   const handleGenerateCv = () => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     setLocation('/cv-builder?intake=1');
   };
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-4xl px-5 py-16 md:px-8">
+        <div className="rounded-3xl border border-border bg-card px-6 py-16 text-center text-sm text-muted-foreground">
+          Loading your CV review…
+        </div>
+      </div>
+    );
+  }
 
   if (!report) {
     return (

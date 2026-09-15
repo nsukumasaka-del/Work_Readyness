@@ -66,6 +66,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { readStoredProfile } from "@/lib/entitlements";
+import { ensureCvProfile } from "@/lib/cv-profile";
 
 const GENERATED_CV_KEY = "bonlist-generated-cv";
 const REPORT_KEY = "bonlist-report";
@@ -992,57 +993,6 @@ function readReport() {
   } catch {
     return null;
   }
-}
-
-async function ensureCvProfile(partial?: {
-  name?: string;
-  email?: string;
-  phone?: string;
-  location?: string;
-  targetRole?: string;
-}) {
-  const existing = readStoredProfile();
-  const name = (partial?.name || existing?.name || "Professional Candidate").trim();
-  const email = (partial?.email || existing?.email || "candidate@bonlist.co.za")
-    .trim()
-    .toLowerCase();
-  const response = await fetch("/api/career/profile", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({
-      name,
-      email,
-      phone: (partial?.phone || existing?.phone || "").trim() || undefined,
-      location: (partial?.location || existing?.location || "").trim() || undefined,
-      targetRole: (partial?.targetRole || existing?.targetRole || "").trim() || undefined,
-    }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(
-      (payload as { error?: string }).error || "Could not prepare your profile for CV generation",
-    );
-  }
-  const profile = payload as {
-    id: number;
-    name: string;
-    email: string;
-    phone?: string;
-    location?: string;
-    targetRole?: string;
-    createdAt: string;
-    profileCount?: number;
-  };
-  try {
-    sessionStorage.setItem("careerbridge-profile", JSON.stringify(profile));
-    localStorage.setItem("careerbridge-profile", JSON.stringify(profile));
-    sessionStorage.removeItem("bonlist-profile");
-  } catch {
-    // ignore storage failures
-  }
-  window.dispatchEvent(new Event("careerbridge-profile-updated"));
-  return profile;
 }
 
 export async function generateCv(options: { regenerate?: boolean; structure?: string; extracted?: ExtractedCvData } = {}) {

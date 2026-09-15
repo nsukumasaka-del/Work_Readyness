@@ -18,11 +18,15 @@ process.env.CI = process.env.CI || "true";
 process.env.BONLIST_SKIP_WRANGLER_SHIM = "1";
 
 function run(cmd, args) {
+  // On Windows, shell:true + an absolute path with spaces (e.g. C:\Program Files\nodejs\node.exe)
+  // breaks as 'C:\Program' is not recognized. Only use shell for bare command names (pnpm).
+  const needsShell = process.platform === "win32" && !/[\\/]/.test(cmd);
   const result = spawnSync(cmd, args, {
     cwd: root,
     stdio: "inherit",
-    shell: process.platform === "win32",
+    shell: needsShell,
     env: process.env,
+    windowsHide: true,
   });
   if ((result.status ?? 1) !== 0) {
     process.exit(result.status ?? 1);

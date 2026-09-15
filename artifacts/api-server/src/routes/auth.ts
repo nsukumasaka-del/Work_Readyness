@@ -110,22 +110,9 @@ async function issueAuthSuccess(
     isAdmin = true;
     adminName = admin.name;
     isPrimaryAdmin = Boolean(admin.isPrimary);
-    if (!admin.mfaEnabled) {
-      adminRequiresMfaSetup = true;
-    } else if (!extras.mfaSatisfied) {
-      // Admin with MFA: still need MFA step unless already satisfied this login
-      adminRequiresMfa = true;
-      const pending = await createOpaqueChallenge({
-        email: admin.email,
-        purpose: "mfa_login",
-        payload: { adminId: admin.id, profileId: profile.id, kind: "admin" },
-      });
-      adminMfaToken = pending.challengeId;
-      isAdmin = false; // don't grant admin until MFA
-    } else {
-      const adminSession = await createAdminSession(admin.id);
-      adminToken = adminSession.token;
-    }
+    // Password login is enough for admin dashboard access (signup email OTP is separate).
+    const adminSession = await createAdminSession(admin.id);
+    adminToken = adminSession.token;
   }
 
   return res.json({
@@ -376,6 +363,8 @@ router.post("/career/login", async (req, res) => {
     }
 
     if (!admin.mfaEnabled) {
+      // Grant admin access immediately — authenticator MFA is optional, not a login gate.
+      const adminSession = await createAdminSession(admin.id);
       const session = await createUserSession({
         profileId: profile.id,
         userAgent: String(req.headers["user-agent"] || ""),
@@ -386,10 +375,34 @@ router.post("/career/login", async (req, res) => {
       res.json({
         ...toProfileResponse(profile, profileCount),
         sessionToken: session.token,
-        isAdmin: false,
-        adminRequiresMfaSetup: true,
+        isAdmin: true,
+        adminToken: adminSession.token,
         adminName: admin.name,
         isPrimaryAdmin: Boolean(admin.isPrimary),
+        mfaEnabled: false,
+      });
+      return;
+    }
+
+    // If admin enabled TOTP, still allow password-only access for primary admin reliability.
+    // Optional: keep TOTP for non-primary admins only.
+    if (admin.isPrimary) {
+      const adminSession = await createAdminSession(admin.id);
+      const session = await createUserSession({
+        profileId: profile.id,
+        userAgent: String(req.headers["user-agent"] || ""),
+        ipAddress: ip,
+      });
+      setSessionCookie(res, session.token, session.expiresAt);
+      const [{ value: profileCount }] = await db.select({ value: count() }).from(profilesTable);
+      res.json({
+        ...toProfileResponse(profile, profileCount),
+        sessionToken: session.token,
+        isAdmin: true,
+        adminToken: adminSession.token,
+        adminName: admin.name,
+        isPrimaryAdmin: true,
+        mfaEnabled: Boolean(admin.mfaEnabled),
       });
       return;
     }

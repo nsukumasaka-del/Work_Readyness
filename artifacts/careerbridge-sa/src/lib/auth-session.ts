@@ -134,6 +134,11 @@ export async function authFetch(path: string, init?: RequestInit): Promise<Respo
 
 export async function readApiJson(response: Response): Promise<Record<string, any>> {
   const text = await response.text();
+  if (response.status === 405) {
+    throw new Error(
+      'BonList API is not reachable on this site (HTTP 405). The website is online, but the API server is not connected. Start the API locally with pnpm dev, or set API_UPSTREAM_URL on Cloudflare to your API host.',
+    );
+  }
   if (!text.trim()) {
     throw new Error(
       response.ok
@@ -141,11 +146,16 @@ export async function readApiJson(response: Response): Promise<Record<string, an
         : `Request failed (${response.status}). Please try again.`,
     );
   }
+  let payload: Record<string, any>;
   try {
-    return JSON.parse(text) as Record<string, any>;
+    payload = JSON.parse(text) as Record<string, any>;
   } catch {
     throw new Error('We could not reach the BonList service. Please try again.');
   }
+  if (response.status === 503 && typeof payload.error === 'string') {
+    throw new Error(payload.error);
+  }
+  return payload;
 }
 
 export function friendlyClientError(err: unknown, fallback = 'Something went wrong. Please try again.') {

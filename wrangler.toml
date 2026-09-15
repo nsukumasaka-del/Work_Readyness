@@ -1,20 +1,19 @@
-# BonList — Cloudflare Worker (static assets)
+# BonList — Cloudflare Worker (static SPA + /api gateway)
 #
-# Cloudflare dashboard (Workers Builds / Git integration):
-#   Root directory:   /
-#   Build command:    (leave empty — deploy shim builds the web app)
-#   Deploy command:   npx wrangler deploy
-#                     OR  pnpm run deploy
+# Cloudflare dashboard → Workers & Pages → bonlist → Settings → Variables:
+#   API_UPSTREAM_URL = https://YOUR-NODE-API-HOST   (no trailing slash)
 #
-# Monorepo note: bare `wrangler deploy` normally fails at a pnpm workspace root.
-# Root postinstall installs a shim so Cloudflare's default command works.
-# Prefer: npx wrangler deploy -c wrangler.toml
+# That upstream must be the Express api-server (serves /api/*).
+# Deploy command can stay: npx wrangler deploy
 
 name = "bonlist"
+main = "workers/gateway.ts"
 compatibility_date = "2025-09-01"
 workers_dev = true
 
-# Serve the Vite build as a static Worker (SPA).
 [assets]
 directory = "./artifacts/careerbridge-sa/dist/public"
+binding = "ASSETS"
 not_found_handling = "single-page-application"
+# Ensure /api hits the Worker before static assets (prevents HTTP 405 on POST).
+run_worker_first = ["/api", "/api/*"]

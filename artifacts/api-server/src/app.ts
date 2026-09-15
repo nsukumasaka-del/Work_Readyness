@@ -2,6 +2,8 @@ import express, { type Express } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
+import path from "node:path";
+import fs from "node:fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
@@ -54,6 +56,27 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 app.use("/api", router);
+
+// Production all-in-one: serve the built SPA from the same Node process as /api.
+const staticDir = process.env.STATIC_DIR?.trim();
+if (staticDir) {
+  const resolved = path.resolve(staticDir);
+  if (fs.existsSync(resolved)) {
+    app.use(express.static(resolved, { index: false, maxAge: "1h" }));
+    app.get(/.*/, (req, res, next) => {
+      if (req.path.startsWith("/api")) {
+        next();
+        return;
+      }
+      res.sendFile(path.join(resolved, "index.html"), (err) => {
+        if (err) next(err);
+      });
+    });
+    logger.info({ staticDir: resolved }, "Serving BonList web UI from STATIC_DIR");
+  } else {
+    logger.warn({ staticDir: resolved }, "STATIC_DIR does not exist — API-only mode");
+  }
+}
 
 app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (res.headersSent) {

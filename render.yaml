@@ -1,0 +1,57 @@
+# Deploy the BonList API (Node) to Render, then point Cloudflare at it.
+# 1) Push this repo to GitHub
+# 2) Render → New → Blueprint → select this repo
+# 3) After deploy, copy the service URL (https://….onrender.com)
+# 4) Cloudflare → Workers → bonlist → Settings → Variables:
+#      API_UPSTREAM_URL = https://….onrender.com
+
+services:
+  - type: web
+    name: bonlist-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @workspace/careerbridge-sa run build && pnpm --filter @workspace/api-server run build
+    startCommand: pnpm --filter @workspace/api-server run start
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: PORT
+        value: "8080"
+      - key: DATABASE_URL
+        value: pglite
+      - key: STATIC_DIR
+        value: artifacts/careerbridge-sa/dist/public
+      - key: BONLIST_SKIP_MOBILE_POSTBUILD
+        value: "1"
+      - key: CI
+        value: "true"
+      - key: AUTH_ALLOW_DEV_OTP
+        value: "false"
+      - key: PRIMARY_ADMIN_EMAIL
+        sync: false
+      - key: PRIMARY_ADMIN_PASSWORD
+        sync: false
+      - key: PRIMARY_ADMIN_NAME
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: AUTH_ENCRYPTION_KEY
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: API_PUBLIC_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"

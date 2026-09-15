@@ -79,6 +79,42 @@ function toProfileResponse(profile: typeof profilesTable.$inferSelect, profileCo
   });
 }
 
+/** Resolve a career profile for CV ops; upsert by email when an old/stale id is sent. */
+async function resolveOrUpsertCvProfile(body: Record<string, unknown> | undefined) {
+  const profileId = Number(body?.profileId);
+  if (Number.isFinite(profileId) && profileId > 0) {
+    const [existing] = await db
+      .select()
+      .from(profilesTable)
+      .where(eq(profilesTable.id, profileId))
+      .limit(1);
+    if (existing) return existing;
+  }
+
+  const email = String(body?.email || "").trim().toLowerCase();
+  const name = String(body?.name || "").trim();
+  if (!email || !name) return null;
+
+  const [byEmail] = await db
+    .select()
+    .from(profilesTable)
+    .where(eq(profilesTable.email, email))
+    .limit(1);
+  if (byEmail) return byEmail;
+
+  const [created] = await db
+    .insert(profilesTable)
+    .values({
+      name,
+      email,
+      phone: body?.phone != null ? String(body.phone).trim() || undefined : undefined,
+      location: body?.location != null ? String(body.location).trim() || undefined : undefined,
+      targetRole: body?.targetRole != null ? String(body.targetRole).trim() || undefined : undefined,
+    })
+    .returning();
+  return created ?? null;
+}
+
 const seededJobs = [
   {
     title: "Product Marketing Manager",
@@ -1091,21 +1127,18 @@ router.get("/career/cv/structures", (_req, res) => {
 });
 
 router.post("/career/cv/generate", async (req, res) => {
-  const profileId = Number(req.body?.profileId);
-  const diagnosticId = req.body?.diagnosticId != null ? Number(req.body.diagnosticId) : undefined;
   const regenerate = Boolean(req.body?.regenerate);
   let structure = String(req.body?.structure || "").trim() as CvStructure | "";
 
-  if (!Number.isFinite(profileId) || profileId <= 0) {
-    res.status(400).json({ error: "profileId is required" });
-    return;
-  }
-
-  const [profile] = await db.select().from(profilesTable).where(eq(profilesTable.id, profileId)).limit(1);
+  const profile = await resolveOrUpsertCvProfile(req.body);
   if (!profile) {
-    res.status(404).json({ error: "Profile not found. Please log in again." });
+    res.status(400).json({
+      error: "A valid profile is required. Please sign in or provide your name and email.",
+    });
     return;
   }
+  const profileId = profile.id;
+  const diagnosticId = req.body?.diagnosticId != null ? Number(req.body.diagnosticId) : undefined;
 
   let diagnosticRow =
     diagnosticId && Number.isFinite(diagnosticId)
@@ -1494,18 +1527,18 @@ router.get("/career/cv/versions", async (req, res) => {
 });
 
 router.post("/career/cv/save", async (req, res) => {
-  const profileId = Number(req.body?.profileId);
   const document = req.body?.document as GeneratedCvDocument;
   const customTitle = req.body?.title ? String(req.body.title).trim() : undefined;
-  if (!Number.isFinite(profileId) || profileId <= 0 || !document) {
+  if (!document) {
     res.status(400).json({ error: "profileId and document are required" });
     return;
   }
-  const [profile] = await db.select().from(profilesTable).where(eq(profilesTable.id, profileId)).limit(1);
+  const profile = await resolveOrUpsertCvProfile(req.body);
   if (!profile) {
     res.status(404).json({ error: "Profile not found" });
     return;
   }
+  const profileId = profile.id;
 
   const [previous] = await db
     .select()

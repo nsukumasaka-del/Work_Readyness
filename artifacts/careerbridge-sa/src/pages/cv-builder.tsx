@@ -994,36 +994,82 @@ function readReport() {
   }
 }
 
-export async function generateCv(options: { regenerate?: boolean; structure?: string; extracted?: ExtractedCvData } = {}) {
-  let profile = readStoredProfile();
-  if (!profile?.id) {
-    try {
-      const raw = sessionStorage.getItem("bonlist-profile") || sessionStorage.getItem("careerbridge-profile");
-      if (raw) profile = JSON.parse(raw);
-    } catch {
-      // ignore
-    }
+async function ensureCvProfile(partial?: {
+  name?: string;
+  email?: string;
+  phone?: string;
+  location?: string;
+  targetRole?: string;
+}) {
+  const existing = readStoredProfile();
+  const name = (partial?.name || existing?.name || "Professional Candidate").trim();
+  const email = (partial?.email || existing?.email || "candidate@bonlist.co.za")
+    .trim()
+    .toLowerCase();
+  const response = await fetch("/api/career/profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      name,
+      email,
+      phone: (partial?.phone || existing?.phone || "").trim() || undefined,
+      location: (partial?.location || existing?.location || "").trim() || undefined,
+      targetRole: (partial?.targetRole || existing?.targetRole || "").trim() || undefined,
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      (payload as { error?: string }).error || "Could not prepare your profile for CV generation",
+    );
   }
-  if (!profile?.id) {
-    profile = {
-      id: 1,
-      name: "Professional Candidate",
-      email: "candidate@bonlist.co.za",
-      phone: "+27 82 555 1234",
-      location: "Johannesburg",
-      targetRole: "Software Engineer",
-      createdAt: new Date().toISOString(),
-      profileCount: 1,
-    };
-    sessionStorage.setItem("bonlist-profile", JSON.stringify(profile));
+  const profile = payload as {
+    id: number;
+    name: string;
+    email: string;
+    phone?: string;
+    location?: string;
+    targetRole?: string;
+    createdAt: string;
+    profileCount?: number;
+  };
+  try {
     sessionStorage.setItem("careerbridge-profile", JSON.stringify(profile));
+    localStorage.setItem("careerbridge-profile", JSON.stringify(profile));
+    sessionStorage.removeItem("bonlist-profile");
+  } catch {
+    // ignore storage failures
   }
+  window.dispatchEvent(new Event("careerbridge-profile-updated"));
+  return profile;
+}
+
+export async function generateCv(options: { regenerate?: boolean; structure?: string; extracted?: ExtractedCvData } = {}) {
+  // Always upsert a real DB profile first — never invent profileId: 1 locally.
+  const profile = await ensureCvProfile(
+    options.extracted?.personal
+      ? {
+          name: options.extracted.personal.fullName,
+          email: options.extracted.personal.email,
+          phone: options.extracted.personal.phone,
+          location: options.extracted.personal.location,
+          targetRole: options.extracted.personal.professionalTitle,
+        }
+      : undefined,
+  );
   const diagnostic = readReport();
   const response = await fetch("/api/career/cv/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({
       profileId: profile.id,
+      name: profile.name,
+      email: profile.email,
+      phone: profile.phone,
+      location: profile.location,
+      targetRole: profile.targetRole,
       diagnosticId: diagnostic?.id,
       diagnostic,
       regenerate: Boolean(options.regenerate),
@@ -2414,18 +2460,15 @@ export default function CvBuilderPage() {
     }));
 
     if (!profile) {
-      const guestProfile = {
-        id: 1,
+      void ensureCvProfile({
         name,
         email,
         phone,
         location: loc,
         targetRole,
-        createdAt: new Date().toISOString(),
-        profileCount: 1,
-      };
-      sessionStorage.setItem("bonlist-profile", JSON.stringify(guestProfile));
-      sessionStorage.setItem("careerbridge-profile", JSON.stringify(guestProfile));
+      }).catch(() => {
+        // generateCv will retry before calling the API
+      });
     }
 
     const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
@@ -2724,15 +2767,22 @@ export default function CvBuilderPage() {
   };
 
   const handleSaveCv = async (customTitle?: string) => {
-    if (!cv || !profile?.id) return;
+    if (!cv) return;
     setSaving(true);
     setError("");
     try {
+      const ensured = await ensureCvProfile();
       const res = await fetch("/api/career/cv/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
-          profileId: profile.id,
+          profileId: ensured.id,
+          name: ensured.name,
+          email: ensured.email,
+          phone: ensured.phone,
+          location: ensured.location,
+          targetRole: ensured.targetRole,
           document: cv.document,
           title: customTitle,
         }),

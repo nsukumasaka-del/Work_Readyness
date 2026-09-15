@@ -65,8 +65,15 @@ export async function fetchEntitlement(profileId: number): Promise<Entitlement> 
 
 export function readStoredProfile(): UserProfile | null {
   try {
-    const stored = sessionStorage.getItem("careerbridge-profile");
-    return stored ? (JSON.parse(stored) as UserProfile) : null;
+    // Auth persists to localStorage + sessionStorage; never prefer the legacy
+    // bonlist-profile guest stub (often hardcoded id:1) over a real session.
+    for (const store of [localStorage, sessionStorage]) {
+      const stored = store.getItem("careerbridge-profile");
+      if (!stored) continue;
+      const profile = JSON.parse(stored) as UserProfile;
+      if (profile?.id && Number(profile.id) > 0) return profile;
+    }
+    return null;
   } catch {
     return null;
   }

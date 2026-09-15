@@ -71,6 +71,13 @@ export function persistProfile(profile: UserProfile) {
   const raw = JSON.stringify(profile);
   storage().setItem(PROFILE_KEY, raw);
   sessionStorage.setItem(PROFILE_KEY, raw);
+  // Drop legacy guest stub so CV generate never prefers a fake profileId: 1.
+  try {
+    sessionStorage.removeItem('bonlist-profile');
+    storage().removeItem('bonlist-profile');
+  } catch {
+    // ignore
+  }
   window.dispatchEvent(new Event('careerbridge-profile-updated'));
 }
 

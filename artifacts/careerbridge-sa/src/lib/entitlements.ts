@@ -67,13 +67,17 @@ export function readStoredProfile(): UserProfile | null {
   try {
     // Auth persists to localStorage + sessionStorage; never prefer the legacy
     // bonlist-profile guest stub (often hardcoded id:1) over a real session.
+    let fallback: UserProfile | null = null;
     for (const store of [localStorage, sessionStorage]) {
       const stored = store.getItem("careerbridge-profile");
       if (!stored) continue;
       const profile = JSON.parse(stored) as UserProfile;
+      if (!profile?.email && !profile?.id) continue;
+      // Prefer a numeric career-profile id when present (Render API).
       if (profile?.id && Number(profile.id) > 0) return profile;
+      if (!fallback && profile?.email) fallback = profile;
     }
-    return null;
+    return fallback;
   } catch {
     return null;
   }

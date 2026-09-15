@@ -1,4 +1,5 @@
 import { readStoredProfile } from "@/lib/entitlements";
+import { readProfile as readAuthProfile } from "@/lib/auth-session";
 
 export type CareerProfile = {
   id: number | string;
@@ -19,7 +20,7 @@ export async function ensureCvProfile(partial?: {
   location?: string;
   targetRole?: string;
 }): Promise<CareerProfile> {
-  const existing = readStoredProfile();
+  const existing = readStoredProfile() || readAuthProfile();
   const name = (partial?.name || existing?.name || "Professional Candidate").trim();
   const email = (partial?.email || existing?.email || "candidate@bonlist.co.za")
     .trim()

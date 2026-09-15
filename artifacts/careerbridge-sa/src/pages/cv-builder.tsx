@@ -66,6 +66,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { readStoredProfile } from "@/lib/entitlements";
+import { readProfile as readAuthProfile } from "@/lib/auth-session";
 import { ensureCvProfile } from "@/lib/cv-profile";
 
 const GENERATED_CV_KEY = "bonlist-generated-cv";
@@ -1411,7 +1412,7 @@ function A4PageSpacer({ id, height }: { id: string; height: number }) {
 // ---------------------------------------------------------------------------
 export default function CvBuilderPage() {
   const [, setLocation] = useLocation();
-  const profile = readStoredProfile();
+  const profile = readStoredProfile() || readAuthProfile();
   const printRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [a4PageCount, setA4PageCount] = useState(1);
@@ -2215,7 +2216,37 @@ export default function CvBuilderPage() {
   const handleGenerateFromIntake = async () => {
     setGeneratingFromIntake(true);
     setError("");
-    setAgentFileName("Manual Candidate Profile");
+
+    const authProfile = readStoredProfile() || readAuthProfile();
+    const mergedName = manualInput.fullName.trim() || authProfile?.name?.trim() || "";
+    const mergedEmail = manualInput.email.trim() || authProfile?.email?.trim() || "";
+
+    if (intakeTab === "upload" && !extractedData && !intakePasteText.trim()) {
+      setError("Upload a CV file (or paste CV text), or switch to Enter Information Manually before generating.");
+      setGeneratingFromIntake(false);
+      return;
+    }
+
+    if (!mergedName || mergedName.length < 2) {
+      setError("Add your full name before generating. Use manual entry or upload a CV that includes your name.");
+      setIntakeTab("manual");
+      setGeneratingFromIntake(false);
+      return;
+    }
+
+    if (mergedName !== manualInput.fullName || mergedEmail !== manualInput.email) {
+      setManualInput((prev) => ({
+        ...prev,
+        fullName: mergedName,
+        email: mergedEmail || prev.email,
+        phone: prev.phone.trim() || authProfile?.phone || "",
+        location: prev.location.trim() || authProfile?.location || prev.location,
+        professionalTitle:
+          prev.professionalTitle.trim() || authProfile?.targetRole || prev.professionalTitle,
+      }));
+    }
+
+    setAgentFileName(extractedData ? "Uploaded CV" : "Manual Candidate Profile");
     setIsAgentWorking(true);
     setAgentStepIndex(0);
     setAgentStepText("Validating candidate profile and structure…");
@@ -2224,6 +2255,15 @@ export default function CvBuilderPage() {
     try {
       setAgentStepIndex(1);
       setAgentStepText("Structuring roles, qualifications & core skills…");
+      // Ensure career profile exists on the API before generate (handles D1 UUID sessions).
+      await ensureCvProfile({
+        name: mergedName,
+        email: mergedEmail || undefined,
+        phone: manualInput.phone.trim() || authProfile?.phone || undefined,
+        location: manualInput.location.trim() || authProfile?.location || undefined,
+        targetRole: manualInput.professionalTitle.trim() || authProfile?.targetRole || undefined,
+      });
+
       const rawExperiences = manualInput.experiences
         .filter((exp) => exp.role.trim() || exp.company.trim())
         .map((exp) => ({
@@ -2282,11 +2322,12 @@ export default function CvBuilderPage() {
 
       const candidateContent: CvContentData = {
         personal: {
-          fullName: manualInput.fullName.trim() || "Candidate Name",
-          professionalTitle: manualInput.professionalTitle.trim() || "Professional",
-          email: manualInput.email.trim() || "",
-          phone: manualInput.phone.trim() || "",
-          location: manualInput.location.trim() || "South Africa",
+          fullName: mergedName || "Candidate Name",
+          professionalTitle:
+            manualInput.professionalTitle.trim() || authProfile?.targetRole || "Professional",
+          email: mergedEmail || "",
+          phone: manualInput.phone.trim() || authProfile?.phone || "",
+          location: manualInput.location.trim() || authProfile?.location || "South Africa",
           linkedin: manualInput.linkedin.trim() || undefined,
           website: manualInput.website.trim() || undefined,
         },
@@ -2301,37 +2342,64 @@ export default function CvBuilderPage() {
         references: rawReferences.length > 0 ? rawReferences : ["Available upon request"],
       };
 
-      const extractedPayload: ExtractedCvData = {
-        cv_content: candidateContent,
-        ai_feedback: aiFeedback || {
-          internalTips: [],
-          missingKeywords: [],
-          jobBoardAdvice: [],
-          flaggedPhrases: [],
-          strengths: [],
-          improvements: [],
-        },
-        personal: candidateContent.personal,
-        summary: candidateContent.summary,
-        experiences: rawExperiences,
-        education: rawEducation,
-        skills: rawSkills,
-        toolsAndSoftware: [],
-        certifications: rawCertifications,
-        languages: rawLanguages.length > 0 ? rawLanguages : ["English"],
-        projects: rawProjects,
-        references: rawReferences.length > 0 ? rawReferences : ["Available upon request"],
-        verificationBreakdown: {
-          personal: { verified: Boolean(manualInput.fullName && (manualInput.email || manualInput.phone)), missingFields: [] },
-          experience: {
-            count: rawExperiences.length,
-            verifiedDates: true,
-            verifiedCompanies: rawExperiences.length > 0,
-          },
-          education: { count: rawEducation.length, verified: rawEducation.length > 0 },
-          skills: { count: rawSkills.length },
-        },
-      };
+      const extractedPayload: ExtractedCvData = extractedData
+        ? {
+            ...extractedData,
+            personal: {
+              ...extractedData.personal,
+              fullName: extractedData.personal?.fullName || candidateContent.personal.fullName,
+              email: extractedData.personal?.email || candidateContent.personal.email,
+              phone: extractedData.personal?.phone || candidateContent.personal.phone,
+              location: extractedData.personal?.location || candidateContent.personal.location,
+              professionalTitle:
+                extractedData.personal?.professionalTitle || candidateContent.personal.professionalTitle,
+            },
+            cv_content: extractedData.cv_content
+              ? {
+                  ...extractedData.cv_content,
+                  personal: {
+                    ...extractedData.cv_content.personal,
+                    fullName:
+                      extractedData.cv_content.personal?.fullName || candidateContent.personal.fullName,
+                    email: extractedData.cv_content.personal?.email || candidateContent.personal.email,
+                  },
+                }
+              : candidateContent,
+          }
+        : {
+            cv_content: candidateContent,
+            ai_feedback: aiFeedback || {
+              internalTips: [],
+              missingKeywords: [],
+              jobBoardAdvice: [],
+              flaggedPhrases: [],
+              strengths: [],
+              improvements: [],
+            },
+            personal: candidateContent.personal,
+            summary: candidateContent.summary,
+            experiences: rawExperiences,
+            education: rawEducation,
+            skills: rawSkills,
+            toolsAndSoftware: [],
+            certifications: rawCertifications,
+            languages: rawLanguages.length > 0 ? rawLanguages : ["English"],
+            projects: rawProjects,
+            references: rawReferences.length > 0 ? rawReferences : ["Available upon request"],
+            verificationBreakdown: {
+              personal: {
+                verified: Boolean(mergedName && (mergedEmail || manualInput.phone.trim())),
+                missingFields: [],
+              },
+              experience: {
+                count: rawExperiences.length,
+                verifiedDates: true,
+                verifiedCompanies: rawExperiences.length > 0,
+              },
+              education: { count: rawEducation.length, verified: rawEducation.length > 0 },
+              skills: { count: rawSkills.length },
+            },
+          };
 
       setAgentStepIndex(2);
       setAgentStepText("Formatting semantic ATS hierarchy and layout…");
@@ -2353,10 +2421,12 @@ export default function CvBuilderPage() {
         setAiFeedback(created.document.aiFeedback);
       }
       persistGeneratedCv(created);
-      setActiveNavPanel("templates"); // Automatically activate Templates drawer
+      setIsIntakeModalOpen(false);
+      setActiveNavPanel("templates");
       setMessage("Your modern ATS CV is ready! Select from different templates on the left to test layouts.");
       setTimeout(() => setMessage(""), 5000);
       void runQualityEvaluation(created.document, jobDescription);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate CV");
       setIsIntakeModalOpen(true);
@@ -2371,16 +2441,25 @@ export default function CvBuilderPage() {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
 
     const diag = readReport();
-    const prof = readStoredProfile();
-    const targetRole = diag?.targetRole || prof?.targetRole || "Software Engineer";
-    const name = prof?.name || (diag?.fileName ? diag.fileName.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ") : "Candidate Name");
-    const email = prof?.email || "candidate@bonlist.co.za";
-    const phone = prof?.phone || "+27 82 555 1234";
+    const prof = readStoredProfile() || readAuthProfile();
+    const targetRole = diag?.targetRole || prof?.targetRole || "Customer Service Agent";
+    const name =
+      prof?.name ||
+      (diag?.fileName
+        ? diag.fileName.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")
+        : "");
+    const email = prof?.email || "";
+    const phone = prof?.phone || "";
     const loc = prof?.location || "Johannesburg, South Africa";
-    const summary = diag?.summary || "Disciplined Software Engineer with verified experience designing and delivering reliable web services and APIs.";
-    const skillsList = diag?.missingKeywords && diag.missingKeywords.length > 0
-      ? ["Software Engineering", "C#", ".NET Core", "SQL", ...diag.missingKeywords.slice(0, 4)].join(", ")
-      : "C#, .NET Core, SQL Server, REST APIs, Git, Agile";
+    const summary =
+      diag?.summary ||
+      (targetRole
+        ? `Results-focused ${targetRole} with verified experience delivering reliable service and measurable outcomes.`
+        : "Results-focused professional with verified experience delivering reliable outcomes.");
+    const skillsList =
+      diag?.missingKeywords && diag.missingKeywords.length > 0
+        ? ["Customer Service", "Communication", "CRM", ...diag.missingKeywords.slice(0, 4)].join(", ")
+        : "Customer Service, Communication, CRM, Problem Solving, Microsoft Office";
 
     setManualInput((prev) => ({
       ...prev,
@@ -2391,34 +2470,48 @@ export default function CvBuilderPage() {
       location: prev.location || loc,
       summary: prev.summary || summary,
       skills: prev.skills || skillsList,
-      experiences: [
-        {
-          id: "exp-1",
-          role: targetRole,
-          company: "Enterprise Technology Services",
-          startDate: "2022",
-          endDate: "Present",
-          bullets: diag?.rewriteExamples && diag.rewriteExamples.length > 0
-            ? diag.rewriteExamples.map((ex: any) => ex.after || ex.before)
-            : [
-                "Architected and deployed responsive C# and .NET web applications improving delivery turnaround by 25%.",
-                "Developed RESTful APIs and optimized SQL database queries for seamless high-concurrency performance.",
-                "Collaborated across engineering and QA teams to maintain 98% test coverage across release branches.",
-              ],
-        },
-      ],
+      experiences:
+        prev.experiences?.length && prev.experiences[0]?.role
+          ? prev.experiences
+          : [
+              {
+                id: "exp-1",
+                role: targetRole,
+                company: "Enterprise Services",
+                startDate: "2022",
+                endDate: "Present",
+                bullets:
+                  diag?.rewriteExamples && diag.rewriteExamples.length > 0
+                    ? diag.rewriteExamples.map((ex: any) => ex.after || ex.before)
+                    : [
+                        `Delivered high-quality support as a ${targetRole}, resolving customer queries with clear communication.`,
+                        "Tracked service metrics and escalations to improve response times and customer satisfaction.",
+                        "Collaborated with teammates to maintain accurate records and consistent service standards.",
+                      ],
+              },
+            ],
+      education: prev.education?.length
+        ? prev.education
+        : [
+            {
+              id: "edu-1",
+              degree: "Relevant Qualification",
+              institution: "Institution",
+              graduationYear: "Completed",
+            },
+          ],
+      languages: prev.languages || "English",
+      references: prev.references || "Available upon request",
     }));
 
-    if (!profile) {
+    if (prof?.name || prof?.email) {
       void ensureCvProfile({
-        name,
-        email,
-        phone,
-        location: loc,
-        targetRole,
-      }).catch(() => {
-        // generateCv will retry before calling the API
-      });
+        name: prof.name,
+        email: prof.email,
+        phone: prof.phone,
+        location: prof.location,
+        targetRole: prof.targetRole,
+      }).catch(() => undefined);
     }
 
     const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
@@ -6453,16 +6546,16 @@ export default function CvBuilderPage() {
       {/* 0. INTAKE WORKSTATION SETUP MODAL (UPLOAD CV OR ADD MANUALLY BEFORE GENERATING) */}
       {isIntakeModalOpen && !isAgentWorking && createPortal(
         <div
-          className="fixed inset-0 z-[100] overflow-y-auto overscroll-contain bg-slate-950/80 backdrop-blur-md"
+          className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/80 p-0 backdrop-blur-md sm:items-center sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="cv-intake-title"
           onClick={(e) => {
-            if (e.target === e.currentTarget && cv) setIsIntakeModalOpen(false);
+            if (e.target === e.currentTarget) setIsIntakeModalOpen(false);
           }}
         >
-          <div className="flex min-h-full items-start justify-center px-3 pb-8 pt-3 sm:px-5 sm:pt-4">
-            <div className="w-full max-w-4xl rounded-3xl border border-border bg-card p-5 sm:p-7 shadow-2xl space-y-6">
+          <div className="flex max-h-[min(96vh,920px)] w-full max-w-4xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-2xl sm:rounded-3xl">
+            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain p-5 sm:p-7">
             {/* Header */}
             <div className="flex items-start justify-between border-b border-border pb-4">
               <div className="flex items-center gap-3">
@@ -6487,6 +6580,13 @@ export default function CvBuilderPage() {
                 <X size={16} />
               </button>
             </div>
+
+            {error ? (
+              <div className="flex items-start gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
+                <AlertCircle size={15} className="mt-0.5 shrink-0" />
+                <p>{error}</p>
+              </div>
+            ) : null}
 
             {/* Step 1: Mode Selection Tabs */}
             <div className="grid grid-cols-2 gap-2 rounded-2xl bg-secondary/50 p-1.5 text-xs font-bold">
@@ -7210,23 +7310,23 @@ export default function CvBuilderPage() {
               </div>
             </div>
 
-            {/* ACTION FOOTER */}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+            {/* ACTION FOOTER — sticky so Generate is always reachable */}
+            </div>
+            <div className="shrink-0 border-t border-border bg-card px-5 py-4 sm:px-7">
+              <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
                 <ShieldCheck size={16} />
                 <span>Workday & Taleo Compliant · 100% Verified Evidence</span>
               </div>
 
               <div className="flex items-center gap-2">
-                {cv && (
-                  <button
-                    type="button"
-                    onClick={() => setIsIntakeModalOpen(false)}
-                    className="rounded-xl border border-border px-4 py-2 text-xs font-semibold hover:bg-secondary transition"
-                  >
-                    Cancel
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setIsIntakeModalOpen(false)}
+                  className="rounded-xl border border-border px-4 py-2 text-xs font-semibold hover:bg-secondary transition"
+                >
+                  {cv ? "Back to workspace" : "Close"}
+                </button>
                 <button
                   type="button"
                   disabled={generatingFromIntake}
@@ -7234,10 +7334,10 @@ export default function CvBuilderPage() {
                   className="rounded-xl bg-primary px-6 py-2.5 text-xs font-bold text-primary-foreground shadow-sm hover:brightness-105 transition disabled:opacity-50 flex items-center gap-1.5"
                 >
                   <Sparkles size={14} />
-                  <span>{generatingFromIntake ? "Generating Modern ATS CV…" : "✨ Generate Modern ATS CV"}</span>
+                  <span>{generatingFromIntake ? "Generating Modern ATS CV…" : "Generate Modern ATS CV"}</span>
                 </button>
               </div>
-            </div>
+              </div>
             </div>
           </div>
         </div>,

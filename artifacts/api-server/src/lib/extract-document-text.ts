@@ -95,66 +95,20 @@ function decodeDataUrlOrBase64(fileData: string): Buffer {
 }
 
 /**
- * pdf.js (via pdf-parse) expects browser geometry APIs. On Node/Render these are missing
- * and surface as "DOMMatrix is not defined".
+ * PDF text extraction via unpdf (serverless PDF.js) — no DOMMatrix/canvas required.
+ * Avoids pdf-parse/@napi-rs/canvas crashes on Render.
  */
-let pdfDomPolyfillPromise: Promise<void> | null = null;
-
-async function ensurePdfDomPolyfills(): Promise<void> {
-  if (typeof (globalThis as { DOMMatrix?: unknown }).DOMMatrix !== "undefined") {
-    return;
-  }
-  if (!pdfDomPolyfillPromise) {
-    pdfDomPolyfillPromise = (async () => {
-      try {
-        const canvas = await import("@napi-rs/canvas");
-        const g = globalThis as Record<string, unknown>;
-        if (canvas.DOMMatrix) g.DOMMatrix = canvas.DOMMatrix;
-        if (canvas.ImageData) g.ImageData = canvas.ImageData;
-        if (canvas.Path2D) g.Path2D = canvas.Path2D;
-      } catch (err) {
-        console.warn(
-          "[bonlist] @napi-rs/canvas unavailable for PDF polyfill:",
-          (err as Error)?.message,
-        );
-      }
-
-      // Pure-JS fallback when native canvas is not installed (local/Windows) or fails to load.
-      if (typeof (globalThis as { DOMMatrix?: unknown }).DOMMatrix === "undefined") {
-        const mod = await import("dommatrix");
-        const DOMMatrixCtor =
-          (mod as { default?: unknown; DOMMatrix?: unknown }).default ||
-          (mod as { DOMMatrix?: unknown }).DOMMatrix;
-        if (!DOMMatrixCtor) {
-          throw new Error("dommatrix polyfill did not export a constructor");
-        }
-        (globalThis as Record<string, unknown>).DOMMatrix = DOMMatrixCtor;
-      }
-    })();
-  }
-  await pdfDomPolyfillPromise;
-}
-
 async function extractPdfText(buffer: Buffer): Promise<string> {
-  await ensurePdfDomPolyfills();
-
-  const pdfParseModule = await import("pdf-parse");
-  const { PDFParse } = pdfParseModule as typeof import("pdf-parse");
-
-  // pdf.js transfers TypedArrays to workers — pass a copy so the original buffer stays intact
+  const { extractText } = await import("unpdf");
   const data = new Uint8Array(buffer);
-
-  const parser = new PDFParse({ data });
-  try {
-    const result = await parser.getText();
-    const text = typeof result === "string" ? result : result?.text || "";
-    return sanitizeExtractedCvText(text);
-  } finally {
-    // Release worker / resources when available
-    if (typeof (parser as { destroy?: () => Promise<void> }).destroy === "function") {
-      await (parser as { destroy: () => Promise<void> }).destroy().catch(() => undefined);
-    }
-  }
+  const result = await extractText(data, { mergePages: true });
+  const text =
+    typeof result.text === "string"
+      ? result.text
+      : Array.isArray(result.text)
+        ? result.text.join("\n\n")
+        : "";
+  return sanitizeExtractedCvText(text);
 }
 
 async function extractDocxText(buffer: Buffer): Promise<string> {
@@ -221,7 +175,7 @@ export async function extractTextFromUpload(options: {
         `Could not read this PDF. ${(err as Error)?.message || "Parser failed."} Try re-exporting as PDF or upload a .docx / .txt copy.`,
       );
     }
-    if (!text || text.length < 20) {
+    if (!text || text.length < 10) {
       throw new DocumentExtractionError(
         "No readable text was found in this PDF (it may be a scanned image). Please upload a text-based PDF, Word (.docx), or paste the CV text.",
       );

@@ -1930,6 +1930,11 @@ export default function CvBuilderPage() {
 
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+        if (res.status === 502 || res.status === 503) {
+          throw new Error(
+            "The CV reading service is starting up or temporarily unavailable. Wait a few seconds and try again, or paste your CV text / use Enter Information Manually.",
+          );
+        }
         throw new Error(
           errBody?.error ||
             "Unable to read this document. Please upload a text-based PDF, Word (.docx), or .txt file.",
@@ -3711,6 +3716,11 @@ export default function CvBuilderPage() {
       });
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+        if (res.status === 502 || res.status === 503) {
+          throw new Error(
+            "The CV reading service is starting up or temporarily unavailable. Wait a few seconds and try again, or paste your CV text / use Enter Information Manually.",
+          );
+        }
         throw new Error(
           errBody?.error ||
             "Unable to read this document. Please upload a text-based PDF, Word (.docx), or .txt file.",

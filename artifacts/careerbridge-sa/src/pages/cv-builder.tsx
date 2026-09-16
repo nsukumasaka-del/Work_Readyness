@@ -5125,8 +5125,8 @@ export default function CvBuilderPage() {
                   </>
                 );
 
-                const experienceSection = visibleSections.experience && (
-                  <section className={`relative group/section space-y-4 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${cv.document.experiences.length === 0 ? "no-print" : ""}`}>
+                const experienceSection = visibleSections.experience && cv.document.experiences.length > 0 && (
+                  <section className="relative group/section space-y-4 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
                     {/* Contextual Section Toolbar */}
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1.5 rounded-full border border-border bg-card/95 backdrop-blur-md px-2.5 py-0.5 shadow-sm">
                       <button
@@ -5771,8 +5771,8 @@ export default function CvBuilderPage() {
                           <input type="text" value={cv.document.email} onChange={(e) => updateDocumentField("email", e.target.value)} placeholder="Email" className="bg-transparent text-center focus:outline-none" style={{ width: `${Math.max((cv.document.email || "").length + 1, 14)}ch` }} />
                         </div>
                         <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2 text-[11px] text-slate-500">
-                          <input type="text" value={cv.document.linkedin || ""} onChange={(e) => updateDocumentField("linkedin", e.target.value)} placeholder="LinkedIn" className={`bg-transparent text-center focus:outline-none ${!cv.document.linkedin ? "no-print" : ""}`} style={{ width: `${Math.max((cv.document.linkedin || "").length + 1, 12)}ch` }} />
-                          <input type="text" value={cv.document.website || ""} onChange={(e) => updateDocumentField("website", e.target.value)} placeholder="Website / GitHub" className={`bg-transparent text-center focus:outline-none ${!cv.document.website ? "no-print" : ""}`} style={{ width: `${Math.max((cv.document.website || "").length + 1, 12)}ch` }} />
+                          <input type="text" value={cv.document.linkedin || ""} onChange={(e) => updateDocumentField("linkedin", e.target.value)} placeholder="LinkedIn" className={`bg-transparent text-center focus:outline-none ${!cv.document.linkedin ? "hidden" : ""}`} style={{ width: `${Math.max((cv.document.linkedin || "").length + 1, 12)}ch` }} />
+                          <input type="text" value={cv.document.website || ""} onChange={(e) => updateDocumentField("website", e.target.value)} placeholder="Website / GitHub" className={`bg-transparent text-center focus:outline-none ${!cv.document.website ? "hidden" : ""}`} style={{ width: `${Math.max((cv.document.website || "").length + 1, 12)}ch` }} />
                         </div>
                         <div className="mt-4 border-t border-slate-800" />
                       </header>
@@ -5841,7 +5841,7 @@ export default function CvBuilderPage() {
                           <div className="text-right text-[11px] text-slate-600 space-y-0.5 shrink-0">
                             <div><input type="text" value={cv.document.phone || ""} onChange={(e) => updateDocumentField("phone", e.target.value)} placeholder="Phone" className="bg-transparent text-right focus:outline-none" style={{ width: `${Math.max((cv.document.phone || "").length + 1, 12)}ch` }} /></div>
                             <div><input type="text" value={cv.document.email} onChange={(e) => updateDocumentField("email", e.target.value)} placeholder="Email" className="bg-transparent text-right focus:outline-none" style={{ width: `${Math.max((cv.document.email || "").length + 1, 14)}ch` }} /></div>
-                            <div><input type="text" value={cv.document.website || ""} onChange={(e) => updateDocumentField("website", e.target.value)} placeholder="Website" className={`bg-transparent text-right focus:outline-none ${!cv.document.website ? "no-print" : ""}`} style={{ width: `${Math.max((cv.document.website || "").length + 1, 12)}ch` }} /></div>
+                            <div><input type="text" value={cv.document.website || ""} onChange={(e) => updateDocumentField("website", e.target.value)} placeholder="Website" className={`bg-transparent text-right focus:outline-none ${!cv.document.website ? "hidden" : ""}`} style={{ width: `${Math.max((cv.document.website || "").length + 1, 12)}ch` }} /></div>
                             <div><input type="text" value={cv.document.location || ""} onChange={(e) => updateDocumentField("location", e.target.value)} placeholder="Location" className="bg-transparent text-right focus:outline-none" style={{ width: `${Math.max((cv.document.location || "").length + 1, 12)}ch` }} /></div>
                           </div>
                         </div>
@@ -5899,22 +5899,22 @@ export default function CvBuilderPage() {
                             className="bg-white/15 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-white/40 text-white placeholder:text-white/60 overflow-visible whitespace-normal"
                             placeholder="Location"
                           />
-                          <span className={!cv.document.linkedin ? "no-print" : ""}>·</span>
+                          <span className={!cv.document.linkedin ? "hidden" : ""}>·</span>
                           <input
                             type="text"
                             value={cv.document.linkedin || ""}
                             onChange={(e) => updateDocumentField("linkedin", e.target.value)}
                             style={{ width: `${Math.max((cv.document.linkedin || "").length + 1, 14)}ch`, maxWidth: "100%" }}
-                            className={`bg-white/15 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-white/40 text-white placeholder:text-white/60 overflow-visible whitespace-normal ${!cv.document.linkedin ? "no-print" : ""}`}
+                            className={`bg-white/15 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-white/40 text-white placeholder:text-white/60 overflow-visible whitespace-normal ${!cv.document.linkedin ? "hidden" : ""}`}
                             placeholder="linkedin.com/in/..."
                           />
-                          <span className={!cv.document.website ? "no-print" : ""}>·</span>
+                          <span className={!cv.document.website ? "hidden" : ""}>·</span>
                           <input
                             type="text"
                             value={cv.document.website || ""}
                             onChange={(e) => updateDocumentField("website", e.target.value)}
                             style={{ width: `${Math.max((cv.document.website || "").length + 1, 14)}ch`, maxWidth: "100%" }}
-                            className={`bg-white/15 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-white/40 text-white placeholder:text-white/60 overflow-visible whitespace-normal ${!cv.document.website ? "no-print" : ""}`}
+                            className={`bg-white/15 px-2 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-white/40 text-white placeholder:text-white/60 overflow-visible whitespace-normal ${!cv.document.website ? "hidden" : ""}`}
                             placeholder="portfolio / github"
                           />
                         </div>
@@ -5969,22 +5969,22 @@ export default function CvBuilderPage() {
                             className="bg-transparent text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal"
                             placeholder="Location"
                           />
-                          <span className={`text-slate-400 ${!cv.document.linkedin ? "no-print" : ""}`}>◆</span>
+                          <span className={`text-slate-400 ${!cv.document.linkedin ? "hidden" : ""}`}>◆</span>
                           <input
                             type="text"
                             value={cv.document.linkedin || ""}
                             onChange={(e) => updateDocumentField("linkedin", e.target.value)}
                             style={{ width: `${Math.max((cv.document.linkedin || "").length + 1, 14)}ch`, maxWidth: "100%" }}
-                            className={`bg-transparent text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal ${!cv.document.linkedin ? "no-print" : ""}`}
+                            className={`bg-transparent text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal ${!cv.document.linkedin ? "hidden" : ""}`}
                             placeholder="linkedin.com/in/..."
                           />
-                          <span className={`text-slate-400 ${!cv.document.website ? "no-print" : ""}`}>◆</span>
+                          <span className={`text-slate-400 ${!cv.document.website ? "hidden" : ""}`}>◆</span>
                           <input
                             type="text"
                             value={cv.document.website || ""}
                             onChange={(e) => updateDocumentField("website", e.target.value)}
                             style={{ width: `${Math.max((cv.document.website || "").length + 1, 14)}ch`, maxWidth: "100%" }}
-                            className={`bg-transparent text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal ${!cv.document.website ? "no-print" : ""}`}
+                            className={`bg-transparent text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal ${!cv.document.website ? "hidden" : ""}`}
                             placeholder="portfolio / github"
                           />
                         </div>
@@ -6058,22 +6058,22 @@ export default function CvBuilderPage() {
                             className="bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal"
                             placeholder="Location"
                           />
-                          <span className={!cv.document.linkedin ? "no-print" : ""}>·</span>
+                          <span className={!cv.document.linkedin ? "hidden" : ""}>·</span>
                           <input
                             type="text"
                             value={cv.document.linkedin || ""}
                             onChange={(e) => updateDocumentField("linkedin", e.target.value)}
                             style={{ width: `${Math.max((cv.document.linkedin || "").length + 1, 14)}ch`, maxWidth: "100%" }}
-                            className={`bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal ${!cv.document.linkedin ? "no-print" : ""}`}
+                            className={`bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal ${!cv.document.linkedin ? "hidden" : ""}`}
                             placeholder="linkedin.com/in/..."
                           />
-                          <span className={!cv.document.website ? "no-print" : ""}>·</span>
+                          <span className={!cv.document.website ? "hidden" : ""}>·</span>
                           <input
                             type="text"
                             value={cv.document.website || ""}
                             onChange={(e) => updateDocumentField("website", e.target.value)}
                             style={{ width: `${Math.max((cv.document.website || "").length + 1, 14)}ch`, maxWidth: "100%" }}
-                            className={`bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal ${!cv.document.website ? "no-print" : ""}`}
+                            className={`bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal ${!cv.document.website ? "hidden" : ""}`}
                             placeholder="portfolio / github"
                           />
                         </div>

@@ -44,15 +44,44 @@ export function looksLikePdfBinary(text: string): boolean {
 }
 
 /**
+ * When PDF text arrives as one long line, insert breaks before standard CV headings
+ * so section parsers can bucket Experience / Education / Skills.
+ */
+export function restoreCvSectionBreaks(text: string): string {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return "";
+
+  const newlineCount = (trimmed.match(/\n/g) || []).length;
+  const looksFlattened = newlineCount < 4 && trimmed.length > 200;
+  if (!looksFlattened) return trimmed;
+
+  const headings =
+    "Professional Summary|Summary|Profile|About Me|Executive Summary|Career Objective|" +
+    "Key Impact|Key Achievements|Career Highlights|Highlights|" +
+    "Work Experience|Professional Experience|Employment History|Employment|Experience|Career History|" +
+    "Education(?: and Qualifications)?|Qualifications|Academic History|Academic Background|" +
+    "Professional Skills|Core Competencies|Technical Skills|Key Skills|Skills(?: and Competencies)?|Competencies|Tools & Technologies|" +
+    "Projects|Key Projects|Portfolio|Notable Projects|" +
+    "Certifications|Certificates|Licenses|Courses|" +
+    "Languages|Language Skills|" +
+    "References|Referees";
+
+  const re = new RegExp(`\\s+(?=(?:${headings})\\b)`, "gi");
+  return trimmed.replace(re, "\n\n").replace(/[ \t]{2,}/g, " ").trim();
+}
+
+/**
  * Strip PDF object lines, control chars, and replacement characters from extracted text.
  */
 export function sanitizeExtractedCvText(raw: string): string {
   if (!raw) return "";
 
-  let text = raw
-    .replace(/\u0000/g, "")
-    .replace(/[\uFFFD\uFFFE\uFFFF]+/g, " ")
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ");
+  let text = restoreCvSectionBreaks(
+    raw
+      .replace(/\u0000/g, "")
+      .replace(/[\uFFFD\uFFFE\uFFFF]+/g, " ")
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " "),
+  );
 
   // Drop entire PDF binary dumps early
   if (looksLikePdfBinary(text)) {

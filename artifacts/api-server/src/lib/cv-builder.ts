@@ -2311,7 +2311,25 @@ export function verifyExtractedDataAgainstRawText(
 export function extractCvDataFromText(rawText: string, fileName?: string): ExtractedCvData {
   // Always sanitize first — never parse raw PDF binary dumps
   const text = sanitizeExtractedCvText(rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim());
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  // Defense: split mid-line section headings that survived flattening
+  const sectionSplitRe =
+    /\s+(?=(?:Professional Summary|Summary|Profile|About Me|Executive Summary|Career Objective|Key Impact|Key Achievements|Career Highlights|Work Experience|Professional Experience|Employment History|Employment|Experience|Career History|Education(?: and Qualifications)?|Qualifications|Academic History|Professional Skills|Core Competencies|Technical Skills|Key Skills|Skills(?: and Competencies)?|Competencies|Projects|Key Projects|Certifications|Certificates|Languages|Language Skills|References|Referees)\b)/gi;
+  const lines = text
+    .split("\n")
+    .flatMap((l) => {
+      const trimmed = l.trim();
+      if (!trimmed) return [];
+      if (trimmed.length > 80 && sectionSplitRe.test(trimmed)) {
+        sectionSplitRe.lastIndex = 0;
+        return trimmed
+          .replace(sectionSplitRe, "\n")
+          .split("\n")
+          .map((p) => p.trim())
+          .filter(Boolean);
+      }
+      return [trimmed];
+    })
+    .filter(Boolean);
 
   // 1. Personal Contact Extraction
   // Email
@@ -2418,7 +2436,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     const nameFromFile = fileName
       .replace(/\.(pdf|docx|txt|doc)$/i, "")
       .replace(/[\-_]+/g, " ")
-      .replace(/\b(cv|resume|curriculum|vitae|updated|final|draft|v\d+)\b/gi, "")
+      .replace(/\b(cv|resume|curriculum|vitae|updated|final|draft|main|master|copy|v\d+)\b/gi, "")
       .trim();
     if (
       nameFromFile.length >= 3 &&

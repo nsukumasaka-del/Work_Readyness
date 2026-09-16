@@ -1,6 +1,6 @@
 /**
  * Browser-side PDF text extraction via PDF.js.
- * Keeps CV uploads off the Render cold-start / Cloudflare 524 path.
+ * Preserves line breaks so CV section parsers can find Experience / Education / Skills.
  */
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -18,6 +18,78 @@ export function isPdfFile(file: File): boolean {
   return name.endsWith(".pdf") || file.type === "application/pdf";
 }
 
+/**
+ * Rebuild readable multi-line text from PDF.js text items using Y positions + hasEOL.
+ * Collapsing every page into one space-joined string breaks CV section parsing.
+ */
+function textContentToLines(items: unknown[]): string[] {
+  const rows: { y: number; parts: { x: number; text: string }[]; forceBreak: boolean }[] = [];
+  const yTolerance = 3;
+
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object" || !("str" in raw)) continue;
+    const item = raw as { str?: string; transform?: number[]; hasEOL?: boolean };
+    const text = String(item.str || "").replace(/\s+/g, " ").trim();
+    const transform = item.transform || [];
+    const x = typeof transform[4] === "number" ? transform[4] : 0;
+    const y = typeof transform[5] === "number" ? transform[5] : 0;
+    const forceBreak = Boolean(item.hasEOL);
+
+    if (!text && !forceBreak) continue;
+
+    let row = rows.find((r) => Math.abs(r.y - y) <= yTolerance);
+    if (!row) {
+      row = { y, parts: [], forceBreak: false };
+      rows.push(row);
+    }
+    if (text) row.parts.push({ x, text });
+    if (forceBreak) row.forceBreak = true;
+  }
+
+  // PDF Y grows upward — sort top-to-bottom, then left-to-right within a row
+  rows.sort((a, b) => b.y - a.y || a.parts[0]?.x! - b.parts[0]?.x!);
+
+  const lines: string[] = [];
+  for (const row of rows) {
+    row.parts.sort((a, b) => a.x - b.x);
+    const line = row.parts
+      .map((p) => p.text)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (line) lines.push(line);
+    else if (row.forceBreak) lines.push("");
+  }
+
+  return lines;
+}
+
+/**
+ * If extraction still produced almost no newlines, insert breaks before common CV headings.
+ */
+export function restoreCvSectionBreaks(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+
+  const newlineCount = (trimmed.match(/\n/g) || []).length;
+  const looksFlattened = newlineCount < 4 && trimmed.length > 200;
+  if (!looksFlattened) return trimmed;
+
+  const headings =
+    "Professional Summary|Summary|Profile|About Me|Executive Summary|Career Objective|" +
+    "Key Impact|Key Achievements|Career Highlights|Highlights|" +
+    "Work Experience|Professional Experience|Employment History|Employment|Experience|Career History|" +
+    "Education(?: and Qualifications)?|Qualifications|Academic History|Academic Background|" +
+    "Professional Skills|Core Competencies|Technical Skills|Key Skills|Skills(?: and Competencies)?|Competencies|Tools & Technologies|" +
+    "Projects|Key Projects|Portfolio|Notable Projects|" +
+    "Certifications|Certificates|Licenses|Courses|" +
+    "Languages|Language Skills|" +
+    "References|Referees";
+
+  const re = new RegExp(`\\s+(?=(?:${headings})\\b)`, "gi");
+  return trimmed.replace(re, "\n\n").replace(/[ \t]{2,}/g, " ").trim();
+}
+
 export async function extractPdfTextFromFile(file: File): Promise<string> {
   ensurePdfWorker();
 
@@ -33,13 +105,11 @@ export async function extractPdfTextFromFile(file: File): Promise<string> {
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
-    const line = content.items
-      .map((item) => ("str" in item ? String(item.str || "") : ""))
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (line) pages.push(line);
+    const lines = textContentToLines(content.items || []);
+    const pageText = lines.join("\n").trim();
+    if (pageText) pages.push(pageText);
   }
 
-  return pages.join("\n\n").trim();
+  const raw = pages.join("\n\n").trim();
+  return restoreCvSectionBreaks(raw);
 }

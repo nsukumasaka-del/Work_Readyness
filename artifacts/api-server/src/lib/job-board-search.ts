@@ -652,7 +652,8 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
 }> {
   const role = input.role.trim() || "Professional";
   const location = input.location?.trim();
-  const limit = input.limit ?? 4;
+  const limit = input.limit ?? 6;
+  const freeMatchSlots = 2;
   const query = [role, location || "South Africa"].filter(Boolean).join(" · ");
   const queriedBoards = [...new Set(TRUSTED_BOARDS.map((board) => board.label))];
 
@@ -690,11 +691,15 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   const ranked = diversifyJobs(
     [...deduped.values()].sort((a, b) => b.match - a.match),
     limit,
-  ).map((job, index) => ({
-    ...job,
-    // Top live fit stays premium / subscription-gated in the UI.
-    match: index === 0 ? Math.max(90, job.match) : Math.min(89, job.match),
-  }));
+  ).map((job, index, jobs) => {
+    // Only the last two fits stay free (<90%). All stronger matches are premium-gated.
+    const freeStart = Math.max(0, jobs.length - freeMatchSlots);
+    const isFree = index >= freeStart;
+    if (isFree) {
+      return { ...job, match: Math.min(89, Math.max(62, job.match > 89 ? 89 - (index - freeStart) * 3 : job.match)) };
+    }
+    return { ...job, match: Math.max(90, Math.min(99, job.match < 90 ? 90 + Math.min(8, index) : job.match)) };
+  });
 
   return {
     jobs: ranked,

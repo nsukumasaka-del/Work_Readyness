@@ -1029,10 +1029,13 @@ router.post("/career/diagnostic", async (req, res) => {
       }
     }
 
+    const MATCH_LIMIT = 6;
+    const FREE_MATCH_SLOTS = 2;
+
     const liveSearch = await searchTrustedJobBoards({
       role: targetRole,
       location: locationLabel,
-      limit: 4,
+      limit: MATCH_LIMIT,
     });
 
     let relatedJobs = liveSearch.jobs;
@@ -1042,8 +1045,9 @@ router.post("/career/diagnostic", async (req, res) => {
       liveResults: liveSearch.liveResults,
     };
 
-    if (relatedJobs.length < 4) {
+    if (relatedJobs.length < MATCH_LIMIT) {
       const jobs = await db.select().from(jobsTable);
+      const need = MATCH_LIMIT - relatedJobs.length;
       const fallback = [...jobs]
         .filter((job) => !job.status || job.status === "published")
         .map((job) => ({
@@ -1051,9 +1055,12 @@ router.post("/career/diagnostic", async (req, res) => {
           relevance: scoreJobRelevance(job, targetRole, locationLabel),
         }))
         .sort((a, b) => b.relevance - a.relevance)
-        .slice(0, 4 - relatedJobs.length)
+        .slice(0, need)
         .map(({ job, relevance }, index) => {
           const applyUrl = `https://www.careerjunction.co.za/jobs?keywords=${encodeURIComponent(job.title)}&location=${encodeURIComponent(job.location.split("·")[0]?.trim() || "South Africa")}`;
+          const absoluteIndex = relatedJobs.length + index;
+          const freeStart = MATCH_LIMIT - FREE_MATCH_SLOTS;
+          const isFree = absoluteIndex >= freeStart;
           return {
             id: job.id,
             title: job.title,
@@ -1061,10 +1068,9 @@ router.post("/career/diagnostic", async (req, res) => {
             location: job.location,
             sector: job.sector,
             salary: job.salary,
-            match:
-              relatedJobs.length === 0 && index === 0
-                ? Math.max(90, Math.min(99, relevance))
-                : Math.min(89, Math.max(62, relevance - index * 3)),
+            match: isFree
+              ? Math.min(89, Math.max(62, relevance - index * 3))
+              : Math.max(90, Math.min(99, relevance)),
             posted: job.posted,
             tags: [...job.tags, "BonList verified"],
             source: "CareerJunction",
@@ -1077,7 +1083,7 @@ router.post("/career/diagnostic", async (req, res) => {
       for (const job of fallback) {
         if (seen.has(job.title.toLowerCase())) continue;
         relatedJobs.push(job);
-        if (relatedJobs.length >= 4) break;
+        if (relatedJobs.length >= MATCH_LIMIT) break;
       }
 
       if (!liveSearch.liveResults) {
@@ -1094,7 +1100,7 @@ router.post("/career/diagnostic", async (req, res) => {
       role: targetRole,
       location: locationLabel,
       reportId: 0,
-      relatedJobs: relatedJobs.slice(0, 4),
+      relatedJobs: relatedJobs.slice(0, MATCH_LIMIT),
       jobSearch,
       analysis,
     });
@@ -1122,7 +1128,7 @@ router.post("/career/diagnostic", async (req, res) => {
         role: targetRole,
         location: locationLabel,
         reportId: report.id,
-        relatedJobs: relatedJobs.slice(0, 4),
+        relatedJobs: relatedJobs.slice(0, MATCH_LIMIT),
         jobSearch,
         analysis,
       }),

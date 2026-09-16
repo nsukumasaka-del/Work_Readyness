@@ -1507,7 +1507,7 @@ function HeroProductVisual() {
             </div>
           ))}
           <div className="rounded-2xl border border-dashed border-primary/30 bg-secondary/50 px-4 py-3 text-xs leading-5 text-secondary-foreground">
-            After your profile and CV review, we recommend 4 roles tailored to you — premium 90%+ matches unlock with Job Seeker, Career Pro, or the{' '}
+            After your profile and CV review, we recommend 6 roles tailored to you — only 2 fits below 90% stay free; premium 90%+ matches unlock with Job Seeker, Career Pro, or the{' '}
             <Link href="/pricing" className="font-semibold text-primary hover:underline">
               3-month programme
             </Link>
@@ -1663,7 +1663,7 @@ function Home() {
               </li>
               <li className="flex gap-2">
                 <FileCheck2 size={16} className="mt-0.5 shrink-0 text-primary" />
-                Detailed review + 4 recommended roles after upload
+                Detailed review + 6 recommended roles after upload
               </li>
             </ul>
           </div>
@@ -2055,6 +2055,7 @@ function ProfilePage() {
 function DiagnosticPage() {
   const [report, setReport] = useState<DiagnosticReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [entitlement, setEntitlement] = useState<Entitlement>(defaultEntitlement());
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -2062,6 +2063,16 @@ function DiagnosticPage() {
       setLocation('/signup');
       return;
     }
+
+    const profile = readProfile();
+    if (profile?.id) {
+      void fetchEntitlement(profile.id).then(setEntitlement);
+    }
+    const refresh = () => {
+      const current = readProfile();
+      if (current?.id) void fetchEntitlement(current.id).then(setEntitlement);
+    };
+    window.addEventListener('careerbridge-entitlement-updated', refresh);
 
     let cancelled = false;
     const load = async () => {
@@ -2078,14 +2089,13 @@ function DiagnosticPage() {
       }
 
       try {
-        const profile = readProfile();
         if (!profile?.id && !profile?.email) {
           if (!cancelled) setReport(null);
           return;
         }
         const params = new URLSearchParams();
-        if (profile.id) params.set('profileId', String(profile.id));
-        if (profile.email) params.set('email', profile.email);
+        if (profile?.id) params.set('profileId', String(profile.id));
+        if (profile?.email) params.set('email', profile.email);
         const response = await fetch(`/api/career/diagnostic/latest?${params.toString()}`, {
           credentials: 'include',
         });
@@ -2111,6 +2121,7 @@ function DiagnosticPage() {
     void load();
     return () => {
       cancelled = true;
+      window.removeEventListener('careerbridge-entitlement-updated', refresh);
     };
   }, [setLocation]);
 
@@ -2195,7 +2206,8 @@ function DiagnosticPage() {
     })
     .slice(0, 3);
   const rewrites = (report.rewriteExamples ?? []).slice(0, 2);
-  const topJobs = relatedJobs.slice(0, 3);
+  const topJobs = relatedJobs.slice(0, 6);
+  const premiumUnlocked = entitlement.features.premiumJobs;
 
   const healthSummary =
     report.summary?.trim() ||
@@ -2358,23 +2370,100 @@ function DiagnosticPage() {
       <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">6 · Recommended matches & next steps</p>
         <h2 className="mt-1 text-lg font-semibold text-foreground">High-match highlights</h2>
+        {report.jobSearch?.liveResults ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Live listings for “{report.jobSearch.query}” — open a role to apply on the board.
+          </p>
+        ) : null}
         {topJobs.length ? (
           <ul className="mt-4 space-y-2">
-            {topJobs.map((job) => (
-              <li key={job.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-secondary/50 px-4 py-3 text-sm">
-                <span className="font-semibold text-foreground">
-                  {job.title}
-                  {job.company ? <span className="font-normal text-muted-foreground"> · {job.company}</span> : null}
-                </span>
-                <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
-                  {job.match}% fit
-                </span>
-              </li>
-            ))}
+            {topJobs.map((job) => {
+              const premiumLocked = job.match >= 90 && !premiumUnlocked;
+              const href = applyHref(job);
+              return (
+                <li key={job.id} className="relative overflow-hidden rounded-2xl bg-secondary/50">
+                  <div
+                    className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm ${
+                      premiumLocked ? 'select-none blur-[2.5px] pointer-events-none' : ''
+                    }`}
+                  >
+                    {href && !premiumLocked ? (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="min-w-0 flex-1 font-semibold text-foreground hover:text-primary"
+                        data-testid={`link-diagnostic-job-${job.id}`}
+                        onClick={() => persistSelectedJob(job)}
+                      >
+                        {job.title}
+                        {job.company ? <span className="font-normal text-muted-foreground"> · {job.company}</span> : null}
+                        {(job.source || job.posted) && (
+                          <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">
+                            {[job.source, job.posted ? `Posted ${job.posted}` : null].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
+                      </a>
+                    ) : (
+                      <span className="min-w-0 flex-1 font-semibold text-foreground">
+                        {job.title}
+                        {job.company ? <span className="font-normal text-muted-foreground"> · {job.company}</span> : null}
+                        {(job.source || job.posted) && (
+                          <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">
+                            {[job.source, job.posted ? `Posted ${job.posted}` : null].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+                        {job.match}% fit
+                      </span>
+                      {href && !premiumLocked ? (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-bold text-primary-foreground"
+                          data-testid={`button-diagnostic-apply-${job.id}`}
+                          onClick={() => persistSelectedJob(job)}
+                        >
+                          Apply <ExternalLink size={12} />
+                        </a>
+                      ) : null}
+                    </span>
+                  </div>
+                  {premiumLocked ? (
+                    <div className="absolute inset-0 z-10 flex items-center justify-between gap-3 bg-background/60 px-4 backdrop-blur-[1px]">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Lock size={14} className="shrink-0 text-primary" />
+                        <p className="truncate text-xs font-semibold text-foreground">
+                          {job.match}% premium match
+                        </p>
+                      </div>
+                      <Link
+                        href="/pricing"
+                        className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-bold text-primary-foreground"
+                        data-testid={`button-unlock-diagnostic-job-${job.id}`}
+                      >
+                        Unlock
+                      </Link>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <p className="mt-3 text-sm text-muted-foreground">Job matches appear after a fresh CV upload.</p>
         )}
+        {topJobs.length > 0 ? (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            {premiumUnlocked
+              ? 'Premium 90%+ matches are unlocked on your plan.'
+              : 'Two open fits below 90% are free. 90%+ matches unlock with Job Seeker, Career Pro, or the programme.'}
+          </p>
+        ) : null}
 
         <div className="mt-6 flex flex-col items-stretch gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">Apply your fixes in one pass — then send a cleaner CV.</p>
@@ -2449,7 +2538,7 @@ function JobsPage() {
     );
   }
 
-  const matches = (report.relatedJobs ?? []).slice(0, 4);
+  const matches = (report.relatedJobs ?? []).slice(0, 6);
   const premiumUnlocked = entitlement.features.premiumJobs;
 
   return (
@@ -2485,7 +2574,7 @@ function JobsPage() {
           <BriefcaseBusiness className="mx-auto text-primary" size={32} />
           <h2 className="display mt-4 text-2xl font-semibold text-foreground">No matches yet</h2>
           <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-            Run a fresh CV review to generate four recommended roles for your profile.
+            Run a fresh CV review to generate six recommended roles for your profile.
           </p>
           <Link href="/" className="btn-primary mt-5" data-testid="link-jobs-to-upload">
             Upload CV <ArrowRight size={15} />

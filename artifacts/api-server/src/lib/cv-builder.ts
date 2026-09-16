@@ -2311,9 +2311,11 @@ export function verifyExtractedDataAgainstRawText(
 export function extractCvDataFromText(rawText: string, fileName?: string): ExtractedCvData {
   // Always sanitize first — never parse raw PDF binary dumps
   const text = sanitizeExtractedCvText(rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim());
-  // Defense: split mid-line section headings that survived flattening
+  // Defense: split mid-line section headings that survived flattening.
+  // IMPORTANT: never use bare words like "Experience" / "Skills" — they appear inside summary sentences
+  // ("…professional with experience in…") and would truncate the summary.
   const sectionSplitRe =
-    /\s+(?=(?:Professional Summary|Summary|Profile|About Me|Executive Summary|Career Objective|Key Impact|Key Achievements|Career Highlights|Work Experience|Professional Experience|Employment History|Employment|Experience|Career History|Education(?: and Qualifications)?|Qualifications|Academic History|Professional Skills|Core Competencies|Technical Skills|Key Skills|Skills(?: and Competencies)?|Competencies|Projects|Key Projects|Certifications|Certificates|Languages|Language Skills|References|Referees)\b)/gi;
+    /\s+(?=(?:Professional Summary|Executive Summary|Career Objective|About Me|Key Impact|Key Achievements|Career Highlights|Work Experience|Professional Experience|Employment History|Career History|Relevant Experience|Previous Employment|Education and Qualifications|Academic History|Academic Background|Professional Skills|Core Competencies|Technical Skills|Key Skills|Tools & Technologies|Tools and Technologies|Key Projects|Notable Projects|Professional Certifications|Language Skills|References|Referees)\b)/gi;
   const lines = text
     .split("\n")
     .flatMap((l) => {
@@ -2540,6 +2542,20 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
 
   const isPageMarker = (line: string) => /^--\s*\d+\s*of\s*\d+\s*--$/i.test(line.trim());
 
+  /** True only for real CV section titles — not body sentences that contain those words. */
+  const looksLikeSectionTitle = (line: string) => {
+    const t = line.trim();
+    if (!t || t.length > 55) return false;
+    // Body sentences usually contain filler words + continue past the keyword
+    if (
+      /\b(?:with|in|for|and|the|of|at|to|from|across|including|over|years?|months?)\b/i.test(t) &&
+      t.split(/\s+/).length > 4
+    ) {
+      return false;
+    }
+    return true;
+  };
+
   for (const line of lines) {
     if (isPageMarker(line)) continue;
     const lower = line.toLowerCase().trim();
@@ -2549,25 +2565,57 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       continue;
     }
 
-    if (/^(?:professional\s+summary|summary|profile|about me|professional statement|executive summary|career objective|biography)\b/i.test(lower) && line.length < 60) {
+    if (
+      looksLikeSectionTitle(line) &&
+      /^(?:professional\s+summary|summary|profile|about me|professional statement|executive summary|career objective|biography)\s*:?\s*$/i.test(
+        lower,
+      )
+    ) {
       currentSection = "summary";
       continue;
-    } else if (/^(?:key impact|key achievements|selected achievements|career highlights|highlights)\b/i.test(lower) && line.length < 80) {
+    } else if (
+      looksLikeSectionTitle(line) &&
+      /^(?:key impact|key achievements|selected achievements|career highlights|highlights)\s*:?\s*$/i.test(lower)
+    ) {
       currentSection = "impact";
       continue;
-    } else if (/^(?:experience|work history|employment history|employment|career history|professional experience|work experience|relevant experience|previous employment)\b/i.test(lower) && line.length < 60) {
+    } else if (
+      looksLikeSectionTitle(line) &&
+      (/^(?:work\s+history|employment\s+history|career\s+history|professional\s+experience|work\s+experience|relevant\s+experience|previous\s+employment|experience)\s*:?\s*$/i.test(
+        lower,
+      ) ||
+        (/^(?:professional\s+experience|work\s+experience|employment\s+history)\b/i.test(lower) && line.length < 45))
+    ) {
       currentSection = "experience";
       continue;
-    } else if (/^(?:education(?:\s+and\s+qualifications)?|qualifications|academic history|tertiary education|academic background|studies|education\s+&\s+training|academic qualifications)\b/i.test(lower) && line.length < 60) {
+    } else if (
+      looksLikeSectionTitle(line) &&
+      /^(?:education(?:\s+and\s+qualifications)?|qualifications|academic history|tertiary education|academic background|studies|education\s+&\s+training|academic qualifications)\s*:?\s*$/i.test(
+        lower,
+      )
+    ) {
       currentSection = "education";
       continue;
-    } else if (/^(?:professional\s+skills|skills(?:\s+and\s+competencies)?|core competencies|competencies|tools & technologies|tools and technologies|technical skills|key skills|technologies|software & tools|expertise|core skills|hard & soft skills|systems)\b/i.test(lower) && line.length < 60) {
+    } else if (
+      looksLikeSectionTitle(line) &&
+      /^(?:professional\s+skills|skills(?:\s+and\s+competencies)?|core competencies|competencies|tools & technologies|tools and technologies|technical skills|key skills|technologies|software & tools|expertise|core skills|hard & soft skills|systems)\s*:?\s*$/i.test(
+        lower,
+      )
+    ) {
       currentSection = "skills";
       continue;
-    } else if (/^(?:projects|key projects|portfolio|notable projects|personal projects|selected projects)\b/i.test(lower) && line.length < 60) {
+    } else if (
+      looksLikeSectionTitle(line) &&
+      /^(?:projects|key projects|portfolio|notable projects|personal projects|selected projects)\s*:?\s*$/i.test(lower)
+    ) {
       currentSection = "projects";
       continue;
-    } else if (/^(?:certifications|certificates|licenses(?:\s+and\s+certifications)?|accreditations|courses(?:\s+&\s+certifications)?|professional certifications)\b/i.test(lower) && line.length < 60) {
+    } else if (
+      looksLikeSectionTitle(line) &&
+      /^(?:certifications|certificates|licenses(?:\s+and\s+certifications)?|accreditations|courses(?:\s+&\s+certifications)?|professional certifications)\s*:?\s*$/i.test(
+        lower,
+      )
+    ) {
       currentSection = "certifications";
       continue;
     } else if (/^(?:languages|language skills|languages spoken|language proficiency)\s*$/i.test(lower) && line.length < 40) {
@@ -2992,7 +3040,9 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   }
 
   // Candidate summary: strictly 2-3 sentence biography, never reviewer notes
-  let summary = summaryLines.join(" ").replace(/\s+/g, " ").slice(0, 900).trim();
+  let summary = summaryLines.join(" ").replace(/\s+/g, " ").trim();
+  // Keep full professional summaries — only hard-cap extreme paste dumps
+  if (summary.length > 2500) summary = summary.slice(0, 2500).trim();
   if (!summary || isReviewerFeedbackNote(summary)) {
     summary = generateCandidateBiography({
       fullName,

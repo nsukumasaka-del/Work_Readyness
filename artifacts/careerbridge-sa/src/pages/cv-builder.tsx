@@ -134,6 +134,9 @@ function AutoGrowTextarea({
 
   useLayoutEffect(() => {
     fitTextareaHeight(ref.current);
+    // Second pass after layout/fonts so long summaries are not visually clipped
+    const id = window.requestAnimationFrame(() => fitTextareaHeight(ref.current));
+    return () => window.cancelAnimationFrame(id);
   }, [value]);
 
   useEffect(() => {

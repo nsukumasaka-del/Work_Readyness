@@ -96,14 +96,14 @@ export function restoreCvSectionBreaks(text: string): string {
   if (!looksFlattened) return trimmed;
 
   const headings =
-    "Professional Summary|Summary|Profile|About Me|Executive Summary|Career Objective|" +
-    "Key Impact|Key Achievements|Career Highlights|Highlights|" +
-    "Work Experience|Professional Experience|Employment History|Employment|Experience|Career History|" +
-    "Education(?: and Qualifications)?|Qualifications|Academic History|Academic Background|" +
-    "Professional Skills|Technical Skills|Core Competencies|Key Skills|Skills(?: and Competencies)?|Competencies|Tools & Technologies|" +
-    "Projects|Key Projects|Portfolio|Notable Projects|" +
-    "Certifications|Certificates|Licenses|Courses|" +
-    "Languages|Language Skills|" +
+    "Professional Summary|Executive Summary|Career Objective|About Me|" +
+    "Key Impact|Key Achievements|Career Highlights|" +
+    "Work Experience|Professional Experience|Employment History|Career History|Relevant Experience|Previous Employment|" +
+    "Education and Qualifications|Academic History|Academic Background|" +
+    "Professional Skills|Core Competencies|Technical Skills|Key Skills|Tools & Technologies|Tools and Technologies|" +
+    "Key Projects|Notable Projects|Selected Projects|" +
+    "Professional Certifications|" +
+    "Language Skills|" +
     "References|Referees";
 
   const re = new RegExp(`\\s+(?=(?:${headings})\\b)`, "gi");

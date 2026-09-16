@@ -1,9 +1,7 @@
-# BonList — Cloudflare Worker (static SPA + D1 auth + optional /api gateway)
+# BonList — Cloudflare Worker (static SPA + D1 auth on the edge)
 #
-# Auth (login/register/sessions) runs on Cloudflare D1 — free & durable.
-# Optional: set API_UPSTREAM_URL for CV/jobs/coaching Express routes on Render.
-#
-#   API_UPSTREAM_URL = https://YOUR-NODE-API-HOST   (no trailing slash)
+# Auth, email (Resend), and OAuth run 100% on Cloudflare Workers + D1.
+# Optional: API_UPSTREAM_URL for legacy non-auth /api routes during migration.
 #
 # Deploy: pnpm run cf:deploy
 
@@ -12,32 +10,42 @@ main = "workers/gateway.ts"
 compatibility_date = "2025-09-01"
 workers_dev = true
 
-# CV / jobs / diagnostics API (Render). Auth itself uses D1 and does not need this.
 [vars]
-API_UPSTREAM_URL = "https://bonlist-api-yj0d.onrender.com"
-# Production: keep false so signup/forgot-password fail clearly when email isn't wired.
+# Local/dev only — never leave true in production once Resend is wired.
 AUTH_ALLOW_DEV_OTP = "false"
-# Primary admin (D1). Password can also be set as a Worker secret PRIMARY_ADMIN_PASSWORD.
 PRIMARY_ADMIN_EMAIL = "nsukumasaka@gmail.com"
 PRIMARY_ADMIN_NAME = "Ntokozo Sukumasaka"
-# Public site origin used in password-reset emails and OAuth redirect URIs.
+# Used for password-reset links + OAuth redirect_uri base.
 APP_BASE_URL = "https://bonlist.nsukumasaka.workers.dev"
+# Legacy proxy for non-auth career APIs (CV diagnostic, jobs) during edge migration.
+# Auth/email/OAuth do NOT use this. Remove when those routes run on Workers.
+API_UPSTREAM_URL = "https://bonlist-api-yj0d.onrender.com"
 
-# Secrets (set via CLI, not committed):
-#   npx wrangler secret put RESEND_API_KEY
-#   npx wrangler secret put EMAIL_FROM
-#   npx wrangler secret put INTERNAL_EMAIL_SECRET   # shared with Render for SMTP bridge
-#   npx wrangler secret put GOOGLE_CLIENT_ID
-#   npx wrangler secret put GOOGLE_CLIENT_SECRET
-#   npx wrangler secret put LINKEDIN_CLIENT_ID
-#   npx wrangler secret put LINKEDIN_CLIENT_SECRET
-#   npx wrangler secret put FACEBOOK_APP_ID
-#   npx wrangler secret put FACEBOOK_APP_SECRET
-# EMAIL_FROM example: BonList <onboarding@yourdomain.com>
-# OAuth callback URLs:
+# ---------------------------------------------------------------------------
+# Secrets (never commit) — set with:
+#   npx wrangler secret put <NAME>
+#
+# Required for signup OTP + forgot-password:
+#   RESEND_API_KEY
+#   EMAIL_FROM          e.g. BonList <noreply@your-verified-domain.com>
+#                       (or BonList <onboarding@resend.dev> while testing to account owner)
+#
+# Optional admin bootstrap:
+#   PRIMARY_ADMIN_PASSWORD
+#
+# Social OAuth (enable buttons when set):
+#   GOOGLE_CLIENT_ID
+#   GOOGLE_CLIENT_SECRET
+#   LINKEDIN_CLIENT_ID
+#   LINKEDIN_CLIENT_SECRET
+#   FACEBOOK_CLIENT_ID
+#   FACEBOOK_CLIENT_SECRET
+#
+# OAuth callback URLs (register in each provider console):
 #   https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/google/callback
 #   https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/linkedin/callback
 #   https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/facebook/callback
+# ---------------------------------------------------------------------------
 
 [[d1_databases]]
 binding = "DB"
@@ -49,5 +57,4 @@ preview_database_id = "32f06e98-d912-43ce-9ebf-206c82224b6e"
 directory = "./artifacts/careerbridge-sa/dist/public"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-# Ensure /api hits the Worker before static assets (prevents HTTP 405 on POST).
 run_worker_first = ["/api", "/api/*"]

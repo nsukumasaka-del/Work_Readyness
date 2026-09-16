@@ -28,6 +28,7 @@ const RESET_HOURS = 1;
 
 export type D1Env = MailEnv & {
   DB: D1Database;
+  /** Optional legacy proxy for non-auth /api routes until fully on Workers. */
   API_UPSTREAM_URL?: string;
   PRIMARY_ADMIN_EMAIL?: string;
   PRIMARY_ADMIN_PASSWORD?: string;
@@ -36,7 +37,11 @@ export type D1Env = MailEnv & {
   GOOGLE_CLIENT_SECRET?: string;
   LINKEDIN_CLIENT_ID?: string;
   LINKEDIN_CLIENT_SECRET?: string;
+  FACEBOOK_CLIENT_ID?: string;
+  FACEBOOK_CLIENT_SECRET?: string;
+  /** @deprecated Prefer FACEBOOK_CLIENT_ID */
   FACEBOOK_APP_ID?: string;
+  /** @deprecated Prefer FACEBOOK_CLIENT_SECRET */
   FACEBOOK_APP_SECRET?: string;
 };
 
@@ -232,49 +237,17 @@ async function ensurePrimaryAdmin(env: D1Env): Promise<UserRow> {
   return (await findUserByEmail(env.DB, primary.email))!;
 }
 
-/** Ask Render API for an admin dashboard token (admin_sessions live there). */
-async function mintUpstreamAdminToken(
-  env: D1Env,
-  email: string,
-  password: string,
-): Promise<string | null> {
-  const upstream = String(env.API_UPSTREAM_URL || "")
-    .trim()
-    .replace(/\/+$/, "");
-  if (!upstream) return null;
-
-  try {
-    const response = await fetch(`${upstream}/api/career/login`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: JSON.stringify({ email, password }),
-    });
-    const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    if (typeof data.adminToken === "string" && data.adminToken) return data.adminToken;
-    return null;
-  } catch (err) {
-    console.error("[bonlist-auth] upstream admin mint failed", err);
-    return null;
-  }
-}
-
 async function buildLoginResponse(
   request: Request,
   env: D1Env,
   user: UserRow,
-  password: string,
 ): Promise<Response> {
   const { token, expiresAt } = await createSession(env.DB, user.id);
   const headers = new Headers();
   headers.append("Set-Cookie", sessionCookie(token, expiresAt, isSecureRequest(request)));
 
-  let adminToken: string | undefined;
-  if (user.is_admin) {
-    adminToken = (await mintUpstreamAdminToken(env, user.email, password)) || token;
-  }
+  // Admin dashboards use the same D1 session token (no external auth host).
+  const adminToken = user.is_admin ? token : undefined;
 
   return json(
     toAuthPayload(user, token, {
@@ -566,7 +539,7 @@ export async function handleLogin(request: Request, env: D1Env): Promise<Respons
     return error(403, "Please verify your email before signing in. Complete signup with the code we emailed you.");
   }
 
-  return buildLoginResponse(request, env, user, password);
+  return buildLoginResponse(request, env, user);
 }
 
 export async function handleMe(request: Request, env: D1Env): Promise<Response> {

@@ -1,11 +1,12 @@
-# Cloudflare D1 auth for BonList
+# Cloudflare D1 auth for BonList (Workers edge)
 
 ## Features
 - Durable **users** + **sessions** in D1
-- **Signup email OTP** (verify before account is created)
-- **Forgot / reset password** via emailed link
+- **Signup email OTP** via **Resend** (verify before account is created)
+- **Forgot / reset password** via emailed link (Resend)
 - **Social OAuth** (Google, LinkedIn, Facebook) → D1 session
 - Login is password-only (no OTP)
+- No SMTP / Nodemailer / Render email bridge
 
 ## Routes
 | Method | Path | Purpose |
@@ -20,6 +21,9 @@
 | POST | `/api/auth/reset-password` | Set new password from token |
 | GET | `/api/auth/oauth/:provider/start` | Start OAuth (`google` \| `linkedin` \| `facebook`) |
 | GET | `/api/auth/oauth/:provider/callback` | OAuth callback → D1 session cookie |
+| GET | `/api/career/auth/config` | `{ google, linkedin, facebook, emailConfigured, … }` |
+
+Career aliases (`/api/career/signup`, `/login`, `/auth/verify`, …) hit the same handlers.
 
 ## One-time D1 setup
 
@@ -30,32 +34,20 @@ npx wrangler d1 create bonlist-db
 npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/schema.sql
 npx wrangler d1 execute bonlist-db --local --file=./workers/d1/schema.sql
 
-# If DB already existed from v1:
 npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0002_email_verification.sql
-npx wrangler d1 execute bonlist-db --local --file=./workers/d1/migrations/0002_email_verification.sql
 npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0005_auth_identities.sql
 ```
 
-## Email
-
-**Preferred — Resend**
+## Email (Resend only)
 
 ```bash
 npx wrangler secret put RESEND_API_KEY
 npx wrangler secret put EMAIL_FROM
-# e.g. BonList <onboarding@your-verified-domain.com>
+# Example: BonList <noreply@your-verified-domain.com>
+# While testing on Resend's onboarding domain, only the Resend account owner inbox receives mail.
 ```
 
-**Fallback — Render SMTP bridge** (Workers cannot open raw SMTP sockets)
-
-1. Set the same secret on Worker and Render API:
-   ```bash
-   npx wrangler secret put INTERNAL_EMAIL_SECRET
-   ```
-   Also set `INTERNAL_EMAIL_SECRET` on Render, plus working `SMTP_*` (or Resend) there.
-2. Worker POSTs to `{API_UPSTREAM_URL}/api/internal/send-email`.
-
-For local testing without email, set in `wrangler.toml` `[vars]`:
+For local testing without Resend, set in `wrangler.toml` `[vars]`:
 `AUTH_ALLOW_DEV_OTP = "true"` — codes / reset URLs are returned in the API JSON.
 
 ## Social OAuth secrets
@@ -65,11 +57,11 @@ npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
 npx wrangler secret put LINKEDIN_CLIENT_ID
 npx wrangler secret put LINKEDIN_CLIENT_SECRET
-npx wrangler secret put FACEBOOK_APP_ID
-npx wrangler secret put FACEBOOK_APP_SECRET
+npx wrangler secret put FACEBOOK_CLIENT_ID
+npx wrangler secret put FACEBOOK_CLIENT_SECRET
 ```
 
-Callback URLs:
+Callback URLs (register in each provider console):
 
 - `https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/google/callback`
 - `https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/linkedin/callback`

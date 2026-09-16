@@ -71,8 +71,9 @@ function readProviderConfig(env: D1Env, provider: OAuthProvider): ProviderConfig
     if (!clientId || !clientSecret) return null;
     return { clientId, clientSecret };
   }
-  const clientId = env.FACEBOOK_APP_ID?.trim();
-  const clientSecret = env.FACEBOOK_APP_SECRET?.trim();
+  // Prefer FACEBOOK_CLIENT_* (wrangler bindings); accept legacy APP_ID / APP_SECRET.
+  const clientId = env.FACEBOOK_CLIENT_ID?.trim() || env.FACEBOOK_APP_ID?.trim();
+  const clientSecret = env.FACEBOOK_CLIENT_SECRET?.trim() || env.FACEBOOK_APP_SECRET?.trim();
   if (!clientId || !clientSecret) return null;
   return { clientId, clientSecret };
 }

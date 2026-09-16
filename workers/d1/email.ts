@@ -1,23 +1,25 @@
 /**
- * Transactional email for Cloudflare Workers.
- * Prefer Resend (RESEND_API_KEY). Fallback: POST to Render SMTP bridge
- * (`API_UPSTREAM_URL` + `INTERNAL_EMAIL_SECRET`).
- * Dev: AUTH_ALLOW_DEV_OTP=true returns codes in API JSON when email isn't configured.
+ * Transactional email for Cloudflare Workers (Resend HTTP API only).
+ * Edge-safe: uses fetch — no SMTP / Nodemailer / TCP sockets.
+ *
+ * Secrets (wrangler):
+ *   RESEND_API_KEY
+ *   EMAIL_FROM   e.g. BonList <noreply@your-verified-domain.com>
+ *
+ * Vars:
+ *   AUTH_ALLOW_DEV_OTP=true → return codes in API JSON when Resend is unset (local only)
  */
 
 export type MailEnv = {
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
-  SMTP_FROM?: string;
   AUTH_ALLOW_DEV_OTP?: string;
   APP_BASE_URL?: string;
-  API_UPSTREAM_URL?: string;
-  INTERNAL_EMAIL_SECRET?: string;
 };
 
 export type SendResult = {
   sent: boolean;
-  provider: "resend" | "upstream" | "none";
+  provider: "resend" | "none";
   devCode?: string;
 };
 
@@ -29,20 +31,11 @@ function allowDevOtp(env: MailEnv): boolean {
 }
 
 function fromAddress(env: MailEnv): string {
-  return (
-    env.EMAIL_FROM?.trim() ||
-    env.SMTP_FROM?.trim() ||
-    "BonList <onboarding@resend.dev>"
-  );
+  return env.EMAIL_FROM?.trim() || "BonList <onboarding@resend.dev>";
 }
 
 export function isEmailDeliveryConfigured(env: MailEnv): boolean {
-  if (env.RESEND_API_KEY?.trim()) return true;
-  const upstream = String(env.API_UPSTREAM_URL || "")
-    .trim()
-    .replace(/\/+$/, "");
-  const secret = env.INTERNAL_EMAIL_SECRET?.trim();
-  return Boolean(upstream && secret);
+  return Boolean(env.RESEND_API_KEY?.trim());
 }
 
 async function sendResend(
@@ -69,41 +62,7 @@ async function sendResend(
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    throw new Error(`Resend failed (${response.status}): ${detail.slice(0, 160)}`);
-  }
-  return true;
-}
-
-/** Bridge to Render api-server SMTP when Workers have no Resend key. */
-async function sendViaUpstream(
-  env: MailEnv,
-  input: { to: string; subject: string; text: string; html: string },
-): Promise<boolean> {
-  const upstream = String(env.API_UPSTREAM_URL || "")
-    .trim()
-    .replace(/\/+$/, "");
-  const secret = env.INTERNAL_EMAIL_SECRET?.trim();
-  if (!upstream || !secret) return false;
-
-  const response = await fetch(`${upstream}/api/internal/send-email`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${secret}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({
-      to: input.to,
-      subject: input.subject,
-      text: input.text,
-      html: input.html,
-      from: fromAddress(env),
-    }),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Upstream email failed (${response.status}): ${detail.slice(0, 160)}`);
+    throw new Error(`Resend failed (${response.status}): ${detail.slice(0, 200)}`);
   }
   return true;
 }
@@ -114,9 +73,6 @@ async function deliver(
 ): Promise<SendResult> {
   if (await sendResend(env, input)) {
     return { sent: true, provider: "resend" };
-  }
-  if (await sendViaUpstream(env, input)) {
-    return { sent: true, provider: "upstream" };
   }
   return { sent: false, provider: "none" };
 }
@@ -149,7 +105,7 @@ export async function sendSignupOtpEmail(
     return { sent: false, provider: "none", devCode: code };
   }
   throw new Error(
-    "Email delivery is not configured. Set RESEND_API_KEY (and EMAIL_FROM) on the Worker, or INTERNAL_EMAIL_SECRET plus Render SMTP, or AUTH_ALLOW_DEV_OTP=true for local testing.",
+    "Email delivery is not configured. Set Worker secrets RESEND_API_KEY and EMAIL_FROM (verified domain in Resend).",
   );
 }
 
@@ -181,7 +137,7 @@ export async function sendPasswordResetEmail(
     return { sent: false, provider: "none", devCode: resetUrl };
   }
   throw new Error(
-    "Email delivery is not configured. Set RESEND_API_KEY (and EMAIL_FROM) on the Worker, or INTERNAL_EMAIL_SECRET plus Render SMTP.",
+    "Email delivery is not configured. Set Worker secrets RESEND_API_KEY and EMAIL_FROM.",
   );
 }
 

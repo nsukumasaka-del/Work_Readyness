@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { createPortal } from "react-dom";
 import { Link, useLocation } from "wouter";
 import {
   AlertCircle,
@@ -1318,17 +1318,35 @@ function offsetWithinRoot(el: HTMLElement, root: HTMLElement): { top: number; he
   };
 }
 
+/** Prefer keeping previous spacer when the delta is small — prevents A4 shake loops. */
 function spacersEqual(a: Record<string, number>, b: Record<string, number>): boolean {
   const aKeys = Object.keys(a);
   const bKeys = Object.keys(b);
   if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((k) => Math.abs((a[k] || 0) - (b[k] || 0)) <= 2);
+  return aKeys.every((k) => Math.abs((a[k] || 0) - (b[k] || 0)) <= 10);
+}
+
+function mergeSpacersStable(
+  prev: Record<string, number>,
+  next: Record<string, number>,
+): Record<string, number> {
+  if (spacersEqual(prev, next)) return prev;
+  const merged: Record<string, number> = {};
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+  for (const key of keys) {
+    const a = prev[key] || 0;
+    const b = next[key] || 0;
+    // Keep previous value unless the new push differs enough (hysteresis)
+    merged[key] = Math.abs(a - b) <= 10 ? a : Math.round(b);
+    if (merged[key]! <= 2) delete merged[key];
+  }
+  return merged;
 }
 
 /**
- * Compute how much blank space to insert BEFORE each [data-a4-id] block
- * so the whole block starts on the next A4 page when it would otherwise split.
- * Groups by parent so left/right columns do not contaminate each other.
+ * Compute blank space BEFORE each [data-a4-id] block so the whole block starts on
+ * the next A4 page when it would otherwise split. Measures with existing spacers
+ * collapsed so results are stable (no measure→push→remeasure oscillation).
  */
 function computeA4Spacers(root: HTMLElement): Record<string, number> {
   const pageH = (root.offsetWidth / 210) * 297;
@@ -1338,51 +1356,56 @@ function computeA4Spacers(root: HTMLElement): Record<string, number> {
   const padY = parseFloat(styles.paddingTop) || 0;
   const padBottom = parseFloat(styles.paddingBottom) || padY;
   const usable = Math.max(40, pageH - padY - padBottom);
-  const edgeSafety = Math.max(padBottom, 28);
-  const scale = root.getBoundingClientRect().width / Math.max(root.offsetWidth, 1) || 1;
+  // Keep a clear band above the page cut so content never sits on the dashed guide
+  const edgeSafety = Math.max(padBottom, Math.round(pageH * 0.04), 32);
 
-  const priorSpacerHeight = (el: HTMLElement) => {
-    let sum = 0;
-    let sib = el.previousElementSibling as HTMLElement | null;
-    while (sib) {
-      if (sib.hasAttribute("data-a4-spacer")) {
-        sum += sib.getBoundingClientRect().height / scale;
-      }
-      sib = sib.previousElementSibling as HTMLElement | null;
-    }
-    return sum;
-  };
+  const spacerEls = Array.from(root.querySelectorAll<HTMLElement>("[data-a4-spacer]"));
+  const prevSpacerStyles = spacerEls.map((s) => s.getAttribute("style"));
+  // Collapse spacers so we measure the natural (unpushed) layout once
+  for (const s of spacerEls) {
+    s.style.setProperty("height", "0px", "important");
+    s.style.setProperty("min-height", "0px", "important");
+    s.style.setProperty("margin", "0", "important");
+    s.style.setProperty("padding", "0", "important");
+    s.style.setProperty("overflow", "hidden", "important");
+  }
 
   type Item = { id: string; naturalTop: number; height: number };
   const groups = new Map<HTMLElement, Item[]>();
 
-  for (const el of Array.from(root.querySelectorAll<HTMLElement>("[data-a4-id]"))) {
-    if (el.classList.contains("hidden") || el.classList.contains("no-print")) continue;
-    if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") continue;
-    const id = el.getAttribute("data-a4-id") || "";
-    if (!id) continue;
-    const parent = el.parentElement;
-    if (!parent) continue;
+  try {
+    for (const el of Array.from(root.querySelectorAll<HTMLElement>("[data-a4-id]"))) {
+      if (el.classList.contains("hidden") || el.classList.contains("no-print")) continue;
+      if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") continue;
+      const id = el.getAttribute("data-a4-id") || "";
+      if (!id) continue;
+      const parent = el.parentElement;
+      if (!parent) continue;
 
-    const { top, height } = offsetWithinRoot(el, root);
-    if (height <= 1) continue;
+      const { top, height } = offsetWithinRoot(el, root);
+      if (height <= 1) continue;
 
-    // Strip every spacer above this node in the same parent so cumulative pushes stay accurate
-    const naturalTop = top - priorSpacerHeight(el);
-    const list = groups.get(parent) || [];
-    list.push({ id, naturalTop, height });
-    groups.set(parent, list);
+      const list = groups.get(parent) || [];
+      list.push({ id, naturalTop: top, height });
+      groups.set(parent, list);
+    }
+  } finally {
+    spacerEls.forEach((s, i) => {
+      const prev = prevSpacerStyles[i];
+      if (prev == null || prev === "") s.removeAttribute("style");
+      else s.setAttribute("style", prev);
+    });
   }
 
   const result: Record<string, number> = {};
 
   for (const items of groups.values()) {
-    items.sort((a, b) => a.naturalTop - b.naturalTop);
+    items.sort((a, b) => a.naturalTop - b.naturalTop || a.id.localeCompare(b.id));
     let cumulative = 0;
 
     for (const item of items) {
-      // Blocks taller than one usable page must flow across breaks
-      if (item.height > usable - 2) continue;
+      // Blocks taller than one usable page must be allowed to flow across breaks
+      if (item.height > usable - 4) continue;
 
       const top = item.naturalTop + cumulative;
       const pageIndex = Math.max(0, Math.floor(top / pageH));
@@ -1390,10 +1413,10 @@ function computeA4Spacers(root: HTMLElement): Record<string, number> {
       const bottom = top + item.height;
       const contentEnd = hardEnd - edgeSafety;
 
-      // Intersects the bottom margin / page edge while still starting on this page
-      if (top < hardEnd && bottom > contentEnd) {
+      // Would cross the page cut / bottom margin while starting on this page
+      if (top < contentEnd && bottom > contentEnd) {
         const push = Math.round(hardEnd + padY - top);
-        if (push > 2 && push < pageH + padY) {
+        if (push > 4 && push < pageH) {
           result[item.id] = push;
           cumulative += push;
         }
@@ -1410,7 +1433,7 @@ function A4PageSpacer({ id, height }: { id: string; height: number }) {
     <div
       data-a4-spacer={id}
       className="cv-a4-spacer pointer-events-none !mt-0 !mb-0"
-      style={{ height, width: "100%", flexShrink: 0 }}
+      style={{ height, width: "100%", flexShrink: 0, overflow: "hidden" }}
       aria-hidden
     />
   );
@@ -3902,8 +3925,11 @@ export default function CvBuilderPage() {
 
     let raf = 0;
     let debounceTimer = 0;
+    let coolDownTimer = 0;
     let applying = false;
+    let coolDown = false;
     let ro: ResizeObserver | null = null;
+    let lastApplied: Record<string, number> = {};
 
     const updateMetrics = () => {
       const mm = el.offsetWidth / 210 || 96 / 25.4;
@@ -3911,34 +3937,42 @@ export default function CvBuilderPage() {
       const height = Math.max(el.scrollHeight, el.offsetHeight);
       const pages = Math.max(1, Math.ceil(height / pagePx - 0.02));
       setA4PageCount((prev) => (prev === pages ? prev : pages));
-      setA4StackHeightPx((prev) => (Math.abs(prev - height) < 4 ? prev : height));
+      setA4StackHeightPx((prev) => (Math.abs(prev - height) < 8 ? prev : height));
     };
 
     const measure = () => {
-      if (applying) return;
+      if (applying || coolDown) return;
       applying = true;
+      coolDown = true;
       try {
         ro?.disconnect();
         const nextSpacers = computeA4Spacers(el);
-        flushSync(() => {
-          setA4Spacers((prev) => (spacersEqual(prev, nextSpacers) ? prev : nextSpacers));
-        });
-        updateMetrics();
-      } finally {
+        const merged = mergeSpacersStable(lastApplied, nextSpacers);
+        if (!spacersEqual(lastApplied, merged)) {
+          lastApplied = merged;
+          setA4Spacers(merged);
+        }
+        // Metrics after layout commits
         requestAnimationFrame(() => {
-          applying = false;
-          ro?.observe(el);
+          updateMetrics();
         });
+      } finally {
+        window.clearTimeout(coolDownTimer);
+        coolDownTimer = window.setTimeout(() => {
+          applying = false;
+          coolDown = false;
+          ro?.observe(el);
+        }, 220);
       }
     };
 
     const schedule = () => {
-      if (applying) return;
+      if (applying || coolDown) return;
       cancelAnimationFrame(raf);
       window.clearTimeout(debounceTimer);
       debounceTimer = window.setTimeout(() => {
         raf = requestAnimationFrame(measure);
-      }, 60);
+      }, 120);
     };
 
     measure();
@@ -3948,8 +3982,10 @@ export default function CvBuilderPage() {
 
     return () => {
       applying = true;
+      coolDown = true;
       cancelAnimationFrame(raf);
       window.clearTimeout(debounceTimer);
+      window.clearTimeout(coolDownTimer);
       ro?.disconnect();
       window.removeEventListener("resize", schedule);
     };

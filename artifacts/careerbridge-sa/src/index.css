@@ -556,6 +556,8 @@
   width: 100%;
   flex-shrink: 0;
   pointer-events: none;
+  overflow: hidden;
+  overflow-anchor: none;
 }
 
 #bonlist-cv-document [data-a4-pushed] {
@@ -575,16 +577,23 @@
   color: #334155;
 }
 
+#bonlist-cv-document {
+  overflow-anchor: none;
+}
+
 #bonlist-cv-document .cv-a4-keep,
-#bonlist-cv-document header {
+#bonlist-cv-document header,
+#bonlist-cv-document [data-a4-id] {
   break-inside: avoid;
   page-break-inside: avoid;
+  -webkit-column-break-inside: avoid;
 }
 
 #bonlist-cv-document h2,
 #bonlist-cv-document .cv-section-heading {
   break-after: avoid;
   page-break-after: avoid;
+  break-inside: avoid;
 }
 
 @media print {
@@ -692,10 +701,17 @@
   }
 
   #bonlist-cv-document .cv-a4-keep,
+  #bonlist-cv-document [data-a4-id],
   #bonlist-cv-document li,
   #bonlist-cv-document header {
     break-inside: avoid;
     page-break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+  }
+
+  #bonlist-cv-document .cv-a4-spacer {
+    break-inside: auto;
+    page-break-inside: auto;
   }
 
   @page {

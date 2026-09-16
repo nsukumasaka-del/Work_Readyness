@@ -28,19 +28,19 @@ export async function buildParseUploadBody(
     let text = "";
     try {
       text = await extractPdfTextFromFile(file);
-    } catch (err) {
-      throw new Error(
-        `Could not read this PDF. ${(err as Error)?.message || "Parser failed."} Try a text-based PDF, Word (.docx), or paste the CV text.`,
-      );
+    } catch {
+      // Some valid PDFs use features that PDF.js in a browser cannot decode.
+      // Send the original file to the API, which has an independent parser.
+      onProgress?.("Browser extraction was unavailable; trying the secure CV reader…");
     }
-    if (!text || text.trim().length < 10) {
-      throw new Error(
-        "No readable text was found in this PDF (it may be a scanned image). Please upload a text-based PDF, Word (.docx), or paste the CV text.",
-      );
-    }
-    // Also send the original PDF so the server can re-parse if section detection needs it
+
+    // Always send the original file as well. This lets the API retry extraction
+    // when the browser returns no selectable text or cannot parse a valid PDF.
     const fileData = await readFileAsDataUrl(file);
-    return { fileName: file.name, text, fileData };
+    if (text.trim().length >= 10) {
+      return { fileName: file.name, text, fileData };
+    }
+    return { fileName: file.name, fileData };
   }
 
   onProgress?.("Uploading document for secure parsing…");

@@ -2432,7 +2432,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   }
 
   // If candidate name still defaulted, check filename
-  if ((fullName === "Candidate" || isGarbagePersonalToken(fullName)) && fileName) {
+  if ((fullName === "Candidate" || isGarbagePersonalToken(fullName) || /^[A-Z]{8,}$/.test(fullName.replace(/\s+/g, ""))) && fileName) {
     const nameFromFile = fileName
       .replace(/\.(pdf|docx|txt|doc)$/i, "")
       .replace(/[\-_]+/g, " ")
@@ -2440,11 +2440,12 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       .trim();
     if (
       nameFromFile.length >= 3 &&
-      nameFromFile.length <= 40 &&
+      nameFromFile.length <= 60 &&
       !/\d/.test(nameFromFile) &&
-      !isGarbagePersonalToken(nameFromFile)
+      !isGarbagePersonalToken(nameFromFile) &&
+      (fullName === "Candidate" || isGarbagePersonalToken(fullName) || nameFromFile.includes(" ") || nameFromFile.length < fullName.length)
     ) {
-      fullName = nameFromFile;
+      fullName = nameFromFile.replace(/\s+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
     }
   }
   if (isGarbagePersonalToken(fullName)) fullName = "Candidate";
@@ -2491,7 +2492,11 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
 
   // Professional Title / Headline heuristic (if not already set from pipe title line)
   if (professionalTitle === "Professional") {
-    const nameIdx = lines.findIndex((l) => l.includes(fullName) && fullName !== "Candidate");
+    const nameIdx = lines.findIndex(
+      (l) =>
+        (fullName !== "Candidate" && l.toLowerCase().includes(fullName.toLowerCase())) ||
+        /^[A-Z]{5,}$/.test(l.replace(/\s+/g, "")),
+    );
     const searchFrom = nameIdx >= 0 ? nameIdx + 1 : 0;
     for (let i = searchFrom; i < Math.min(searchFrom + 6, lines.length); i++) {
       const nextLine = lines[i]?.trim() || "";
@@ -2501,8 +2506,9 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
         !nextLine.includes("@") &&
         !nextLine.includes("http") &&
         !isGarbagePersonalToken(nextLine) &&
+        !/^(?:[A-Z]{6,})$/.test(nextLine.replace(/\s+/g, "")) &&
         !/(contact|email|phone|address|cell|tel|location|curriculum|resume|linkedin)/i.test(nextLine) &&
-        !/^(summary|experience|education|skills|profile|about|professional summary|work experience)/i.test(nextLine) &&
+        !/^(summary|experience|education|skills|profile|about|professional summary|work experience|technical skills)/i.test(nextLine) &&
         !/^\+?\d/.test(nextLine) &&
         !/•/.test(nextLine)
       ) {
@@ -2511,7 +2517,11 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       }
     }
   }
-  if (isGarbagePersonalToken(professionalTitle) || /^(professional summary|work experience|education)$/i.test(professionalTitle)) {
+  if (
+    isGarbagePersonalToken(professionalTitle) ||
+    /^(professional summary|work experience|education)$/i.test(professionalTitle) ||
+    professionalTitle.replace(/\s+/g, "").toUpperCase() === fullName.replace(/\s+/g, "").toUpperCase()
+  ) {
     professionalTitle = "Professional";
   }
 
@@ -2560,10 +2570,10 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     } else if (/^(?:certifications|certificates|licenses(?:\s+and\s+certifications)?|accreditations|courses(?:\s+&\s+certifications)?|professional certifications)\b/i.test(lower) && line.length < 60) {
       currentSection = "certifications";
       continue;
-    } else if (/^(?:languages|language skills|languages spoken|language proficiency)\b/i.test(lower) && line.length < 60) {
+    } else if (/^(?:languages|language skills|languages spoken|language proficiency)\s*$/i.test(lower) && line.length < 40) {
       currentSection = "languages";
       continue;
-    } else if (/^(?:references|referees|testimonials)\b/i.test(lower) && line.length < 60) {
+    } else if (/^(?:references|referees|testimonials)\s*$/i.test(lower) && line.length < 40) {
       currentSection = "references";
       continue;
     }
@@ -2606,6 +2616,33 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
 
     const hasDateRange = dateRangeRe.test(el);
     const looksLikeBullet = /^[\s•\-\*▪▫►]/.test(el);
+
+    // Pattern: "Role · Company Mon YYYY – Present" (role + company + dates on one line)
+    if (!looksLikeBullet && hasDateRange && roleKeywords.test(el) && /[·•|]/.test(el)) {
+      if (currentExp && (currentExp.bullets.length > 0 || currentExp.role)) {
+        experiences.push(currentExp);
+      }
+      const dateMatch = el.match(dateRangeRe)?.[0] || "Past - Present";
+      const withoutDate = el.replace(dateRangeRe, "").replace(/[\s\-—–]+$/g, "").trim();
+      const parts = withoutDate.split(/\s*[·•|]\s*/).map((p) => p.trim()).filter(Boolean);
+      let role = parts[0] || professionalTitle;
+      let company = parts[1] || "Company";
+      if (parts.length >= 2 && companyKeywords.test(parts[0] || "") && roleKeywords.test(parts[1] || "")) {
+        company = parts[0] || company;
+        role = parts[1] || role;
+      }
+      currentExp = {
+        id: `exp-${experiences.length + 1}`,
+        company: isGarbagePersonalToken(company) ? "Company" : company,
+        role: isGarbagePersonalToken(role) ? professionalTitle : role,
+        startDate: dateMatch.split(/(?:to|[-—–])/i)[0]?.trim() || "2023",
+        endDate: dateMatch.split(/(?:to|[-—–])/i)[1]?.trim() || "Present",
+        current: /present|current|ongoing|date/i.test(dateMatch),
+        bullets: [],
+        classification: "VERIFIED",
+      };
+      continue;
+    }
 
     // Pattern: "Role Title Mon YYYY – Mon YYYY" then company line
     if (!looksLikeBullet && hasDateRange && roleKeywords.test(el)) {
@@ -2776,19 +2813,22 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       // Skills/systems headers sometimes leak — skip
       if (/^(?:professional skills|skills|systems|languages|references)\b/i.test(line)) break;
 
-      if (line.includes("|") || line.includes("—") || line.includes("–") || /certificate|diploma|degree|matric|n2|n3|bachelor|honours/i.test(line)) {
-        const parts = line.split(/[|—–]/).map((p) => p.trim()).filter(Boolean);
+      if (line.includes("|") || line.includes("—") || line.includes("–") || line.includes("·") || /certificate|diploma|degree|matric|n2|n3|bachelor|honours|bsc|ba\b|bcom|btech|msc|mba|phd|national diploma|higher certificate/i.test(line)) {
+        const parts = line.split(/[|—–·]/).map((p) => p.trim()).filter(Boolean);
         let deg = parts[0] || line;
         let fieldOrInst = parts[1] || "";
         let yr = line.match(/\b(?:19|20)\d{2}\b/)?.[0] || ( /in progress/i.test(line) ? "In progress" : "Completed");
         // "N2 Certificate — Mechanical Engineering Dec 2023"
-        if (fieldOrInst) {
+        if (fieldOrInst && !/university|college|school|institute|academy/i.test(fieldOrInst)) {
           fieldOrInst = fieldOrInst.replace(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?:19|20)\d{2}\b/i, "").replace(/\b(?:19|20)\d{2}\b/g, "").replace(/\bin progress\b/i, "").trim();
           if (fieldOrInst) deg = `${deg} — ${fieldOrInst}`;
         }
         let inst = "Accredited Institution";
+        if (fieldOrInst && /university|college|school|institute|academy/i.test(parts[1] || "")) {
+          inst = (parts[1] || "").replace(/\b(?:19|20)\d{2}\b/g, "").trim() || inst;
+        }
         const next = educationLines[i + 1]?.trim() || "";
-        if (next && !/certificate|diploma|degree|matric|n2|n3|bachelor/i.test(next) && !/^(?:professional skills|skills|systems)/i.test(next) && next.length < 80) {
+        if (inst === "Accredited Institution" && next && !/certificate|diploma|degree|matric|n2|n3|bachelor|bsc|ba\b|bcom/i.test(next) && !/^(?:professional skills|skills|systems)/i.test(next) && next.length < 80) {
           inst = next;
           i += 1;
         }
@@ -2829,12 +2869,14 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     }
   }
 
-  // Parse Skills (bullet list or comma-separated)
+  // Parse Skills (bullet list, category labels, or comma-separated)
   const skills = skillsLines
     .flatMap((line) => {
-      const clean = line.replace(/^[\s•\-\*▪▫►]+/, "").trim();
-      if (!clean || /^(skills|technologies|tools|competencies|systems|professional skills)$/i.test(clean)) return [];
-      if (clean.includes(",") && !clean.includes("&")) {
+      let clean = line.replace(/^[\s•\-\*▪▫►]+/, "").trim();
+      if (!clean || /^(skills|technologies|tools|competencies|systems|professional skills|technical skills)$/i.test(clean)) return [];
+      // "Languages: TypeScript, JavaScript" → strip category label
+      clean = clean.replace(/^(?:languages|frameworks(?:\s*&\s*libraries)?|cloud(?:\s*&\s*devops)?|databases|practices|tools|libraries)\s*:\s*/i, "");
+      if (clean.includes(",") || clean.includes(";") || clean.includes("|")) {
         return clean.split(/[,;|]+/).map((s) => s.trim());
       }
       return [clean];

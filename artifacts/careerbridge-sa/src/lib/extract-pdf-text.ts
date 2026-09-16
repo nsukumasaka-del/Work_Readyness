@@ -66,9 +66,11 @@ function textContentToLines(items: unknown[]): string[] {
 
 /**
  * If extraction still produced almost no newlines, insert breaks before common CV headings.
+ * Also collapses letter-spaced PDF headings (P R O F E S S I O N A L …).
  */
 export function restoreCvSectionBreaks(text: string): string {
-  const trimmed = text.trim();
+  const collapsed = collapseLetterSpacedLocal(text);
+  const trimmed = collapsed.trim();
   if (!trimmed) return "";
 
   const newlineCount = (trimmed.match(/\n/g) || []).length;
@@ -88,6 +90,36 @@ export function restoreCvSectionBreaks(text: string): string {
 
   const re = new RegExp(`\\s+(?=(?:${headings})\\b)`, "gi");
   return trimmed.replace(re, "\n\n").replace(/[ \t]{2,}/g, " ").trim();
+}
+
+function collapseLetterSpacedLocal(text: string): string {
+  return String(text || "")
+    .split(/\r\n|\r|\n/)
+    .map((line) => {
+      let out = line.trim();
+      if (!out) return "";
+      let prev = "";
+      do {
+        prev = out;
+        out = out.replace(/\b([A-Za-zÀ-ÿ])\s+(?=[A-Za-zÀ-ÿ]\b)/g, "$1");
+      } while (out !== prev);
+      out = out
+        .replace(/PROFESSIONAL(?=SUMMARY|EXPERIENCE|SKILLS|STATEMENT)/i, "PROFESSIONAL ")
+        .replace(/TECHNICAL(?=SKILLS)/i, "TECHNICAL ")
+        .replace(/WORK(?=EXPERIENCE|HISTORY)/i, "WORK ")
+        .replace(/CORE(?=COMPETENCIES|SKILLS)/i, "CORE ")
+        .replace(/KEY(?=SKILLS|ACHIEVEMENTS|PROJECTS|IMPACT)/i, "KEY ")
+        .replace(/CAREER(?=HISTORY|HIGHLIGHTS|OBJECTIVE)/i, "CAREER ")
+        .replace(/EMPLOYMENT(?=HISTORY)/i, "EMPLOYMENT ")
+        .replace(/ACADEMIC(?=HISTORY|BACKGROUND|QUALIFICATIONS)/i, "ACADEMIC ")
+        .replace(/LANGUAGE(?=SKILLS)/i, "LANGUAGE ")
+        .replace(/PERSONAL(?=DETAILS|INFORMATION|PROFILE)/i, "PERSONAL ")
+        .replace(/CONTACT(?=INFORMATION|DETAILS)/i, "CONTACT ")
+        .replace(/EDUCATION(?=AND)/i, "EDUCATION ")
+        .replace(/AND(?=QUALIFICATIONS)/i, "AND ");
+      return out.replace(/\s+/g, " ").trim();
+    })
+    .join("\n");
 }
 
 export async function extractPdfTextFromFile(file: File): Promise<string> {

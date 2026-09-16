@@ -962,6 +962,14 @@ const BACKGROUND_PATTERNS = [
   { id: "grid", label: "Subtle Grid", description: "Architectural graph lines", style: { backgroundImage: "linear-gradient(to right, #f1f5f9 1px, transparent 1px), linear-gradient(to bottom, #f1f5f9 1px, transparent 1px)", backgroundSize: "20px 20px" } },
 ];
 
+export function clearGeneratedCv() {
+  try {
+    sessionStorage.removeItem(GENERATED_CV_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function persistGeneratedCv(payload: GeneratedCvResponse) {
   const next = {
     ...payload,
@@ -1908,6 +1916,8 @@ export default function CvBuilderPage() {
     setAgentStepIndex(0);
     setAgentStepText("Preparing document for extraction…");
     setExtracting(true);
+    clearGeneratedCv();
+    setCv(null);
 
     // Close intake modal while agent works
     setIsIntakeModalOpen(false);
@@ -1958,6 +1968,11 @@ export default function CvBuilderPage() {
       }));
 
       const rawSkills = candidateContent.skills || [];
+      if (rawExperiences.length === 0 && rawEducation.length === 0 && rawSkills.length === 0) {
+        throw new Error(
+          "We could read contact details, but not Work Experience / Education / Skills. Please use “Paste Raw CV Text Instead”, or re-export as a text-based PDF / Word (.docx).",
+        );
+      }
       const rawProjects = candidateContent.projects || [];
       const rawCertifications = candidateContent.certifications || [];
       const rawLanguages = candidateContent.languages && candidateContent.languages.length > 0 ? candidateContent.languages : ["English"];
@@ -2110,6 +2125,11 @@ export default function CvBuilderPage() {
       }));
 
       const rawSkills = candidateContent.skills || [];
+      if (rawExperiences.length === 0 && rawEducation.length === 0 && rawSkills.length === 0) {
+        throw new Error(
+          "We could read contact details, but not Work Experience / Education / Skills. Please use “Paste Raw CV Text Instead”, or re-export as a text-based PDF / Word (.docx).",
+        );
+      }
       const rawProjects = candidateContent.projects || [];
       const rawCertifications = candidateContent.certifications || [];
       const rawLanguages = candidateContent.languages && candidateContent.languages.length > 0 ? candidateContent.languages : ["English"];
@@ -2523,21 +2543,24 @@ export default function CvBuilderPage() {
         ...existing,
         document: sanitizeCvDocument(existing.document),
       };
-      setCv(condensed);
-      persistGeneratedCv(condensed);
-      setSelectedTemplate(existing.structure || "professional");
-      void runQualityEvaluation(condensed.document);
       const looksBroken =
         !condensed.document.experiences.length ||
         /obj|endobj/i.test(existing.document.summary || "") ||
         /[\uFFFD]/.test(existing.document.fullName || "");
       if (looksBroken) {
-        setMessage("Your saved CV looked incomplete or corrupted. Re-upload your PDF/DOCX via Upload / Manual Setup for a clean rebuild.");
+        clearGeneratedCv();
+        setCv(null);
+        setMessage("Your previous CV was incomplete. Please re-upload your PDF/DOCX so we can rebuild all sections.");
         setTimeout(() => setMessage(""), 8000);
-        if (isIntakeRequested) setIsIntakeModalOpen(true);
-      } else if (isIntakeRequested) {
         setIsIntakeModalOpen(true);
+        setActiveNavPanel("templates");
+        return;
       }
+      setCv(condensed);
+      persistGeneratedCv(condensed);
+      setSelectedTemplate(existing.structure || "professional");
+      void runQualityEvaluation(condensed.document);
+      if (isIntakeRequested) setIsIntakeModalOpen(true);
       return;
     }
 

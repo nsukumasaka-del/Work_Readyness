@@ -44,6 +44,46 @@ export function looksLikePdfBinary(text: string): boolean {
 }
 
 /**
+ * Collapse letter-spaced PDF headings / names:
+ * "P R O F E S S I O N A L   E X P E R I E N C E" → "PROFESSIONAL EXPERIENCE"
+ * "K G O T S O   M A D U N A" → "KGOTSO MADUNA"
+ */
+export function collapseLetterSpacedText(text: string): string {
+  return String(text || "")
+    .split(/\r\n|\r|\n/)
+    .map((line) => {
+      let out = line.trim();
+      if (!out) return "";
+
+      // Join single-letter tokens: "P R O" → "PRO" (normal words stay intact)
+      let prev = "";
+      do {
+        prev = out;
+        out = out.replace(/\b([A-Za-zÀ-ÿ])\s+(?=[A-Za-zÀ-ÿ]\b)/g, "$1");
+      } while (out !== prev);
+
+      // Restore spaces inside collapsed multi-word CV headings
+      out = out
+        .replace(/PROFESSIONAL(?=SUMMARY|EXPERIENCE|SKILLS|STATEMENT)/i, "PROFESSIONAL ")
+        .replace(/TECHNICAL(?=SKILLS)/i, "TECHNICAL ")
+        .replace(/WORK(?=EXPERIENCE|HISTORY)/i, "WORK ")
+        .replace(/CORE(?=COMPETENCIES|SKILLS)/i, "CORE ")
+        .replace(/KEY(?=SKILLS|ACHIEVEMENTS|PROJECTS|IMPACT)/i, "KEY ")
+        .replace(/CAREER(?=HISTORY|HIGHLIGHTS|OBJECTIVE)/i, "CAREER ")
+        .replace(/EMPLOYMENT(?=HISTORY)/i, "EMPLOYMENT ")
+        .replace(/ACADEMIC(?=HISTORY|BACKGROUND|QUALIFICATIONS)/i, "ACADEMIC ")
+        .replace(/LANGUAGE(?=SKILLS)/i, "LANGUAGE ")
+        .replace(/PERSONAL(?=DETAILS|INFORMATION|PROFILE)/i, "PERSONAL ")
+        .replace(/CONTACT(?=INFORMATION|DETAILS)/i, "CONTACT ")
+        .replace(/EDUCATION(?=AND)/i, "EDUCATION ")
+        .replace(/AND(?=QUALIFICATIONS)/i, "AND ");
+
+      return out.replace(/\s+/g, " ").trim();
+    })
+    .join("\n");
+}
+
+/**
  * When PDF text arrives as one long line, insert breaks before standard CV headings
  * so section parsers can bucket Experience / Education / Skills.
  */
@@ -60,7 +100,7 @@ export function restoreCvSectionBreaks(text: string): string {
     "Key Impact|Key Achievements|Career Highlights|Highlights|" +
     "Work Experience|Professional Experience|Employment History|Employment|Experience|Career History|" +
     "Education(?: and Qualifications)?|Qualifications|Academic History|Academic Background|" +
-    "Professional Skills|Core Competencies|Technical Skills|Key Skills|Skills(?: and Competencies)?|Competencies|Tools & Technologies|" +
+    "Professional Skills|Technical Skills|Core Competencies|Key Skills|Skills(?: and Competencies)?|Competencies|Tools & Technologies|" +
     "Projects|Key Projects|Portfolio|Notable Projects|" +
     "Certifications|Certificates|Licenses|Courses|" +
     "Languages|Language Skills|" +
@@ -77,10 +117,12 @@ export function sanitizeExtractedCvText(raw: string): string {
   if (!raw) return "";
 
   let text = restoreCvSectionBreaks(
-    raw
-      .replace(/\u0000/g, "")
-      .replace(/[\uFFFD\uFFFE\uFFFF]+/g, " ")
-      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " "),
+    collapseLetterSpacedText(
+      raw
+        .replace(/\u0000/g, "")
+        .replace(/[\uFFFD\uFFFE\uFFFF]+/g, " ")
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " "),
+    ),
   );
 
   // Drop entire PDF binary dumps early
@@ -178,21 +220,32 @@ export async function extractTextFromUpload(options: {
   fileData?: string;
 }): Promise<{ text: string; kind: UploadedDocumentKind }> {
   const pasted = String(options.text || "").trim();
+  let fromPaste = "";
   if (pasted) {
-    const sanitized = sanitizeExtractedCvText(pasted);
-    if (!sanitized) {
+    fromPaste = sanitizeExtractedCvText(pasted);
+    if (!fromPaste) {
       throw new DocumentExtractionError(
         "The pasted content looks like a corrupted PDF dump, not readable CV text. Please upload the original PDF/DOCX or paste plain text.",
       );
     }
-    return { text: sanitized, kind: "txt" };
-  }
-
-  if (!options.fileData) {
-    throw new DocumentExtractionError("Text or file data is required for extraction.");
   }
 
   const kind = detectDocumentKind(options.fileName, options.fileData);
+  const hasSectionMarkers = (t: string) =>
+    /\b(?:work experience|professional experience|employment history|education|technical skills|professional skills|core competencies)\b/i.test(
+      t,
+    );
+
+  // Prefer client text when it already has clear CV sections
+  if (fromPaste && (hasSectionMarkers(fromPaste) || !options.fileData)) {
+    return { text: fromPaste, kind: fromPaste && !options.fileData ? "txt" : kind === "unknown" ? "txt" : kind };
+  }
+
+  if (!options.fileData) {
+    if (fromPaste) return { text: fromPaste, kind: "txt" };
+    throw new DocumentExtractionError("Text or file data is required for extraction.");
+  }
+
   const buffer = decodeDataUrlOrBase64(options.fileData);
 
   if (kind === "pdf") {
@@ -200,16 +253,22 @@ export async function extractTextFromUpload(options: {
     try {
       text = await extractPdfText(buffer);
     } catch (err) {
+      if (fromPaste) return { text: fromPaste, kind: "pdf" };
       throw new DocumentExtractionError(
         `Could not read this PDF. ${(err as Error)?.message || "Parser failed."} Try re-exporting as PDF or upload a .docx / .txt copy.`,
       );
     }
     if (!text || text.length < 10) {
+      if (fromPaste) return { text: fromPaste, kind: "pdf" };
       throw new DocumentExtractionError(
         "No readable text was found in this PDF (it may be a scanned image). Please upload a text-based PDF, Word (.docx), or paste the CV text.",
       );
     }
-    return { text, kind };
+    // Choose whichever preserves more structure / content
+    if (fromPaste && fromPaste.length > text.length * 1.1 && hasSectionMarkers(fromPaste)) {
+      return { text: fromPaste, kind: "pdf" };
+    }
+    return { text: hasSectionMarkers(text) || !fromPaste ? text : fromPaste, kind: "pdf" };
   }
 
   if (kind === "docx") {
@@ -217,11 +276,13 @@ export async function extractTextFromUpload(options: {
     try {
       text = await extractDocxText(buffer);
     } catch (err) {
+      if (fromPaste) return { text: fromPaste, kind: "docx" };
       throw new DocumentExtractionError(
         `Could not read this Word document. ${(err as Error)?.message || "Parser failed."}`,
       );
     }
     if (!text || text.length < 20) {
+      if (fromPaste) return { text: fromPaste, kind: "docx" };
       throw new DocumentExtractionError("No readable text was found in this Word document.");
     }
     return { text, kind };
@@ -230,6 +291,7 @@ export async function extractTextFromUpload(options: {
   // Plain text / unknown: only accept if it does not look like PDF binary
   const asUtf8 = sanitizeExtractedCvText(buffer.toString("utf-8"));
   if (!asUtf8 || looksLikePdfBinary(buffer.toString("utf-8"))) {
+    if (fromPaste) return { text: fromPaste, kind: "txt" };
     throw new DocumentExtractionError(
       "Unsupported or unreadable file. Please upload a PDF, Word (.docx), or plain text (.txt) CV.",
     );

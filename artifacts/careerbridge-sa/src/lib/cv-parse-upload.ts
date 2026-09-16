@@ -38,7 +38,9 @@ export async function buildParseUploadBody(
         "No readable text was found in this PDF (it may be a scanned image). Please upload a text-based PDF, Word (.docx), or paste the CV text.",
       );
     }
-    return { fileName: file.name, text };
+    // Also send the original PDF so the server can re-parse if section detection needs it
+    const fileData = await readFileAsDataUrl(file);
+    return { fileName: file.name, text, fileData };
   }
 
   onProgress?.("Uploading document for secure parsing…");

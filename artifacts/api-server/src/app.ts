@@ -29,7 +29,7 @@ app.use(
   }),
 );
 
-const allowedOrigins = (process.env.CORS_ORIGINS || "")
+const allowedOrigins = (process.env.CORS_ORIGINS || "https://www.bonlist.site,https://bonlist.site")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
@@ -42,11 +42,13 @@ app.use(
         callback(null, true);
         return;
       }
-      if (allowedOrigins.length === 0 || allowedOrigins.includes(origin) || allowedOrigins.includes("*")) {
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes("*")) {
         callback(null, true);
         return;
       }
-      callback(null, true); // permissive for Android WebView origins during rollout
+      // Do not emit CORS headers for origins that are not explicitly trusted.
+      // Capacitor WebViews do not send an Origin header and are handled above.
+      callback(null, false);
     },
     credentials: true,
   }),

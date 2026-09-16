@@ -140,35 +140,13 @@ type SocialConfig = {
   facebook: boolean;
 };
 
+function oauthConfigErrorMessage() {
+  return 'Google sign-in needs a Client ID and Client Secret on the Worker, the correct OAuth redirect URI in Google Cloud, and your account added as a test user on the consent screen (app is in Testing). Use email for now, or try again after setup.';
+}
+
 function SocialAuthButtons({ returnTo = '/' }: { returnTo?: string }) {
-  const [config, setConfig] = useState<SocialConfig>({
-    google: false,
-    linkedin: false,
-    facebook: false,
-  });
-  const [localError, setLocalError] = useState('');
-
-  useEffect(() => {
-    void authFetch('/api/career/auth/config')
-      .then((r) => r.json())
-      .then((d) =>
-        setConfig({
-          google: Boolean(d.google),
-          linkedin: Boolean(d.linkedin),
-          facebook: Boolean(d.facebook),
-        }),
-      )
-      .catch(() => undefined);
-  }, []);
-
-  const start = (provider: keyof SocialConfig, enabled: boolean) => {
-    setLocalError('');
-    if (!enabled) {
-      setLocalError(
-        `${provider === 'linkedin' ? 'LinkedIn' : provider === 'facebook' ? 'Facebook' : 'Google'} sign-in is not configured yet. Contact support or use email.`,
-      );
-      return;
-    }
+  const start = (provider: keyof SocialConfig) => {
+    // Always navigate; Worker redirects to the IdP when configured, or back with ?error=oauth_config.
     window.location.href = apiUrl(
       `/api/auth/oauth/${provider}/start?returnTo=${encodeURIComponent(returnTo)}`,
     );
@@ -178,7 +156,7 @@ function SocialAuthButtons({ returnTo = '/' }: { returnTo?: string }) {
     <div className="space-y-2.5" data-testid="social-auth-buttons">
       <button
         type="button"
-        onClick={() => start('linkedin', config.linkedin)}
+        onClick={() => start('linkedin')}
         className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary/60"
         data-testid="button-continue-linkedin"
       >
@@ -186,7 +164,7 @@ function SocialAuthButtons({ returnTo = '/' }: { returnTo?: string }) {
       </button>
       <button
         type="button"
-        onClick={() => start('google', config.google)}
+        onClick={() => start('google')}
         className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary/60"
         data-testid="button-continue-google"
       >
@@ -194,13 +172,12 @@ function SocialAuthButtons({ returnTo = '/' }: { returnTo?: string }) {
       </button>
       <button
         type="button"
-        onClick={() => start('facebook', config.facebook)}
+        onClick={() => start('facebook')}
         className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary/60"
         data-testid="button-continue-facebook"
       >
         <FacebookIcon /> Continue with Facebook
       </button>
-      {localError ? <p className="text-xs text-destructive">{localError}</p> : null}
     </div>
   );
 }
@@ -259,14 +236,24 @@ function afterAuthNavigate(
 }
 
 export function SignupPage() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const oauthError = useMemo(
+    () => new URLSearchParams(location.split('?')[1] || '').get('error'),
+    [location],
+  );
   const [step, setStep] = useState<'details' | 'otp'>('details');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [challengeId, setChallengeId] = useState('');
   const [maskedEmail, setMaskedEmail] = useState('');
   const [code, setCode] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(
+    oauthError === 'oauth_config'
+      ? oauthConfigErrorMessage()
+      : oauthError
+        ? "We couldn't complete social sign-in. Please try again or use email."
+        : '',
+  );
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
   const [resendIn, setResendIn] = useState(0);
@@ -499,9 +486,11 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(
     oauthError
-      ? oauthError === 'oauth_config' || oauthError === 'oauth_denied'
-        ? "Social sign-in isn't available yet or was cancelled. Try email, or contact support."
-        : "We couldn't complete social sign-in. Please try again or use email."
+      ? oauthError === 'oauth_config'
+        ? oauthConfigErrorMessage()
+        : oauthError === 'oauth_denied'
+          ? 'Social sign-in was cancelled. Try again, or use email.'
+          : "We couldn't complete social sign-in. Please try again or use email."
       : '',
   );
   const [loading, setLoading] = useState(false);

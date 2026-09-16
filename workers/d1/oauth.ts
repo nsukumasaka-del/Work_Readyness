@@ -97,6 +97,20 @@ function loginErrorRedirect(request: Request, env: D1Env, code: string): Respons
   return Response.redirect(url, 302);
 }
 
+/** Prefer signup vs login for missing-config UX based on Referer. */
+function oauthConfigErrorRedirect(request: Request, env: D1Env): Response {
+  let page = "/login";
+  const referer = request.headers.get("referer") || "";
+  try {
+    const path = new URL(referer).pathname.toLowerCase();
+    if (path.includes("signup")) page = "/signup";
+  } catch {
+    /* ignore bad referer */
+  }
+  const url = `${appOrigin(request, env)}${page}?error=oauth_config`;
+  return Response.redirect(url, 302);
+}
+
 async function storeOAuthState(
   db: D1Database,
   provider: OAuthProvider,
@@ -382,12 +396,8 @@ export async function handleOAuthStart(request: Request, env: D1Env, providerRaw
 
   const cfg = readProviderConfig(env, providerRaw);
   if (!cfg) {
-    return json(
-      {
-        error: `${providerRaw} sign-in is not configured yet. Add the OAuth client secrets on the Worker, then try again.`,
-      },
-      503,
-    );
+    // Browser navigates here via window.location — redirect instead of JSON 503.
+    return oauthConfigErrorRedirect(request, env);
   }
 
   const url = new URL(request.url);

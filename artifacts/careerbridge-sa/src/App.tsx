@@ -126,7 +126,7 @@ function applyHref(job: JobMatch): string | undefined {
 }
 
 const navItems = [
-  { href: '/', label: 'Overview' },
+  { href: '/', label: 'Tools' },
   { href: '/diagnostic', label: 'CV review', requiresProfile: true },
   { href: '/jobs', label: 'Matches', requiresCv: true },
   { href: '/interview', label: 'Interview' },
@@ -1522,6 +1522,7 @@ function HeroProductVisual() {
 function Home() {
   const [, setLocation] = useLocation();
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileReady, setProfileReady] = useState(false);
   const [fileName, setFileName] = useState('');
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [role, setRole] = useState('');
@@ -1529,11 +1530,13 @@ function Home() {
   const [scanStep, setScanStep] = useState(0);
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewError, setReviewError] = useState('');
+  const hasReport = hasCvReport();
 
   useEffect(() => {
     const sync = () => {
       const current = readProfile();
       setProfile(current);
+      setProfileReady(true);
       if (current?.targetRole) setRole((prev) => prev || current.targetRole || '');
       if (current?.location) setLocationArea((prev) => prev || current.location || '');
     };
@@ -1613,6 +1616,301 @@ function Home() {
     }
   };
 
+    if (!profileReady) {
+    return (
+      <div className="mx-auto max-w-6xl px-5 py-20 text-center text-sm text-muted-foreground md:px-8">
+        Loading your workspace…
+      </div>
+    );
+  }
+
+  if (profile) {
+    const firstName = profile.name.split(' ')[0] || 'there';
+    const resumeTools = [
+      {
+        href: '/#cv-check',
+        title: 'Upload & review CV',
+        copy: 'Run an AI readiness check and get role matches.',
+        icon: FileCheck2,
+        tone: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+        testId: 'link-tools-cv-upload',
+      },
+      {
+        href: '/diagnostic',
+        title: 'CV review results',
+        copy: hasReport ? 'Open your latest readiness dashboard.' : 'Available after your first CV upload.',
+        icon: ClipboardCheck,
+        tone: 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
+        testId: 'link-tools-diagnostic',
+      },
+      {
+        href: '/cv-builder?intake=1',
+        title: 'AI Resume Builder',
+        copy: 'Rewrite and generate an improved CV.',
+        icon: Sparkles,
+        tone: 'bg-primary/10 text-primary',
+        testId: 'link-tools-cv-builder',
+      },
+      {
+        href: '/cv-builder?panel=templates',
+        title: 'Resume templates',
+        copy: 'Pick a clean layout and export.',
+        icon: Layers,
+        tone: 'bg-amber-500/10 text-amber-800 dark:text-amber-200',
+        testId: 'link-tools-templates',
+      },
+    ] as const;
+    const jobTools = [
+      {
+        href: '/jobs',
+        title: 'Job matches',
+        copy: hasReport ? 'Open live listings matched to your CV.' : 'Unlock after a CV review.',
+        icon: BriefcaseBusiness,
+        tone: 'bg-blue-500/10 text-blue-700 dark:text-blue-300',
+        testId: 'link-tools-jobs',
+      },
+      {
+        href: '/interview',
+        title: 'Interview help',
+        copy: 'Practice answers tailored to your target role.',
+        icon: Bot,
+        tone: 'bg-teal-500/10 text-teal-700 dark:text-teal-300',
+        testId: 'link-tools-interview',
+      },
+      {
+        href: '/coaching',
+        title: 'Coaching',
+        copy: 'Book human support when you need a push.',
+        icon: HeartHandshake,
+        tone: 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
+        testId: 'link-tools-coaching',
+      },
+      {
+        href: '/programme',
+        title: 'Career programme',
+        copy: 'See accelerator progress and next steps.',
+        icon: BookOpen,
+        tone: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300',
+        testId: 'link-tools-programme',
+      },
+      {
+        href: '/pricing',
+        title: 'Plans & pricing',
+        copy: 'Unlock premium 90%+ matches and AI tools.',
+        icon: ShieldCheck,
+        tone: 'bg-secondary text-primary',
+        testId: 'link-tools-pricing',
+      },
+      {
+        href: '/profile',
+        title: 'Your profile',
+        copy: 'Update location, target role, and contact details.',
+        icon: MapPin,
+        tone: 'bg-muted text-foreground',
+        testId: 'link-tools-profile',
+      },
+    ] as const;
+
+    return (
+      <div>
+        <section className="sky-wash relative overflow-hidden">
+          <div className="mx-auto max-w-6xl px-5 pb-10 pt-12 md:px-8 md:pb-12 md:pt-16">
+            <img
+              src="/brand/bonlist-logo.png"
+              alt="BonList — Your Shortcut to Getting Hired."
+              className="h-14 w-auto max-w-[min(360px,90vw)] object-contain object-left sm:h-16"
+            />
+            <h1 className="display mt-5 max-w-2xl text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+              Welcome back, {firstName}.
+            </h1>
+            <p className="mt-3 max-w-xl text-base leading-7 text-muted-foreground">
+              Choose a tool to keep moving — review your CV, improve it, or apply to matched roles.
+            </p>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-5 py-10 md:px-8 md:py-12">
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-primary">Resume tools</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {resumeTools.map((tool) => (
+              <Link
+                key={tool.href + tool.title}
+                href={tool.href}
+                className="group flex items-start gap-3.5 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/35 hover:bg-secondary/40"
+                data-testid={tool.testId}
+              >
+                <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${tool.tone}`}>
+                  <tool.icon size={18} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-foreground group-hover:text-primary">{tool.title}</span>
+                    <ArrowRight size={14} className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">{tool.copy}</span>
+                </span>
+              </Link>
+            ))}
+          </div>
+
+          <p className="mt-10 text-[11px] font-bold uppercase tracking-[0.16em] text-primary">Job search & support</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {jobTools.map((tool) => (
+              <Link
+                key={tool.href}
+                href={tool.href}
+                className="group flex items-start gap-3.5 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/35 hover:bg-secondary/40"
+                data-testid={tool.testId}
+              >
+                <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${tool.tone}`}>
+                  <tool.icon size={18} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-foreground group-hover:text-primary">{tool.title}</span>
+                    <ArrowRight size={14} className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">{tool.copy}</span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        <section id="cv-check" className="mx-auto max-w-6xl px-5 pb-16 md:px-8 md:pb-20">
+          <div className="grid items-start gap-8 lg:grid-cols-[0.85fr_1.15fr]">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Quick action</p>
+              <h2 className="display mt-3 text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
+                Upload a CV for review
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                Fresh upload refreshes your readiness scores and live job matches.
+              </p>
+            </div>
+            <form
+              onSubmit={submitDiagnostic}
+              className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8"
+            >
+              {isReviewing ? (
+                <div className="space-y-5 py-4" data-testid="cv-scan-progress">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-11 w-11 place-items-center rounded-2xl bg-secondary text-primary">
+                      <Sparkles className="animate-pulse" size={20} />
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">AI CV reader in progress</p>
+                      <p className="text-xs text-muted-foreground">Analysing structure, proof, and role fit.</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      'Parsing document layout',
+                      'Scoring authenticity & ATS signals',
+                      'Mapping keywords to target role',
+                      'Searching trusted SA job boards',
+                    ].map((label, index) => {
+                      const active = scanStep >= index + 1;
+                      return (
+                        <div
+                          key={label}
+                          className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${
+                            active ? 'bg-secondary text-secondary-foreground' : 'bg-muted/60 text-muted-foreground'
+                          }`}
+                        >
+                          <span className={`h-2 w-2 rounded-full ${active ? 'bg-primary' : 'bg-border'}`} />
+                          {label}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-semibold text-foreground">Upload your current CV</span>
+                    <span
+                      className={`flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed px-4 py-4 ${
+                        fileName
+                          ? 'border-primary/50 bg-secondary'
+                          : 'border-border bg-muted/50 hover:border-primary/40'
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx,.txt"
+                        className="sr-only"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0] ?? null;
+                          setCvFile(file);
+                          setFileName(file?.name ?? '');
+                          setReviewError('');
+                        }}
+                        data-testid="input-cv-file"
+                      />
+                      <FileText size={18} className={fileName ? 'text-primary' : 'text-muted-foreground'} />
+                      <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                        {fileName || 'PDF or Word document'}
+                      </span>
+                      {fileName ? (
+                        <CheckCircle2 size={17} className="text-primary" />
+                      ) : (
+                        <span className="rounded-lg bg-background px-2 py-1 text-[10px] font-bold text-foreground">
+                          Choose
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                  <label className="mt-4 block">
+                    <span className="mb-2 block text-xs font-semibold text-foreground">
+                      Role you are targeting <span className="font-normal text-muted-foreground">(optional)</span>
+                    </span>
+                    <input
+                      value={role}
+                      onChange={(event) => setRole(event.target.value)}
+                      placeholder="e.g. Operations coordinator"
+                      className="field-input"
+                      data-testid="input-target-role"
+                    />
+                  </label>
+                  <label className="mt-4 block">
+                    <span className="mb-2 block text-xs font-semibold text-foreground">
+                      Your area <span className="font-normal text-muted-foreground">(optional)</span>
+                    </span>
+                    <select
+                      value={locationArea}
+                      onChange={(event) => setLocationArea(event.target.value)}
+                      className="field-input"
+                      data-testid="select-candidate-location"
+                    >
+                      <option value="">All South Africa</option>
+                      <option value="Cape Town">Cape Town / Western Cape</option>
+                      <option value="Johannesburg">Johannesburg / Gauteng</option>
+                      <option value="Durban">Durban / KZN</option>
+                      <option value="Hybrid">Hybrid / Remote</option>
+                    </select>
+                  </label>
+                  {reviewError && (
+                    <p className="mt-3 text-xs text-destructive" data-testid="text-diagnostic-error">
+                      {reviewError}
+                    </p>
+                  )}
+                  <button
+                    disabled={!fileName || !cvFile || isReviewing}
+                    className="btn-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-50"
+                    data-testid="button-submit-diagnostic"
+                  >
+                    Run AI CV review <ArrowRight size={16} />
+                  </button>
+                </>
+              )}
+            </form>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div>
       <section className="sky-wash relative overflow-hidden">
@@ -1620,7 +1918,7 @@ function Home() {
           <div className="rise-in">
             <img
               src="/brand/bonlist-logo.png"
-              alt="BonList — Your Shortcut to Getting Hired."
+              alt="BonList - Your Shortcut to Getting Hired."
               className="h-16 w-auto max-w-[min(420px,92vw)] object-contain object-left sm:h-[4.5rem] md:h-20"
             />
             <h1 className="display mt-5 max-w-xl text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl md:text-[2.75rem] md:leading-[1.1]">
@@ -1652,9 +1950,7 @@ function Home() {
               Upload your CV for review and revamp.
             </h2>
             <p className="mt-4 text-[15px] leading-7 text-muted-foreground">
-              {profile
-                ? `Welcome, ${profile.name.split(' ')[0]}. Your profile is ready — upload your CV to get a detailed review and recommended roles.`
-                : 'Create a profile first so we can keep track of your visit and personalise your CV review.'}
+              Create a profile first so we can keep track of your visit and personalise your CV review.
             </p>
             <ul className="mt-6 space-y-3 text-sm text-muted-foreground">
               <li className="flex gap-2">
@@ -1667,140 +1963,18 @@ function Home() {
               </li>
             </ul>
           </div>
-          {!profile ? (
-            <div className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8" data-testid="cv-locked-panel">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-secondary text-primary">
-                <Lock size={20} />
-              </div>
-              <h3 className="display mt-5 text-2xl font-semibold text-foreground">Create a profile to continue</h3>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                We ask for a short profile before CV upload so we can support your search and understand how many people BonList is helping.
-              </p>
-              <Link href="/signup" className="btn-primary mt-6" data-testid="link-create-profile-from-cv">
-                Sign up to unlock CV review <ArrowRight size={16} />
-              </Link>
+          <div className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8" data-testid="cv-locked-panel">
+            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-secondary text-primary">
+              <Lock size={20} />
             </div>
-          ) : (
-          <form
-            onSubmit={submitDiagnostic}
-            className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8"
-          >
-            {isReviewing ? (
-              <div className="space-y-5 py-4" data-testid="cv-scan-progress">
-                <div className="flex items-center gap-3">
-                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-secondary text-primary">
-                    <Sparkles className="animate-pulse" size={20} />
-                  </span>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">AI CV reader in progress</p>
-                    <p className="text-xs text-muted-foreground">Analysing structure, proof, and role fit…</p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  {[
-                    'Parsing document layout',
-                    'Scoring authenticity & ATS signals',
-                    'Mapping keywords to target role',
-                    'Searching trusted SA job boards',
-                  ].map((label, index) => {
-                    const active = scanStep >= index + 1;
-                    return (
-                      <div
-                        key={label}
-                        className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${
-                          active ? 'bg-secondary text-secondary-foreground' : 'bg-muted/60 text-muted-foreground'
-                        }`}
-                      >
-                        <span
-                          className={`h-2 w-2 rounded-full ${active ? 'bg-primary' : 'bg-border'}`}
-                        />
-                        {label}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <>
-                <label className="block">
-                  <span className="mb-2 block text-xs font-semibold text-foreground">Upload your current CV</span>
-                  <span
-                    className={`flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed px-4 py-4 ${
-                      fileName
-                        ? 'border-primary/50 bg-secondary'
-                        : 'border-border bg-muted/50 hover:border-primary/40'
-                    }`}
-                  >
-                    <input
-                      type="file"
-                      accept=".pdf,.doc,.docx,.txt"
-                      className="sr-only"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0] ?? null;
-                        setCvFile(file);
-                        setFileName(file?.name ?? '');
-                        setReviewError('');
-                      }}
-                      data-testid="input-cv-file"
-                    />
-                    <FileText size={18} className={fileName ? 'text-primary' : 'text-muted-foreground'} />
-                    <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-                      {fileName || 'PDF or Word document'}
-                    </span>
-                    {fileName ? (
-                      <CheckCircle2 size={17} className="text-primary" />
-                    ) : (
-                      <span className="rounded-lg bg-background px-2 py-1 text-[10px] font-bold text-foreground">
-                        Choose
-                      </span>
-                    )}
-                  </span>
-                </label>
-                <label className="mt-4 block">
-                  <span className="mb-2 block text-xs font-semibold text-foreground">
-                    Role you are targeting <span className="font-normal text-muted-foreground">(optional)</span>
-                  </span>
-                  <input
-                    value={role}
-                    onChange={(event) => setRole(event.target.value)}
-                    placeholder="e.g. Operations coordinator"
-                    className="field-input"
-                    data-testid="input-target-role"
-                  />
-                </label>
-                <label className="mt-4 block">
-                  <span className="mb-2 block text-xs font-semibold text-foreground">
-                    Your area <span className="font-normal text-muted-foreground">(optional)</span>
-                  </span>
-                  <select
-                    value={locationArea}
-                    onChange={(event) => setLocationArea(event.target.value)}
-                    className="field-input"
-                    data-testid="select-candidate-location"
-                  >
-                    <option value="">All South Africa</option>
-                    <option value="Cape Town">Cape Town / Western Cape</option>
-                    <option value="Johannesburg">Johannesburg / Gauteng</option>
-                    <option value="Durban">Durban / KZN</option>
-                    <option value="Hybrid">Hybrid / Remote</option>
-                  </select>
-                </label>
-                {reviewError && (
-                  <p className="mt-3 text-xs text-destructive" data-testid="text-diagnostic-error">
-                    {reviewError}
-                  </p>
-                )}
-                <button
-                  disabled={!fileName || !cvFile || isReviewing}
-                  className="btn-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-50"
-                  data-testid="button-submit-diagnostic"
-                >
-                  Run AI CV review <ArrowRight size={16} />
-                </button>
-              </>
-            )}
-          </form>
-          )}
+            <h3 className="display mt-5 text-2xl font-semibold text-foreground">Create a profile to continue</h3>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              We ask for a short profile before CV upload so we can support your search and understand how many people BonList is helping.
+            </p>
+            <Link href="/signup" className="btn-primary mt-6" data-testid="link-create-profile-from-cv">
+              Sign up to unlock CV review <ArrowRight size={16} />
+            </Link>
+          </div>
         </div>
       </section>
 

@@ -1,6 +1,7 @@
 /**
- * Transactional email for Cloudflare Workers (Resend HTTP API).
- * Secrets: RESEND_API_KEY, optional EMAIL_FROM / SMTP_FROM
+ * Transactional email for Cloudflare Workers.
+ * Prefer Resend (RESEND_API_KEY). Fallback: POST to Render SMTP bridge
+ * (`API_UPSTREAM_URL` + `INTERNAL_EMAIL_SECRET`).
  * Dev: AUTH_ALLOW_DEV_OTP=true returns codes in API JSON when email isn't configured.
  */
 
@@ -10,11 +11,13 @@ export type MailEnv = {
   SMTP_FROM?: string;
   AUTH_ALLOW_DEV_OTP?: string;
   APP_BASE_URL?: string;
+  API_UPSTREAM_URL?: string;
+  INTERNAL_EMAIL_SECRET?: string;
 };
 
 export type SendResult = {
   sent: boolean;
-  provider: "resend" | "none";
+  provider: "resend" | "upstream" | "none";
   devCode?: string;
 };
 
@@ -31,6 +34,15 @@ function fromAddress(env: MailEnv): string {
     env.SMTP_FROM?.trim() ||
     "BonList <onboarding@resend.dev>"
   );
+}
+
+export function isEmailDeliveryConfigured(env: MailEnv): boolean {
+  if (env.RESEND_API_KEY?.trim()) return true;
+  const upstream = String(env.API_UPSTREAM_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  const secret = env.INTERNAL_EMAIL_SECRET?.trim();
+  return Boolean(upstream && secret);
 }
 
 async function sendResend(
@@ -62,6 +74,53 @@ async function sendResend(
   return true;
 }
 
+/** Bridge to Render api-server SMTP when Workers have no Resend key. */
+async function sendViaUpstream(
+  env: MailEnv,
+  input: { to: string; subject: string; text: string; html: string },
+): Promise<boolean> {
+  const upstream = String(env.API_UPSTREAM_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  const secret = env.INTERNAL_EMAIL_SECRET?.trim();
+  if (!upstream || !secret) return false;
+
+  const response = await fetch(`${upstream}/api/internal/send-email`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      to: input.to,
+      subject: input.subject,
+      text: input.text,
+      html: input.html,
+      from: fromAddress(env),
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Upstream email failed (${response.status}): ${detail.slice(0, 160)}`);
+  }
+  return true;
+}
+
+async function deliver(
+  env: MailEnv,
+  input: { to: string; subject: string; text: string; html: string },
+): Promise<SendResult> {
+  if (await sendResend(env, input)) {
+    return { sent: true, provider: "resend" };
+  }
+  if (await sendViaUpstream(env, input)) {
+    return { sent: true, provider: "upstream" };
+  }
+  return { sent: false, provider: "none" };
+}
+
 export async function sendSignupOtpEmail(
   env: MailEnv,
   to: string,
@@ -79,9 +138,8 @@ export async function sendSignupOtpEmail(
   `;
 
   try {
-    if (await sendResend(env, { to, subject, text, html })) {
-      return { sent: true, provider: "resend" };
-    }
+    const result = await deliver(env, { to, subject, text, html });
+    if (result.sent) return result;
   } catch (err) {
     console.error("[bonlist-email] signup otp failed", err);
     if (!allowDevOtp(env)) throw err;
@@ -91,7 +149,7 @@ export async function sendSignupOtpEmail(
     return { sent: false, provider: "none", devCode: code };
   }
   throw new Error(
-    "Email delivery is not configured. Set RESEND_API_KEY (and EMAIL_FROM) on the Worker, or AUTH_ALLOW_DEV_OTP=true for local testing.",
+    "Email delivery is not configured. Set RESEND_API_KEY (and EMAIL_FROM) on the Worker, or INTERNAL_EMAIL_SECRET plus Render SMTP, or AUTH_ALLOW_DEV_OTP=true for local testing.",
   );
 }
 
@@ -112,9 +170,8 @@ export async function sendPasswordResetEmail(
   `;
 
   try {
-    if (await sendResend(env, { to, subject, text, html })) {
-      return { sent: true, provider: "resend" };
-    }
+    const result = await deliver(env, { to, subject, text, html });
+    if (result.sent) return result;
   } catch (err) {
     console.error("[bonlist-email] password reset failed", err);
     if (!allowDevOtp(env)) throw err;
@@ -124,7 +181,7 @@ export async function sendPasswordResetEmail(
     return { sent: false, provider: "none", devCode: resetUrl };
   }
   throw new Error(
-    "Email delivery is not configured. Set RESEND_API_KEY (and EMAIL_FROM) on the Worker.",
+    "Email delivery is not configured. Set RESEND_API_KEY (and EMAIL_FROM) on the Worker, or INTERNAL_EMAIL_SECRET plus Render SMTP.",
   );
 }
 

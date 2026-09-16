@@ -13,7 +13,13 @@ import {
   sha256Hex,
   verifyPassword,
 } from "./crypto";
-import { maskEmail, sendPasswordResetEmail, sendSignupOtpEmail, type MailEnv } from "./email";
+import {
+  isEmailDeliveryConfigured,
+  maskEmail,
+  sendPasswordResetEmail,
+  sendSignupOtpEmail,
+  type MailEnv,
+} from "./email";
 
 export const SESSION_COOKIE = "bonlist_session";
 const SESSION_DAYS = 30;
@@ -26,6 +32,12 @@ export type D1Env = MailEnv & {
   PRIMARY_ADMIN_EMAIL?: string;
   PRIMARY_ADMIN_PASSWORD?: string;
   PRIMARY_ADMIN_NAME?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  LINKEDIN_CLIENT_ID?: string;
+  LINKEDIN_CLIENT_SECRET?: string;
+  FACEBOOK_APP_ID?: string;
+  FACEBOOK_APP_SECRET?: string;
 };
 
 type UserRow = {
@@ -74,7 +86,7 @@ function error(status: number, message: string): Response {
   return json({ error: message }, status);
 }
 
-function isSecureRequest(request: Request): boolean {
+export function isSecureRequest(request: Request): boolean {
   const url = new URL(request.url);
   if (url.protocol === "https:") return true;
   return request.headers.get("x-forwarded-proto") === "https";
@@ -103,7 +115,7 @@ function readSessionToken(request: Request): string | null {
   return readBearer(request) || parseCookies(request.headers.get("cookie"))[SESSION_COOKIE] || null;
 }
 
-function sessionCookie(token: string, expiresAt: Date, secure: boolean): string {
+export function sessionCookie(token: string, expiresAt: Date, secure: boolean): string {
   const parts = [
     `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
     "Path=/",
@@ -129,7 +141,7 @@ function clearSessionCookie(secure: boolean): string {
   return parts.join("; ");
 }
 
-function nameFromEmail(email: string): string {
+export function nameFromEmail(email: string): string {
   const local = email.split("@")[0] || "BonList user";
   return local
     .replace(/[._-]+/g, " ")
@@ -138,7 +150,7 @@ function nameFromEmail(email: string): string {
     .slice(0, 80);
 }
 
-function appOrigin(request: Request, env: D1Env): string {
+export function appOrigin(request: Request, env: D1Env): string {
   if (env.APP_BASE_URL?.trim()) return env.APP_BASE_URL.trim().replace(/\/+$/, "");
   return new URL(request.url).origin;
 }
@@ -153,7 +165,7 @@ function primaryAdminConfig(env: D1Env) {
   };
 }
 
-function toAuthPayload(
+export function toAuthPayload(
   user: UserRow,
   sessionToken?: string,
   extras?: { adminToken?: string; isPrimaryAdmin?: boolean },
@@ -178,7 +190,7 @@ function toAuthPayload(
   };
 }
 
-async function findUserByEmail(db: D1Database, email: string): Promise<UserRow | null> {
+export async function findUserByEmail(db: D1Database, email: string): Promise<UserRow | null> {
   return (
     (await db
       .prepare(
@@ -274,7 +286,7 @@ async function buildLoginResponse(
   );
 }
 
-async function createSession(db: D1Database, userId: string): Promise<{ token: string; expiresAt: Date }> {
+export async function createSession(db: D1Database, userId: string): Promise<{ token: string; expiresAt: Date }> {
   const id = randomId();
   const token = randomToken(32);
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
@@ -705,14 +717,32 @@ export async function handleD1Auth(request: Request, env: D1Env): Promise<Respon
     return handleResetPassword(request, env);
   }
   if (method === "GET" && path === "/api/career/auth/config") {
+    const { oauthConfigFlags } = await import("./oauth");
+    const social = oauthConfigFlags(env);
     return json({
       passkeys: false,
-      google: false,
+      google: social.google,
+      linkedin: social.linkedin,
+      facebook: social.facebook,
       d1Auth: true,
       emailVerification: true,
       magicLink: false,
-      emailConfigured: Boolean(env.RESEND_API_KEY?.trim()),
+      emailConfigured: isEmailDeliveryConfigured(env),
     });
+  }
+
+  const oauthStart = /^\/api\/auth\/oauth\/(google|linkedin|facebook)\/start$/.exec(path)
+    || /^\/api\/career\/auth\/(google|linkedin|facebook)\/start$/.exec(path);
+  if (method === "GET" && oauthStart) {
+    const { handleOAuthStart } = await import("./oauth");
+    return handleOAuthStart(request, env, oauthStart[1]!);
+  }
+
+  const oauthCallback = /^\/api\/auth\/oauth\/(google|linkedin|facebook)\/callback$/.exec(path)
+    || /^\/api\/career\/auth\/(google|linkedin|facebook)\/callback$/.exec(path);
+  if (method === "GET" && oauthCallback) {
+    const { handleOAuthCallback } = await import("./oauth");
+    return handleOAuthCallback(request, env, oauthCallback[1]!);
   }
 
   return null;

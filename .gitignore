@@ -54,3 +54,5 @@ Thumbs.db
 # Local Android/JDK toolchains
 tools/
 
+
+.tmp_internal_email_secret.txt

@@ -101,29 +101,107 @@ function PasswordField({
   );
 }
 
-function GoogleButton({ label, returnTo = '/' }: { label: string; returnTo?: string }) {
-  const [available, setAvailable] = useState(false);
+function LinkedInIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="#0A66C2"
+        d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.23 0H1.77C.79 0 0 .77 0 1.73v20.54C0 23.23.79 24 1.77 24h20.46c.98 0 1.77-.77 1.77-1.73V1.73C24 .77 23.21 0 22.23 0z"
+      />
+    </svg>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3l5.7-5.7C34.2 6.1 29.4 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z" />
+      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 12 24 12c3 0 5.8 1.1 7.9 3l5.7-5.7C34.2 6.1 29.4 4 24 4 16.3 4 9.6 8.3 6.3 14.7z" />
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.3 36 26.8 37 24 37c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.2 5.6l.1.1 6.2 5.2C39.2 36.3 44 31 44 24c0-1.2-.1-2.3-.4-3.5z" />
+    </svg>
+  );
+}
+
+function FacebookIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="#1877F2"
+        d="M24 12.07C24 5.41 18.63 0 12 0S0 5.41 0 12.07C0 18.1 4.39 23.09 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.7 4.53-4.7 1.31 0 2.68.24 2.68.24v2.95h-1.51c-1.49 0-1.95.93-1.95 1.89v2.26h3.32l-.53 3.49h-2.79V24C19.61 23.09 24 18.1 24 12.07z"
+      />
+    </svg>
+  );
+}
+
+type SocialConfig = {
+  google: boolean;
+  linkedin: boolean;
+  facebook: boolean;
+};
+
+function SocialAuthButtons({ returnTo = '/' }: { returnTo?: string }) {
+  const [config, setConfig] = useState<SocialConfig>({
+    google: false,
+    linkedin: false,
+    facebook: false,
+  });
+  const [localError, setLocalError] = useState('');
+
   useEffect(() => {
     void authFetch('/api/career/auth/config')
       .then((r) => r.json())
-      .then((d) => setAvailable(Boolean(d.google)))
-      .catch(() => setAvailable(false));
+      .then((d) =>
+        setConfig({
+          google: Boolean(d.google),
+          linkedin: Boolean(d.linkedin),
+          facebook: Boolean(d.facebook),
+        }),
+      )
+      .catch(() => undefined);
   }, []);
-  if (!available) return null;
+
+  const start = (provider: keyof SocialConfig, enabled: boolean) => {
+    setLocalError('');
+    if (!enabled) {
+      setLocalError(
+        `${provider === 'linkedin' ? 'LinkedIn' : provider === 'facebook' ? 'Facebook' : 'Google'} sign-in is not configured yet. Contact support or use email.`,
+      );
+      return;
+    }
+    window.location.href = apiUrl(
+      `/api/auth/oauth/${provider}/start?returnTo=${encodeURIComponent(returnTo)}`,
+    );
+  };
+
   return (
-    <a
-      href={apiUrl(`/api/career/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`)}
-      className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary/60"
-      data-testid="button-continue-google"
-    >
-      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
-        <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3l5.7-5.7C34.2 6.1 29.4 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z" />
-        <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 12 24 12c3 0 5.8 1.1 7.9 3l5.7-5.7C34.2 6.1 29.4 4 24 4 16.3 4 9.6 8.3 6.3 14.7z" />
-        <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.3 36 26.8 37 24 37c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z" />
-        <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.2 5.6l.1.1 6.2 5.2C39.2 36.3 44 31 44 24c0-1.2-.1-2.3-.4-3.5z" />
-      </svg>
-      {label}
-    </a>
+    <div className="space-y-2.5" data-testid="social-auth-buttons">
+      <button
+        type="button"
+        onClick={() => start('linkedin', config.linkedin)}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary/60"
+        data-testid="button-continue-linkedin"
+      >
+        <LinkedInIcon /> Continue with LinkedIn
+      </button>
+      <button
+        type="button"
+        onClick={() => start('google', config.google)}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary/60"
+        data-testid="button-continue-google"
+      >
+        <GoogleIcon /> Continue with Google
+      </button>
+      <button
+        type="button"
+        onClick={() => start('facebook', config.facebook)}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary/60"
+        data-testid="button-continue-facebook"
+      >
+        <FacebookIcon /> Continue with Facebook
+      </button>
+      {localError ? <p className="text-xs text-destructive">{localError}</p> : null}
+    </div>
   );
 }
 
@@ -323,7 +401,7 @@ export function SignupPage() {
     >
       {step === 'details' ? (
         <>
-          <GoogleButton label="Continue with Google" returnTo="/" />
+          <SocialAuthButtons returnTo="/" />
           <Divider />
           <form onSubmit={submitDetails} className="space-y-4" data-testid="form-signup">
             <label className="block">
@@ -420,7 +498,11 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(
-    oauthError ? "We couldn't complete Google sign-in. Please try again." : '',
+    oauthError
+      ? oauthError === 'oauth_config' || oauthError === 'oauth_denied'
+        ? "Social sign-in isn't available yet or was cancelled. Try email, or contact support."
+        : "We couldn't complete social sign-in. Please try again or use email."
+      : '',
   );
   const [loading, setLoading] = useState(false);
   const [mfaToken, setMfaToken] = useState(initialMfa);
@@ -615,7 +697,7 @@ export function LoginPage() {
         </>
       }
     >
-      <GoogleButton label="Continue with Google" returnTo="/" />
+      <SocialAuthButtons returnTo="/" />
       {passkeysOn ? (
         <button
           type="button"
@@ -694,7 +776,15 @@ export function ForgotPasswordPage() {
         body: JSON.stringify({ email: email.trim() }),
       });
       const payload = await readApiJson(response);
-      if (!response.ok) throw new Error(payload.error || 'Request failed');
+      if (!response.ok) {
+        if (response.status === 503) {
+          throw new Error(
+            payload.error ||
+              'Password reset email is temporarily unavailable. Email delivery is not configured on the server.',
+          );
+        }
+        throw new Error(payload.error || 'Request failed');
+      }
       if (payload.resetUrl && payload.devOtp) {
         setDevResetUrl(String(payload.resetUrl));
       }

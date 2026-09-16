@@ -15,18 +15,29 @@ workers_dev = true
 # CV / jobs / diagnostics API (Render). Auth itself uses D1 and does not need this.
 [vars]
 API_UPSTREAM_URL = "https://bonlist-api-yj0d.onrender.com"
-# Set to "true" only while testing without Resend — returns codes/links in API JSON.
-AUTH_ALLOW_DEV_OTP = "true"
+# Production: keep false so signup/forgot-password fail clearly when email isn't wired.
+AUTH_ALLOW_DEV_OTP = "false"
 # Primary admin (D1). Password can also be set as a Worker secret PRIMARY_ADMIN_PASSWORD.
 PRIMARY_ADMIN_EMAIL = "nsukumasaka@gmail.com"
 PRIMARY_ADMIN_NAME = "Ntokozo Sukumasaka"
-# Public site origin used in password-reset emails (optional; defaults to request origin).
-# APP_BASE_URL = "https://bonlist.nsukumasaka.workers.dev"
+# Public site origin used in password-reset emails and OAuth redirect URIs.
+APP_BASE_URL = "https://bonlist.nsukumasaka.workers.dev"
 
 # Secrets (set via CLI, not committed):
 #   npx wrangler secret put RESEND_API_KEY
 #   npx wrangler secret put EMAIL_FROM
+#   npx wrangler secret put INTERNAL_EMAIL_SECRET   # shared with Render for SMTP bridge
+#   npx wrangler secret put GOOGLE_CLIENT_ID
+#   npx wrangler secret put GOOGLE_CLIENT_SECRET
+#   npx wrangler secret put LINKEDIN_CLIENT_ID
+#   npx wrangler secret put LINKEDIN_CLIENT_SECRET
+#   npx wrangler secret put FACEBOOK_APP_ID
+#   npx wrangler secret put FACEBOOK_APP_SECRET
 # EMAIL_FROM example: BonList <onboarding@yourdomain.com>
+# OAuth callback URLs:
+#   https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/google/callback
+#   https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/linkedin/callback
+#   https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/facebook/callback
 
 [[d1_databases]]
 binding = "DB"

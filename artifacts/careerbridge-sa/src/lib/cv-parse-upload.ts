@@ -3,6 +3,12 @@
  * PDFs are read in-browser so we only send text (avoids Render/CF timeouts).
  */
 import { extractPdfTextFromFile, isPdfFile } from "@/lib/extract-pdf-text";
+import {
+  extractDocxTextFromFile,
+  extractPlainTextFromFile,
+  isDocxFile,
+  isPlainTextFile,
+} from "@/lib/extract-office-text";
 
 export async function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -43,9 +49,19 @@ export async function buildParseUploadBody(
     return { fileName: file.name, fileData };
   }
 
-  onProgress?.("Uploading document for secure parsing…");
-  const fileData = await readFileAsDataUrl(file);
-  return { fileName: file.name, fileData };
+  if (isDocxFile(file)) {
+    onProgress?.("Reading Word document securely in your browser…");
+    return { fileName: file.name, text: await extractDocxTextFromFile(file) };
+  }
+
+  if (isPlainTextFile(file)) {
+    onProgress?.("Reading CV text…");
+    const text = await extractPlainTextFromFile(file);
+    if (text.length < 10) throw new Error("No readable text was found in this file.");
+    return { fileName: file.name, text };
+  }
+
+  throw new Error("Unsupported file type. Please upload a PDF, Word (.docx), or .txt CV.");
 }
 
 export function parseUploadErrorMessage(

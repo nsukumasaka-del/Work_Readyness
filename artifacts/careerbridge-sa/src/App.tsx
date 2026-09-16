@@ -23,7 +23,6 @@ import {
   Lock,
   MapPin,
   Menu,
-  PenLine,
   Search,
   ShieldCheck,
   Smartphone,
@@ -2181,280 +2180,242 @@ function DiagnosticPage() {
   };
   const overall = report.overallScore ?? report.authenticityScore;
   const relatedJobs = report.relatedJobs ?? [];
+  const locationHint =
+    report.jobSearch?.query?.match(/\bin\s+([^·|]+)/i)?.[1]?.trim() ||
+    relatedJobs[0]?.location?.split('·')[0]?.trim() ||
+    'South Africa';
+
+  const sectionScore = (name: RegExp, fallback: number) => {
+    const hit = report.sectionReviews?.find((s) => name.test(s.section));
+    return hit?.score ?? fallback;
+  };
+
+  const gradeLabel = (score: number) => {
+    if (score >= 80) return { label: 'Pass', tone: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' };
+    if (score >= 65) return { label: 'Solid', tone: 'bg-sky-500/15 text-sky-700 dark:text-sky-300' };
+    return { label: 'Action Required', tone: 'bg-amber-500/15 text-amber-800 dark:text-amber-200' };
+  };
+
+  const scoreCard = [
+    { name: 'Structure & Formatting', score: scores.structure ?? sectionScore(/structure|format/i, 70) },
+    { name: 'Keyword Fit', score: scores.keywordFit ?? sectionScore(/keyword/i, 65) },
+    { name: 'Professional Summary', score: sectionScore(/summary|profile/i, scores.clarity ?? 70) },
+    { name: 'Experience & Impact Bullets', score: sectionScore(/experience|impact|bullet/i, scores.impact ?? 60) },
+  ];
+
+  const strengths = (report.strengths ?? []).slice(0, 4);
+  const fixes = (report.improvements ?? [])
+    .slice()
+    .sort((a, b) => {
+      const rank = (p?: string) => (p === 'high' ? 0 : p === 'medium' ? 1 : 2);
+      return rank(a.priority) - rank(b.priority);
+    })
+    .slice(0, 3);
+  const rewrites = (report.rewriteExamples ?? []).slice(0, 2);
+  const topJobs = relatedJobs.slice(0, 3);
+
+  const healthSummary =
+    report.summary?.trim() ||
+    `${overall >= 75 ? 'Solid authenticity and structure' : 'Promising foundation'}, but ${
+      (scores.impact ?? 60) < 70 ? 'experience bullets need stronger action verbs and quantified impact' : 'a few targeted edits will lift ATS fit'
+    } for ${report.targetRole || 'your target'} roles${locationHint ? ` in ${locationHint}` : ''}.`;
 
   return (
-    <div className="mx-auto max-w-6xl px-5 py-12 md:px-8 md:py-16">
-      <PageHeading
-        eyebrow="AI CV reader · detailed report"
-        title="A CV people can trust."
-        description={`${report.fileName}${report.targetRole ? ` · targeting ${report.targetRole}` : ''} — section-level analysis, rewrite guidance, and roles listed for your lane.`}
-        action={
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={handleGenerateCv}
-              className="btn-primary"
-              data-testid="button-generate-cv"
-            >
-              <Sparkles size={15} />
-              Generate improved CV
-            </button>
-            <button
-              onClick={() => setLocation('/')}
-              className="btn-secondary"
-              data-testid="button-review-another-cv"
-            >
-              <PenLine size={15} /> Review another CV
-            </button>
-          </div>
-        }
-      />
-
-      <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="rounded-3xl bg-primary p-6 text-primary-foreground md:p-8">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary-foreground/70">
-                Overall readiness
-              </p>
-              <p className="display mt-4 text-6xl font-semibold md:text-7xl">{overall}</p>
-              <p className="mt-2 text-lg font-semibold">Composite score / 100</p>
-            </div>
-            <ShieldCheck size={26} />
-          </div>
-          <p className="mt-4 max-w-md text-sm leading-6 text-primary-foreground/80">
-            {report.summary ||
-              'Stronger proof beats bigger adjectives. Use the section findings below to make your next edit count.'}
+    <div className="mx-auto max-w-3xl px-5 py-10 md:px-8 md:py-14">
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-primary">CV diagnostic</p>
+          <h1 className="display mt-1 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+            Your readiness at a glance
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {report.fileName}
+            {report.targetRole ? ` · ${report.targetRole}` : ''}
+            {locationHint ? ` · ${locationHint}` : ''}
           </p>
-          <div className="mt-8 grid gap-3 border-t border-primary-foreground/20 pt-5 sm:grid-cols-2">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.12em] text-primary-foreground/65">Authenticity</p>
-              <p className="mt-1 text-2xl font-semibold">{report.authenticityScore}</p>
-            </div>
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.12em] text-primary-foreground/65">ATS fit</p>
-              <p className="mt-1 text-2xl font-semibold">{report.atsScore}</p>
-            </div>
-          </div>
         </div>
-
-        <div className="rounded-3xl border border-border bg-card p-6 md:p-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Score breakdown</p>
-          <h2 className="display mt-2 text-2xl font-semibold text-foreground">Where the signal is strong — and thin.</h2>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <ScoreBar label="Clarity" value={scores.clarity} />
-            <ScoreBar label="Impact" value={scores.impact} />
-            <ScoreBar label="Structure" value={scores.structure} />
-            <ScoreBar label="Keyword fit" value={scores.keywordFit} />
-            <ScoreBar label="Authenticity" value={scores.authenticity} />
-            <ScoreBar label="ATS discoverability" value={scores.ats} />
-          </div>
-        </div>
+        <button type="button" onClick={handleGenerateCv} className="btn-primary shrink-0" data-testid="button-generate-cv">
+          <Sparkles size={15} />
+          Generate Improved CV
+        </button>
       </div>
 
-      {(report.strengths?.length || report.improvements?.length) && (
-        <section className="mt-8 grid gap-5 lg:grid-cols-2">
-          <div className="rounded-3xl border border-border bg-card p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Strengths</p>
-            <h3 className="mt-2 text-xl font-semibold text-foreground">Keep these intact.</h3>
-            <div className="mt-5 space-y-3">
-              {(report.strengths ?? []).map((item) => (
-                <div key={item.title} className="rounded-2xl bg-secondary/70 px-4 py-3">
-                  <p className="text-sm font-semibold text-foreground">{item.title}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.detail}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="rounded-3xl border border-border bg-card p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Priority improvements</p>
-            <h3 className="mt-2 text-xl font-semibold text-foreground">Edit these next.</h3>
-            <div className="mt-5 space-y-3">
-              {(report.improvements ?? []).map((item) => (
-                <div key={item.title} className="rounded-2xl border border-border px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    {item.priority && (
-                      <span className="rounded-md bg-secondary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
-                        {item.priority}
-                      </span>
-                    )}
-                    <p className="text-sm font-semibold text-foreground">{item.title}</p>
-                  </div>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.detail}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {report.sectionReviews?.length ? (
-        <section className="mt-8">
-          <div className="mb-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Section reviews</p>
-            <h2 className="display mt-2 text-3xl font-semibold text-foreground">A closer read of each part.</h2>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            {report.sectionReviews.map((section) => (
-              <div key={section.section} className="rounded-2xl border border-border bg-card p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-semibold text-foreground">{section.section}</h3>
-                    <p className="mt-1 text-xs font-medium text-primary">{section.status}</p>
-                  </div>
-                  <span className="display text-2xl font-semibold text-foreground">{section.score}</span>
-                </div>
-                <ul className="mt-4 space-y-2">
-                  {section.findings.map((finding) => (
-                    <li key={finding} className="flex gap-2 text-xs leading-5 text-muted-foreground">
-                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                      {finding}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      <section className="mt-8 grid gap-5 lg:grid-cols-2">
-        <SignalList
-          title="Phrases to question"
-          subtitle="These may sound polished, but they hide your contribution."
-          items={report.flaggedPhrases}
-        />
-        <SignalList
-          title="Keywords to earn"
-          subtitle="Add them only where your experience can prove them."
-          items={report.missingKeywords}
-        />
-      </section>
-
-      {report.rewriteExamples?.length ? (
-        <section className="mt-8">
-          <div className="mb-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Rewrite examples</p>
-            <h2 className="display mt-2 text-3xl font-semibold text-foreground">From vague claim to usable proof.</h2>
-          </div>
-          <div className="space-y-4">
-            {report.rewriteExamples.map((example) => (
-              <div key={example.before} className="grid gap-3 rounded-2xl border border-border bg-card p-5 md:grid-cols-2">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Before</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{example.before}</p>
-                </div>
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">After</p>
-                  <p className="mt-2 text-sm font-medium leading-6 text-foreground">{example.after}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      <section className="mt-8 rounded-3xl border border-primary/25 bg-secondary/40 p-6 md:p-8" data-testid="section-cv-builder-cta">
-        <div className="flex flex-wrap items-start justify-between gap-5">
-          <div className="max-w-xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">CV builder</p>
-            <h2 className="display mt-2 text-3xl font-semibold text-foreground">Turn this review into a stronger CV.</h2>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              One click builds an improved CV from your review — clearer proof language, cleaner structure, and your
-              authentic voice. Not happy with the layout? Generate a new CV anytime.
+      {/* 1. ATS & READINESS OVERVIEW */}
+      <section className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-7">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">1 · ATS & readiness overview</p>
+        <div className="mt-4 flex flex-wrap items-end gap-x-8 gap-y-3">
+          <div>
+            <p className="text-xs text-muted-foreground">Overall composite</p>
+            <p className="display text-5xl font-semibold tabular-nums text-foreground md:text-6xl">
+              {overall}
+              <span className="text-2xl text-muted-foreground">/100</span>
             </p>
           </div>
+          <div className="flex flex-wrap gap-6 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground">Authenticity</p>
+              <p className="mt-0.5 text-xl font-semibold tabular-nums">{report.authenticityScore}/100</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">ATS fit</p>
+              <p className="mt-0.5 text-xl font-semibold tabular-nums">{report.atsScore}/100</p>
+            </div>
+          </div>
+        </div>
+        <p className="mt-5 max-w-2xl border-t border-border pt-4 text-sm leading-relaxed text-foreground">
+          <span className="font-semibold">Health check: </span>
+          {healthSummary}
+        </p>
+      </section>
+
+      {/* 2. SCORE CARD */}
+      <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">2 · Score card at a glance</p>
+        <ul className="mt-4 divide-y divide-border">
+          {scoreCard.map((row) => {
+            const grade = gradeLabel(row.score);
+            return (
+              <li key={row.name} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                <span className="text-sm font-medium text-foreground">{row.name}</span>
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-semibold tabular-nums text-foreground">{row.score}/100</span>
+                  <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${grade.tone}`}>
+                    {grade.label}
+                  </span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      {/* 3. TOP STRENGTHS */}
+      <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">3 · Top strengths</p>
+        <h2 className="mt-1 text-lg font-semibold text-foreground">What&apos;s working</h2>
+        {strengths.length ? (
+          <ul className="mt-4 space-y-2.5">
+            {strengths.map((item) => (
+              <li key={item.title} className="flex gap-2.5 text-sm leading-snug text-foreground">
+                <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-600" />
+                <span>
+                  <span className="font-semibold">{item.title}.</span>{' '}
+                  <span className="text-muted-foreground">{item.detail}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">Your CV already shows authentic, parseable content — protect that clarity.</p>
+        )}
+      </section>
+
+      {/* 4. PRIORITY FIXES */}
+      <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">4 · Priority fixes</p>
+        <h2 className="mt-1 text-lg font-semibold text-foreground">Immediate actions</h2>
+        {fixes.length ? (
+          <ol className="mt-4 space-y-3">
+            {fixes.map((item, i) => (
+              <li key={item.title} className="flex gap-3 text-sm leading-snug">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-amber-500/15 text-[11px] font-bold text-amber-800 dark:text-amber-200">
+                  {i + 1}
+                </span>
+                <span>
+                  <span className="font-semibold text-foreground">[{item.title}]</span>{' '}
+                  <span className="text-muted-foreground">{item.detail}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">No critical blockers — polish bullets and you&apos;re interview-ready.</p>
+        )}
+        {(report.flaggedPhrases?.length || report.missingKeywords?.length) ? (
+          <p className="mt-4 text-xs text-muted-foreground">
+            {report.flaggedPhrases?.length ? (
+              <>
+                <span className="font-semibold text-foreground">Watch phrases: </span>
+                {report.flaggedPhrases.slice(0, 3).join(' · ')}.
+              </>
+            ) : null}{' '}
+            {report.missingKeywords?.length ? (
+              <>
+                <span className="font-semibold text-foreground">Prove next: </span>
+                {report.missingKeywords.slice(0, 4).join(', ')}.
+              </>
+            ) : null}
+          </p>
+        ) : null}
+      </section>
+
+      {/* 5. BEFORE vs AFTER */}
+      {rewrites.length ? (
+        <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">5 · Before vs after</p>
+          <h2 className="mt-1 text-lg font-semibold text-foreground">Rewrite guide</h2>
+          <div className="mt-4 space-y-4">
+            {rewrites.map((example) => (
+              <div key={example.before} className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-2xl bg-muted/60 px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Current</p>
+                  <p className="mt-1.5 text-sm leading-snug text-muted-foreground">{example.before}</p>
+                </div>
+                <div className="rounded-2xl border border-primary/25 bg-primary/5 px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-primary">Fixed</p>
+                  <p className="mt-1.5 text-sm font-medium leading-snug text-foreground">{example.after}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* 6. JOB MATCHES + CTA */}
+      <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">6 · Recommended matches & next steps</p>
+        <h2 className="mt-1 text-lg font-semibold text-foreground">High-match highlights</h2>
+        {topJobs.length ? (
+          <ul className="mt-4 space-y-2">
+            {topJobs.map((job) => (
+              <li key={job.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-secondary/50 px-4 py-3 text-sm">
+                <span className="font-semibold text-foreground">
+                  {job.title}
+                  {job.company ? <span className="font-normal text-muted-foreground"> · {job.company}</span> : null}
+                </span>
+                <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+                  {job.match}% fit
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">Job matches appear after a fresh CV upload.</p>
+        )}
+
+        <div className="mt-6 flex flex-col items-stretch gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">Apply your fixes in one pass — then send a cleaner CV.</p>
           <button
             type="button"
             onClick={handleGenerateCv}
-            className="btn-primary"
+            className="btn-primary w-full sm:w-auto"
             data-testid="button-generate-cv-section"
           >
             <Sparkles size={15} />
-            Generate improved CV <ArrowRight size={15} />
+            Generate Improved CV <ArrowRight size={15} />
           </button>
         </div>
       </section>
 
-      <section className="mt-8">
-        <div className="mb-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Human-first edits</p>
-          <h2 className="display mt-2 text-3xl font-semibold text-foreground">Prompts worth your time.</h2>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {report.prompts.map((prompt, index) => (
-            <div key={`${prompt}-${index}`} className="rounded-2xl border border-border bg-card p-5">
-              <span className="text-xs font-bold text-primary">0{index + 1}</span>
-              <p className="mt-4 text-[15px] font-semibold leading-6 text-foreground">{prompt}</p>
-              <button
-                className="mt-6 flex items-center gap-2 text-xs font-bold text-muted-foreground hover:text-primary"
-                onClick={() => navigator.clipboard?.writeText(prompt)}
-                data-testid={`button-copy-prompt-${index}`}
-              >
-                Copy prompt <ArrowRight size={13} />
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="mt-12 border-t border-border pt-10">
-        <div className="mb-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Recommended for you</p>
-          <h2 className="display mt-2 text-3xl font-semibold text-foreground">
-            4 roles matched to your CV{report.targetRole ? ` · ${report.targetRole}` : ''}.
-          </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            {report.jobSearch?.liveResults
-              ? `Live search across trusted boards for “${report.jobSearch.query}”. Sources include ${report.jobSearch.queriedBoards.slice(0, 5).join(', ')}.`
-              : 'We search trusted SA job boards for recent listings that align with your CV. 90%+ fits stay premium until you unlock Job Seeker, Career Pro, or the programme.'}
-          </p>
-          {report.jobSearch?.queriedBoards?.length ? (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {report.jobSearch.queriedBoards.slice(0, 8).map((board) => (
-                <span
-                  key={board}
-                  className="rounded-md border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
-                >
-                  {board}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-        {relatedJobs.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
-            Recommended roles appear here right after your CV review.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {relatedJobs.slice(0, 4).map((job) => (
-              <JobCard key={`related-${job.id}`} job={job} />
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function SignalList({ title, subtitle, items }: { title: string; subtitle: string; items: string[] }) {
-  return (
-    <div className="rounded-3xl border border-border bg-card p-6">
-      <div className="mb-4 h-1.5 w-10 rounded-full bg-primary" />
-      <h3 className="text-base font-semibold text-foreground">{title}</h3>
-      <p className="mt-2 text-xs leading-5 text-muted-foreground">{subtitle}</p>
-      <div className="mt-5 space-y-2">
-        {items.length ? (
-          items.map((item) => (
-            <div key={item} className="flex gap-2 rounded-xl bg-muted/70 px-3 py-2.5 text-xs font-medium text-foreground">
-              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-              {item}
-            </div>
-          ))
-        ) : (
-          <p className="text-xs text-muted-foreground">Nothing flagged here — keep that clarity.</p>
-        )}
+      <div className="mt-6 text-center">
+        <button
+          type="button"
+          onClick={() => setLocation('/')}
+          className="text-xs font-semibold text-muted-foreground hover:text-primary"
+          data-testid="button-review-another-cv"
+        >
+          Review another CV
+        </button>
       </div>
     </div>
   );

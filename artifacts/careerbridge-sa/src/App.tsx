@@ -55,6 +55,8 @@ import {
   type Entitlement,
 } from '@/lib/entitlements';
 import { ensureCvProfile } from '@/lib/cv-profile';
+import { buildParseUploadBody, readFileAsDataUrl } from '@/lib/cv-parse-upload';
+import { isPdfFile } from '@/lib/extract-pdf-text';
 import { isNativeApp } from '@/lib/platform';
 import { describeApiMisconfiguration } from '@/lib/api-base';
 import { triggerAndroidApkDownload } from '@/lib/download-apk';
@@ -1556,14 +1558,6 @@ function Home() {
     return () => window.clearInterval(timer);
   }, [isReviewing]);
 
-  const readFileAsDataUrl = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(new Error('Could not read that file. Please try another PDF or Word document.'));
-      reader.readAsDataURL(file);
-    });
-
   const submitDiagnostic = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!fileName || !cvFile) return;
@@ -1580,14 +1574,18 @@ function Home() {
       setProfile(ensured as UserProfile);
       persistProfile(ensured as UserProfile);
 
-      const fileData = await readFileAsDataUrl(cvFile);
+      const parseBody = isPdfFile(cvFile)
+        ? await buildParseUploadBody(cvFile)
+        : { fileName, fileData: await readFileAsDataUrl(cvFile) };
+
       const response = await fetch('/api/career/diagnostic', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           fileName,
-          fileData,
+          fileData: parseBody.fileData,
+          text: parseBody.text,
           role: role || ensured.targetRole || undefined,
           location: locationArea || ensured.location || undefined,
           profileId: ensured.id,

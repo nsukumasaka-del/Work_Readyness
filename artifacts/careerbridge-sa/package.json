@@ -73,6 +73,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "@simplewebauthn/browser": "^14.0.0"
+    "@simplewebauthn/browser": "^14.0.0",
+    "pdfjs-dist": "^6.3.289"
   }
 }

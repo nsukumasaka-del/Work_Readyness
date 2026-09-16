@@ -1005,7 +1005,7 @@ router.post("/career/diagnostic", async (req, res) => {
           fileName,
           fileData,
         });
-        if (!extractedDoc.text || extractedDoc.text.trim().length < 20) {
+        if (!extractedDoc.text || extractedDoc.text.trim().length < 10) {
           res.status(400).json({
             error:
               "No readable CV text was found. Scanned/image-only PDFs are not supported — upload a text PDF, Word (.docx), or paste the CV text.",
@@ -1793,7 +1793,7 @@ router.post("/career/cv/parse-upload", async (req, res) => {
       return;
     }
 
-    if (!text || text.trim().length < 20) {
+    if (!text || text.trim().length < 10) {
       res.status(400).json({
         error:
           "No readable CV text was found. Scanned/image-only PDFs are not supported — upload a text PDF, Word (.docx), or paste the CV text.",

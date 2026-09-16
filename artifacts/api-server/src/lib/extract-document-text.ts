@@ -101,13 +101,13 @@ function decodeDataUrlOrBase64(fileData: string): Buffer {
 async function extractPdfText(buffer: Buffer): Promise<string> {
   const { extractText } = await import("unpdf");
   const data = new Uint8Array(buffer);
-  const result = await extractText(data, { mergePages: true });
-  const text =
-    typeof result.text === "string"
-      ? result.text
-      : Array.isArray(result.text)
-        ? result.text.join("\n\n")
-        : "";
+  const extraction = extractText(data, { mergePages: true });
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error("PDF parsing timed out")), 25_000);
+  });
+  const result = await Promise.race([extraction, timeout]);
+  const rawText = result.text as string | string[];
+  const text = typeof rawText === "string" ? rawText : rawText.join("\n\n");
   return sanitizeExtractedCvText(text);
 }
 

@@ -68,6 +68,7 @@ import {
 import { readStoredProfile } from "@/lib/entitlements";
 import { readProfile as readAuthProfile } from "@/lib/auth-session";
 import { ensureCvProfile } from "@/lib/cv-profile";
+import { buildParseUploadBody, parseUploadErrorMessage } from "@/lib/cv-parse-upload";
 
 const GENERATED_CV_KEY = "bonlist-generated-cv";
 const REPORT_KEY = "bonlist-report";
@@ -1901,44 +1902,34 @@ export default function CvBuilderPage() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    setError("");
     setAgentFileName(file.name);
     setIsAgentWorking(true);
     setAgentStepIndex(0);
-    setAgentStepText("Uploading document and preparing secure parser sandbox…");
+    setAgentStepText("Preparing document for extraction…");
+    setExtracting(true);
 
     // Close intake modal while agent works
     setIsIntakeModalOpen(false);
 
     try {
-      // Convert file to base64 Data URL so PDF, DOCX, and TXT are all safely transmitted
-      const fileData = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
+      const parseBody = await buildParseUploadBody(file, (message) => {
+        setAgentStepText(message);
       });
 
       // Update animated agent steps
       setAgentStepIndex(1);
-      setAgentStepText("Parsing binary structures & extracting verified employment history…");
+      setAgentStepText("Structuring verified employment history…");
 
       const res = await fetch("/api/career/cv/parse-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileData, fileName: file.name }),
+        body: JSON.stringify(parseBody),
       });
 
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
-        if (res.status === 502 || res.status === 503) {
-          throw new Error(
-            "The CV reading service is starting up or temporarily unavailable. Wait a few seconds and try again, or paste your CV text / use Enter Information Manually.",
-          );
-        }
-        throw new Error(
-          errBody?.error ||
-            "Unable to read this document. Please upload a text-based PDF, Word (.docx), or .txt file.",
-        );
+        throw new Error(parseUploadErrorMessage(res.status, errBody));
       }
 
       setAgentStepIndex(2);
@@ -3692,39 +3683,27 @@ export default function CvBuilderPage() {
   const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    setError("");
     setExtracting(true);
     setAgentFileName(file.name);
     setIsAgentWorking(true);
     setAgentStepIndex(0);
-    setAgentStepText("Uploading document and preparing secure parser…");
+    setAgentStepText("Preparing document for extraction…");
     try {
-      const reader = new FileReader();
-      const dataUrlPromise = new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
+      const parseBody = await buildParseUploadBody(file, (message) => {
+        setAgentStepText(message);
       });
-
-      const fileData = await dataUrlPromise;
       setAgentStepIndex(1);
-      setAgentStepText("Parsing binary document & extracting verified employment history…");
+      setAgentStepText("Structuring verified employment history…");
 
       const res = await fetch("/api/career/cv/parse-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileData, fileName: file.name }),
+        body: JSON.stringify(parseBody),
       });
       if (!res.ok) {
         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
-        if (res.status === 502 || res.status === 503) {
-          throw new Error(
-            "The CV reading service is starting up or temporarily unavailable. Wait a few seconds and try again, or paste your CV text / use Enter Information Manually.",
-          );
-        }
-        throw new Error(
-          errBody?.error ||
-            "Unable to read this document. Please upload a text-based PDF, Word (.docx), or .txt file.",
-        );
+        throw new Error(parseUploadErrorMessage(res.status, errBody));
       }
       if (res.ok) {
         const data = (await res.json()) as ExtractedCvData;

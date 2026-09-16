@@ -1,4 +1,4 @@
-﻿import { type ReactNode, type FormEvent, useState, useEffect, useRef } from 'react';
+import { type ReactNode, type FormEvent, useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -121,7 +121,7 @@ function findJobFromSession(jobId: string): JobMatch | null {
 
 function applyHref(job: JobMatch): string | undefined {
   if (job.url) return job.url;
-  const where = job.location.split('·')[0]?.trim() || 'South Africa';
+  const where = job.location.split('�')[0]?.trim() || 'South Africa';
   return `https://www.careerjunction.co.za/jobs?keywords=${encodeURIComponent(job.title)}&location=${encodeURIComponent(where)}`;
 }
 
@@ -250,24 +250,20 @@ function LogoMark({ compact = false }: { compact?: boolean }) {
       aria-label="BonList home"
     >
       {compact ? (
-        <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-xl border border-border/70 bg-white shadow-xs">
-          <img
-            src="/brand/bonlist-mark.png"
-            alt="BonList"
-            className="h-8 w-8 object-contain"
-            width={32}
-            height={32}
-          />
-        </span>
+        <img
+          src="/brand/bonlist-mark.png"
+          alt="BonList"
+          className="h-9 w-9 object-contain"
+          width={36}
+          height={36}
+        />
       ) : (
-        <span className="inline-flex h-10 items-center overflow-hidden rounded-xl border border-border/70 bg-white px-2.5 shadow-xs sm:h-11 sm:px-3">
-          <img
-            src="/brand/bonlist-logo.png"
-            alt="BonList — Your Shortcut to Getting Hired."
-            className="h-7 w-auto max-w-[min(210px,52vw)] object-contain object-left sm:h-8"
-            height={32}
-          />
-        </span>
+        <img
+          src="/brand/bonlist-logo.png"
+          alt="BonList - Your Shortcut to Getting Hired."
+          className="h-9 w-auto max-w-[min(240px,56vw)] object-contain object-left sm:h-10"
+          height={40}
+        />
       )}
     </Link>
   );
@@ -294,7 +290,7 @@ const GUIDE_TOPICS: Record<string, GuideTopicContent> = {
     tabLabel: 'Writing a resume',
     title: 'How to Write an ATS-Friendly CV & Resume',
     badge: 'Enhancv & ATS Standards',
-    tagline: 'Master the structure, wording, and keyword density that gets your CV past applicant tracking systems and into recruiters’ hands.',
+    tagline: 'Master the structure, wording, and keyword density that gets your CV past applicant tracking systems and into recruiters� hands.',
     ctaText: 'Open AI Resume Builder',
     ctaHref: '/cv-builder?intake=1',
     content: [
@@ -304,7 +300,7 @@ const GUIDE_TOPICS: Record<string, GuideTopicContent> = {
         points: [
           { label: 'Standard Headings', text: 'Use universally recognized section headings: Professional Summary, Work Experience, Skills & Competencies, Education, Certifications.' },
           { label: 'No Trapped Text', text: 'Avoid placing your core work history in floating textboxes, vector illustrations, or nested graphic elements that ATS parsers skip.' },
-          { label: 'Consistent Chronology', text: 'Format employment periods uniformly as "MMM YYYY – Present" or "YYYY – YYYY" to ensure clean tenure calculation.' }
+          { label: 'Consistent Chronology', text: 'Format employment periods uniformly as "MMM YYYY � Present" or "YYYY � YYYY" to ensure clean tenure calculation.' }
         ]
       },
       {
@@ -321,7 +317,7 @@ const GUIDE_TOPICS: Record<string, GuideTopicContent> = {
         description: 'Aligning with South African labor and corporate recruitment practices.',
         points: [
           { label: 'Privacy First', text: 'Protect sensitive personal data: do not include South African ID numbers, marital status, or full street addresses on public submissions.' },
-          { label: 'Authentic Verification', text: 'Back every listed achievement with verifiable records. BonList’s authenticity layer ensures 100% factual fidelity.' }
+          { label: 'Authentic Verification', text: 'Back every listed achievement with verifiable records. BonList�s authenticity layer ensures 100% factual fidelity.' }
         ]
       }
     ]
@@ -372,10 +368,10 @@ const GUIDE_TOPICS: Record<string, GuideTopicContent> = {
     content: [
       {
         sectionTitle: 'The 3-Sentence Blueprint',
-        description: 'Keep your summary concise (50–80 words) and packed with evidence.',
+        description: 'Keep your summary concise (50�80 words) and packed with evidence.',
         points: [
           { label: 'Sentence 1 (Identity)', text: 'State your professional title, years of experience, and core industry focus.' },
-          { label: 'Sentence 2 (Specialty)', text: 'Highlight 2–3 core technical capabilities or methodologies you excel in.' },
+          { label: 'Sentence 2 (Specialty)', text: 'Highlight 2�3 core technical capabilities or methodologies you excel in.' },
           { label: 'Sentence 3 (Value)', text: 'Conclude with a standout metric, efficiency gain, or organizational impact you regularly deliver.' }
         ]
       },
@@ -402,7 +398,7 @@ const GUIDE_TOPICS: Record<string, GuideTopicContent> = {
         sectionTitle: 'The Page Count Rules',
         description: 'When to stick to one page vs when two pages are appropriate.',
         points: [
-          { label: '0–5 Years Experience', text: 'Keep strictly to 1 page. Hiring managers value brevity and focused relevance over exhaustive detail.' },
+          { label: '0�5 Years Experience', text: 'Keep strictly to 1 page. Hiring managers value brevity and focused relevance over exhaustive detail.' },
           { label: '5+ Years or Senior Leadership', text: '2 pages is standard in South Africa. Ensure page 1 contains your strongest achievements and current role.' },
           { label: 'Never 3+ Pages', text: 'Unless submitting an academic CV or comprehensive medical dossier, never exceed 2 pages for corporate applications.' }
         ]
@@ -411,9 +407,9 @@ const GUIDE_TOPICS: Record<string, GuideTopicContent> = {
         sectionTitle: 'Trimming Techniques That Work',
         description: 'Save 30% vertical space without losing substance.',
         points: [
-          { label: 'Combine Older Roles', text: 'Group roles older than 7–10 years into single-line entries (Company, Title, Years) without extensive bullet points.' },
+          { label: 'Combine Older Roles', text: 'Group roles older than 7�10 years into single-line entries (Company, Title, Years) without extensive bullet points.' },
           { label: 'Remove Generic Soft Skills', text: 'Replace buzzword lists ("hard worker", "team player") with verifiable technical skills and tools.' },
-          { label: 'Compact Margins', text: 'BonList’s Compact template utilizes 15mm margins and calibrated typography to maximize capacity elegantly.' }
+          { label: 'Compact Margins', text: 'BonList�s Compact template utilizes 15mm margins and calibrated typography to maximize capacity elegantly.' }
         ]
       }
     ]
@@ -431,7 +427,7 @@ const GUIDE_TOPICS: Record<string, GuideTopicContent> = {
         sectionTitle: 'Mastering the STAR Method',
         description: 'Structure every behavioral answer with clarity.',
         points: [
-          { label: 'Situation', text: 'Set the scene in 1–2 sentences with company, team context, and the challenge encountered.' },
+          { label: 'Situation', text: 'Set the scene in 1�2 sentences with company, team context, and the challenge encountered.' },
           { label: 'Task', text: 'Explain your specific mandate and goal in resolving the problem.' },
           { label: 'Action', text: 'Detail the concrete steps you took, tools utilized, and how you collaborated.' },
           { label: 'Result', text: 'Quantify the outcome, learnings gained, or value added to the company.' }
@@ -1414,7 +1410,7 @@ function AppShell({ children }: { children: ReactNode }) {
             <div className="space-y-3">
               <LogoMark />
               <p className="max-w-md text-sm leading-6 text-muted-foreground">
-                Create a profile first so we can support your search — then review your CV and unlock role matches.
+                Create a profile first so we can support your search � then review your CV and unlock role matches.
               </p>
             </div>
             {!inNativeApp ? (
@@ -1488,7 +1484,7 @@ function HeroProductVisual() {
         <div className="mb-5 flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">CV review preview</p>
-            <p className="mt-1 text-sm text-muted-foreground">Upload once · get clarity + role matches</p>
+            <p className="mt-1 text-sm text-muted-foreground">Upload once � get clarity + role matches</p>
           </div>
           <FileCheck2 className="text-primary" size={20} />
         </div>
@@ -1507,7 +1503,7 @@ function HeroProductVisual() {
             </div>
           ))}
           <div className="rounded-2xl border border-dashed border-primary/30 bg-secondary/50 px-4 py-3 text-xs leading-5 text-secondary-foreground">
-            After your profile and CV review, we recommend 6 roles tailored to you — only 2 fits below 90% stay free; premium 90%+ matches unlock with Job Seeker, Career Pro, or the{' '}
+            After your profile and CV review, we recommend 6 roles tailored to you � only 2 fits below 90% stay free; premium 90%+ matches unlock with Job Seeker, Career Pro, or the{' '}
             <Link href="/pricing" className="font-semibold text-primary hover:underline">
               3-month programme
             </Link>
@@ -1619,7 +1615,7 @@ function Home() {
     if (!profileReady) {
     return (
       <div className="mx-auto max-w-6xl px-5 py-20 text-center text-sm text-muted-foreground md:px-8">
-        Loading your workspace…
+        Loading your workspace�
       </div>
     );
   }
@@ -1717,14 +1713,14 @@ function Home() {
           <div className="mx-auto max-w-6xl px-5 pb-10 pt-12 md:px-8 md:pb-12 md:pt-16">
             <img
               src="/brand/bonlist-logo.png"
-              alt="BonList — Your Shortcut to Getting Hired."
-              className="h-14 w-auto max-w-[min(360px,90vw)] object-contain object-left sm:h-16"
+              alt="BonList - Your Shortcut to Getting Hired."
+              className="h-16 w-auto max-w-[min(400px,92vw)] object-contain object-left sm:h-[4.5rem]"
             />
             <h1 className="display mt-5 max-w-2xl text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
               Welcome back, {firstName}.
             </h1>
             <p className="mt-3 max-w-xl text-base leading-7 text-muted-foreground">
-              Choose a tool to keep moving — review your CV, improve it, or apply to matched roles.
+              Choose a tool to keep moving � review your CV, improve it, or apply to matched roles.
             </p>
           </div>
         </section>
@@ -1919,13 +1915,13 @@ function Home() {
             <img
               src="/brand/bonlist-logo.png"
               alt="BonList - Your Shortcut to Getting Hired."
-              className="h-16 w-auto max-w-[min(420px,92vw)] object-contain object-left sm:h-[4.5rem] md:h-20"
+              className="h-[4.5rem] w-auto max-w-[min(480px,94vw)] object-contain object-left sm:h-20 md:h-24"
             />
             <h1 className="display mt-5 max-w-xl text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl md:text-[2.75rem] md:leading-[1.1]">
               Let us help you find your next dream job today.
             </h1>
             <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground md:text-lg">
-              Upload your CV now for the perfect review and revamp — then see recommended roles that fit your story.
+              Upload your CV now for the perfect review and revamp � then see recommended roles that fit your story.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/signup" className="btn-primary" data-testid="link-start-profile">
@@ -1955,7 +1951,7 @@ function Home() {
             <ul className="mt-6 space-y-3 text-sm text-muted-foreground">
               <li className="flex gap-2">
                 <ShieldCheck size={16} className="mt-0.5 shrink-0 text-primary" />
-                Profile first — then CV upload
+                Profile first � then CV upload
               </li>
               <li className="flex gap-2">
                 <FileCheck2 size={16} className="mt-0.5 shrink-0 text-primary" />
@@ -1985,7 +1981,7 @@ function Home() {
             We&apos;re here for every step of your search.
           </h2>
           <p className="mt-4 text-[15px] leading-7 text-muted-foreground">
-            Build evidence once, then move with focus — local jobs, interview stories, and human support when you need it.
+            Build evidence once, then move with focus � local jobs, interview stories, and human support when you need it.
           </p>
         </div>
         <div className="grid gap-6 md:grid-cols-3">
@@ -2058,7 +2054,7 @@ function ProfilePage() {
   if (!existing) {
     return (
       <div className="mx-auto max-w-3xl px-5 py-20 text-center text-sm text-muted-foreground">
-        Redirecting to sign up…
+        Redirecting to sign up�
       </div>
     );
   }
@@ -2072,7 +2068,7 @@ function ProfilePage() {
     setError('');
     setSuccess('');
     try {
-      // D1 auth may store a UUID id — ensure a numeric career profile exists on the API.
+      // D1 auth may store a UUID id � ensure a numeric career profile exists on the API.
       let profileId: number | string = existing.id;
       if (!Number.isFinite(Number(profileId)) || Number(profileId) <= 0) {
         const ensured = await ensureCvProfile({
@@ -2139,7 +2135,7 @@ function ProfilePage() {
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
               {programmeActive
-                ? `Full platform access · ${entitlement.programme?.daysRemaining ?? 0} days remaining`
+                ? `Full platform access � ${entitlement.programme?.daysRemaining ?? 0} days remaining`
                 : entitlement.plan === 'free'
                   ? 'Standard matches and core CV tools. Upgrade anytime.'
                   : 'Premium features active on your monthly plan.'}
@@ -2215,10 +2211,10 @@ function ProfilePage() {
             className="btn-primary disabled:opacity-50"
             data-testid="button-profile-save"
           >
-            {saving ? 'Saving…' : 'Save changes'}
+            {saving ? 'Saving�' : 'Save changes'}
           </button>
           <p className="text-xs text-muted-foreground">
-            Use a real email you can access — including Gmail — so we can reach you about coaching and matches.
+            Use a real email you can access � including Gmail � so we can reach you about coaching and matches.
           </p>
         </div>
       </form>
@@ -2308,7 +2304,7 @@ function DiagnosticPage() {
     return (
       <div className="mx-auto max-w-4xl px-5 py-16 md:px-8">
         <div className="rounded-3xl border border-border bg-card px-6 py-16 text-center text-sm text-muted-foreground">
-          Loading your CV review…
+          Loading your CV review�
         </div>
       </div>
     );
@@ -2320,7 +2316,7 @@ function DiagnosticPage() {
         <PageHeading
           eyebrow="AI CV reader"
           title="Start with the document in front of you."
-          description="Upload your CV on the overview page and we’ll return a detailed evidence report with section scores, rewrite examples, and roles recently listed for your target."
+          description="Upload your CV on the overview page and we�ll return a detailed evidence report with section scores, rewrite examples, and roles recently listed for your target."
           action={
             <Link href="/" className="btn-primary" data-testid="link-upload-cv">
               Upload a CV <ArrowRight size={15} />
@@ -2349,8 +2345,8 @@ function DiagnosticPage() {
   const overall = report.overallScore ?? report.authenticityScore;
   const relatedJobs = report.relatedJobs ?? [];
   const locationHint =
-    report.jobSearch?.query?.match(/\bin\s+([^·|]+)/i)?.[1]?.trim() ||
-    relatedJobs[0]?.location?.split('·')[0]?.trim() ||
+    report.jobSearch?.query?.match(/\bin\s+([^�|]+)/i)?.[1]?.trim() ||
+    relatedJobs[0]?.location?.split('�')[0]?.trim() ||
     'South Africa';
 
   const sectionScore = (name: RegExp, fallback: number) => {
@@ -2399,8 +2395,8 @@ function DiagnosticPage() {
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {report.fileName}
-            {report.targetRole ? ` · ${report.targetRole}` : ''}
-            {locationHint ? ` · ${locationHint}` : ''}
+            {report.targetRole ? ` � ${report.targetRole}` : ''}
+            {locationHint ? ` � ${locationHint}` : ''}
           </p>
         </div>
         <button type="button" onClick={handleGenerateCv} className="btn-primary shrink-0" data-testid="button-generate-cv">
@@ -2411,7 +2407,7 @@ function DiagnosticPage() {
 
       {/* 1. ATS & READINESS OVERVIEW */}
       <section className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-7">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">1 · ATS & readiness overview</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">1 � ATS & readiness overview</p>
         <div className="mt-4 flex flex-wrap items-end gap-x-8 gap-y-3">
           <div>
             <p className="text-xs text-muted-foreground">Overall composite</p>
@@ -2439,7 +2435,7 @@ function DiagnosticPage() {
 
       {/* 2. SCORE CARD */}
       <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">2 · Score card at a glance</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">2 � Score card at a glance</p>
         <ul className="mt-4 divide-y divide-border">
           {scoreCard.map((row) => {
             const grade = gradeLabel(row.score);
@@ -2460,7 +2456,7 @@ function DiagnosticPage() {
 
       {/* 3. TOP STRENGTHS */}
       <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">3 · Top strengths</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">3 � Top strengths</p>
         <h2 className="mt-1 text-lg font-semibold text-foreground">What&apos;s working</h2>
         {strengths.length ? (
           <ul className="mt-4 space-y-2.5">
@@ -2475,13 +2471,13 @@ function DiagnosticPage() {
             ))}
           </ul>
         ) : (
-          <p className="mt-3 text-sm text-muted-foreground">Your CV already shows authentic, parseable content — protect that clarity.</p>
+          <p className="mt-3 text-sm text-muted-foreground">Your CV already shows authentic, parseable content � protect that clarity.</p>
         )}
       </section>
 
       {/* 4. PRIORITY FIXES */}
       <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">4 · Priority fixes</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">4 � Priority fixes</p>
         <h2 className="mt-1 text-lg font-semibold text-foreground">Immediate actions</h2>
         {fixes.length ? (
           <ol className="mt-4 space-y-3">
@@ -2498,14 +2494,14 @@ function DiagnosticPage() {
             ))}
           </ol>
         ) : (
-          <p className="mt-3 text-sm text-muted-foreground">No critical blockers — polish bullets and you&apos;re interview-ready.</p>
+          <p className="mt-3 text-sm text-muted-foreground">No critical blockers � polish bullets and you&apos;re interview-ready.</p>
         )}
         {(report.flaggedPhrases?.length || report.missingKeywords?.length) ? (
           <p className="mt-4 text-xs text-muted-foreground">
             {report.flaggedPhrases?.length ? (
               <>
                 <span className="font-semibold text-foreground">Watch phrases: </span>
-                {report.flaggedPhrases.slice(0, 3).join(' · ')}.
+                {report.flaggedPhrases.slice(0, 3).join(' � ')}.
               </>
             ) : null}{' '}
             {report.missingKeywords?.length ? (
@@ -2521,7 +2517,7 @@ function DiagnosticPage() {
       {/* 5. BEFORE vs AFTER */}
       {rewrites.length ? (
         <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
-          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">5 · Before vs after</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">5 � Before vs after</p>
           <h2 className="mt-1 text-lg font-semibold text-foreground">Rewrite guide</h2>
           <div className="mt-4 space-y-4">
             {rewrites.map((example) => (
@@ -2542,11 +2538,11 @@ function DiagnosticPage() {
 
       {/* 6. JOB MATCHES + CTA */}
       <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">6 · Recommended matches & next steps</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">6 � Recommended matches & next steps</p>
         <h2 className="mt-1 text-lg font-semibold text-foreground">High-match highlights</h2>
         {report.jobSearch?.liveResults ? (
           <p className="mt-1 text-xs text-muted-foreground">
-            Live listings for “{report.jobSearch.query}” — open a role to apply on the board.
+            Live listings for �{report.jobSearch.query}� � open a role to apply on the board.
           </p>
         ) : null}
         {topJobs.length ? (
@@ -2571,20 +2567,20 @@ function DiagnosticPage() {
                         onClick={() => persistSelectedJob(job)}
                       >
                         {job.title}
-                        {job.company ? <span className="font-normal text-muted-foreground"> · {job.company}</span> : null}
+                        {job.company ? <span className="font-normal text-muted-foreground"> � {job.company}</span> : null}
                         {(job.source || job.posted) && (
                           <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">
-                            {[job.source, job.posted ? `Posted ${job.posted}` : null].filter(Boolean).join(' · ')}
+                            {[job.source, job.posted ? `Posted ${job.posted}` : null].filter(Boolean).join(' � ')}
                           </span>
                         )}
                       </a>
                     ) : (
                       <span className="min-w-0 flex-1 font-semibold text-foreground">
                         {job.title}
-                        {job.company ? <span className="font-normal text-muted-foreground"> · {job.company}</span> : null}
+                        {job.company ? <span className="font-normal text-muted-foreground"> � {job.company}</span> : null}
                         {(job.source || job.posted) && (
                           <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">
-                            {[job.source, job.posted ? `Posted ${job.posted}` : null].filter(Boolean).join(' · ')}
+                            {[job.source, job.posted ? `Posted ${job.posted}` : null].filter(Boolean).join(' � ')}
                           </span>
                         )}
                       </span>
@@ -2640,7 +2636,7 @@ function DiagnosticPage() {
         ) : null}
 
         <div className="mt-6 flex flex-col items-stretch gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">Apply your fixes in one pass — then send a cleaner CV.</p>
+          <p className="text-sm text-muted-foreground">Apply your fixes in one pass � then send a cleaner CV.</p>
           <button
             type="button"
             onClick={handleGenerateCv}
@@ -2703,7 +2699,7 @@ function JobsPage() {
         <Lock className="mx-auto text-primary" size={32} />
         <h1 className="display mt-5 text-3xl font-semibold text-foreground">Matches unlock after your CV review</h1>
         <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-          BonList is built to help you find your next role from your CV — not to browse a general job board.
+          BonList is built to help you find your next role from your CV � not to browse a general job board.
         </p>
         <Link href="/#cv-check" className="btn-primary mt-8" data-testid="link-jobs-need-cv">
           Upload your CV <ArrowRight size={15} />
@@ -2722,8 +2718,8 @@ function JobsPage() {
         title="Roles recommended from your CV review."
         description={
           report.jobSearch?.liveResults
-            ? `Live listings found for “${report.jobSearch.query}” across trusted SA boards — not an open job feed.`
-            : "Personalised recommendations from your CV, searched across trusted SA job boards — not an open listing feed."
+            ? `Live listings found for �${report.jobSearch.query}� across trusted SA boards � not an open job feed.`
+            : "Personalised recommendations from your CV, searched across trusted SA job boards � not an open listing feed."
         }
         action={
           <Link href="/diagnostic" className="btn-secondary" data-testid="link-matches-to-review">
@@ -2764,7 +2760,7 @@ function JobsPage() {
       <p className="mt-5 text-center text-xs text-muted-foreground">
         {premiumUnlocked
           ? 'Premium 90%+ matches are unlocked on your current plan or programme.'
-          : '90%+ fits are premium matches — unlock with Job Seeker, Career Pro, or the 3-month programme.'}
+          : '90%+ fits are premium matches � unlock with Job Seeker, Career Pro, or the 3-month programme.'}
       </p>
     </div>
   );
@@ -2810,7 +2806,7 @@ function JobCard({ job, premiumUnlocked = false }: { job: JobMatch; premiumUnloc
                 </span>
               )}
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">{job.company} · {job.sector}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{job.company} � {job.sector}</p>
             <p className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
               <MapPin size={14} className="text-primary" />
               {job.location}
@@ -2921,7 +2917,7 @@ function JobDetailPage() {
   if (!job) {
     return (
       <div className="mx-auto max-w-3xl px-5 py-20 text-center text-sm text-muted-foreground">
-        Loading job details…
+        Loading job details�
       </div>
     );
   }
@@ -2934,14 +2930,14 @@ function JobDetailPage() {
   return (
     <div className="mx-auto max-w-4xl px-5 py-12 md:px-8 md:py-16">
       <Link href="/jobs" className="inline-flex items-center gap-1 text-xs font-bold text-primary" data-testid="link-back-to-matches">
-        ← Back to matches
+        ? Back to matches
       </Link>
 
       <div className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
-              {job.source || 'Trusted board'} · {job.match}% fit
+              {job.source || 'Trusted board'} � {job.match}% fit
             </p>
             <h1 className="display mt-2 text-3xl font-semibold text-foreground md:text-4xl">{job.title}</h1>
             <p className="mt-2 text-base text-muted-foreground">{job.company}</p>
@@ -3041,7 +3037,7 @@ function InterviewPage() {
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Progress</p>
             <p className="mt-1 text-lg font-semibold text-foreground">
               {completedCount}
-              <span className="text-muted-foreground">/{prep?.total ?? '—'}</span>
+              <span className="text-muted-foreground">/{prep?.total ?? '�'}</span>
             </p>
           </div>
         }
@@ -3050,7 +3046,7 @@ function InterviewPage() {
         <div className="mb-6 rounded-2xl border border-border bg-secondary/50 px-5 py-4 text-sm">
           <p className="font-semibold text-foreground">Full interview tools unlock on Career Pro</p>
           <p className="mt-1 text-muted-foreground">
-            Or get them included for 3 months with the R2,000 Career Accelerator programme — no extra subscription required.
+            Or get them included for 3 months with the R2,000 Career Accelerator programme � no extra subscription required.
           </p>
           <Link href="/pricing" className="mt-3 inline-flex items-center gap-1 font-bold text-primary" data-testid="link-interview-pricing">
             View pricing <ArrowRight size={14} />
@@ -3232,7 +3228,7 @@ function CoachingPage() {
       <PageHeading
         eyebrow="3-Month Career Transformation Programme"
         title="STOP SOUNDING LIKE EVERYONE ELSE."
-        description="A structured R2,000 once-off programme — not another AI subscription. Full platform access for 3 months, plus training that keeps your authentic professional voice."
+        description="A structured R2,000 once-off programme � not another AI subscription. Full platform access for 3 months, plus training that keeps your authentic professional voice."
         action={
           <Link href="/pricing" className="btn-primary" data-testid="link-coaching-pricing-cta">
             JOIN THE PROGRAMME <ArrowRight size={15} />
@@ -3250,9 +3246,9 @@ function CoachingPage() {
             </p>
             <div className="mt-8 space-y-5">
               {[
-                ['01', 'Month 1 — Build Your Foundation', 'Value, transferable skills, CV positioning, job-search strategy, strategic AI.'],
-                ['02', 'Month 2 — Stand Out From The Crowd', 'Authentic voice, career stories, applications, LinkedIn, recruiter psychology.'],
-                ['03', 'Month 3 — Interview & Job-Search Mastery', 'STAR, difficult questions, mock interviews, salary talk, follow-up.'],
+                ['01', 'Month 1 � Build Your Foundation', 'Value, transferable skills, CV positioning, job-search strategy, strategic AI.'],
+                ['02', 'Month 2 � Stand Out From The Crowd', 'Authentic voice, career stories, applications, LinkedIn, recruiter psychology.'],
+                ['03', 'Month 3 � Interview & Job-Search Mastery', 'STAR, difficult questions, mock interviews, salary talk, follow-up.'],
               ].map(([number, title, copy]) => (
                 <div key={number} className="flex gap-4 border-t border-primary-foreground/20 pt-4">
                   <span className="text-xs font-bold text-primary-foreground/80">{number}</span>
@@ -3264,7 +3260,7 @@ function CoachingPage() {
               ))}
             </div>
             <p className="mt-8 text-xs font-bold uppercase tracking-[0.12em] text-primary-foreground/90">
-              R2,000 once-off · 3 months · Full platform access
+              R2,000 once-off � 3 months � Full platform access
             </p>
           </div>
         </div>
@@ -3326,12 +3322,12 @@ function CoachingPage() {
           <div className="mt-5 rounded-2xl border border-primary/30 bg-secondary/50 px-4 py-3">
             <p className="text-sm font-semibold text-foreground">Stand-alone programme</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              R2,000 once-off · Full Free + Job Seeker + Career Pro access for 3 months
+              R2,000 once-off � Full Free + Job Seeker + Career Pro access for 3 months
             </p>
           </div>
           {apply.isError && (
             <p className="mt-4 text-xs text-destructive">
-              We couldn't submit this just now. Your details are still here — try again.
+              We couldn't submit this just now. Your details are still here � try again.
             </p>
           )}
           <button
@@ -3339,7 +3335,7 @@ function CoachingPage() {
             className="btn-primary mt-7 w-full disabled:opacity-50"
             data-testid="button-submit-coaching"
           >
-            {apply.isPending ? 'Sending your intake…' : 'Send programme interest'} <ArrowRight size={16} />
+            {apply.isPending ? 'Sending your intake�' : 'Send programme interest'} <ArrowRight size={16} />
           </button>
           <p className="mt-3 text-center text-[11px] text-muted-foreground">
             Does not guarantee employment, a job offer, a specific salary, or an interview.

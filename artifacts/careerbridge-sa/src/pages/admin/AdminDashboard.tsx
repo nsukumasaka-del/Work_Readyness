@@ -458,9 +458,7 @@ export function AdminApp() {
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">Admin</p>
               <div className="mt-2 flex items-center gap-2">
-                <span className="grid h-8 w-8 place-items-center overflow-hidden rounded-lg border border-white/15 bg-white">
-                  <img src="/brand/bonlist-mark.png" alt="" className="h-6 w-6 object-contain" width={24} height={24} />
-                </span>
+                <img src="/brand/bonlist-mark.png" alt="" className="h-7 w-7 object-contain" width={28} height={28} />
                 <p className="truncate text-lg font-semibold">BonList</p>
               </div>
             </div>

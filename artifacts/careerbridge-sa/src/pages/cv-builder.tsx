@@ -4032,23 +4032,13 @@ export default function CvBuilderPage() {
           {/* Left: Brand + Role Title + Cloud Saved Indicator */}
           <div className="flex items-center gap-3">
             <Link href="/" className="flex items-center gap-2 group" aria-label="BonList home">
-              <span className="grid h-9 w-9 place-items-center overflow-hidden rounded-xl border border-border/70 bg-white shadow-xs transition group-hover:scale-105 md:hidden">
-                <img
-                  src="/brand/bonlist-mark.png"
-                  alt=""
-                  className="h-7 w-7 object-contain"
-                  width={28}
-                  height={28}
-                />
-              </span>
-              <span className="hidden h-9 items-center overflow-hidden rounded-xl border border-border/70 bg-white px-2.5 shadow-xs md:inline-flex">
-                <img
-                  src="/brand/bonlist-logo.png"
-                  alt="BonList"
-                  className="h-6 w-auto max-w-[170px] object-contain object-left"
-                  height={24}
-                />
-              </span>
+              <img src="/brand/bonlist-mark.png" alt="" className="h-8 w-8 object-contain transition group-hover:scale-105 md:hidden" width={32} height={32} />
+              <img
+                src="/brand/bonlist-logo.png"
+                alt="BonList"
+                className="hidden h-7 w-auto max-w-[190px] object-contain object-left md:inline-block"
+                height={28}
+              />
             </Link>
 
             <span className="h-4 w-[1px] bg-border hidden sm:block" />

@@ -40,12 +40,14 @@ export async function buildParseUploadBody(
       onProgress?.("Browser extraction was unavailable; trying the secure CV reader…");
     }
 
-    // Always send the original file as well. This lets the API retry extraction
-    // when the browser returns no selectable text or cannot parse a valid PDF.
-    const fileData = await readFileAsDataUrl(file);
     if (text.trim().length >= 10) {
-      return { fileName: file.name, text, fileData };
+      // Browser extraction succeeded. Do not send the binary PDF as well: the
+      // legacy API may fail while re-parsing an otherwise readable document.
+      return { fileName: file.name, text };
     }
+    // Browser extraction was unavailable, so let the server's independent
+    // parser make the final attempt.
+    const fileData = await readFileAsDataUrl(file);
     return { fileName: file.name, fileData };
   }
 

@@ -290,7 +290,7 @@ const GUIDE_TOPICS: Record<string, GuideTopicContent> = {
     tabLabel: 'Writing a resume',
     title: 'How to Write an ATS-Friendly CV & Resume',
     badge: 'Enhancv & ATS Standards',
-    tagline: 'Master the structure, wording, and keyword density that gets your CV past applicant tracking systems and into recruiters� hands.',
+    tagline: 'Master the structure, wording, and keyword density that gets your CV past applicant tracking systems and into recruiters hands.',
     ctaText: 'Open AI Resume Builder',
     ctaHref: '/cv-builder?intake=1',
     content: [
@@ -300,7 +300,7 @@ const GUIDE_TOPICS: Record<string, GuideTopicContent> = {
         points: [
           { label: 'Standard Headings', text: 'Use universally recognized section headings: Professional Summary, Work Experience, Skills & Competencies, Education, Certifications.' },
           { label: 'No Trapped Text', text: 'Avoid placing your core work history in floating textboxes, vector illustrations, or nested graphic elements that ATS parsers skip.' },
-          { label: 'Consistent Chronology', text: 'Format employment periods uniformly as "MMM YYYY � Present" or "YYYY � YYYY" to ensure clean tenure calculation.' }
+          { label: 'Consistent Chronology', text: 'Format employment periods uniformly as "MMM YYYY  Present" or "YYYY  YYYY" to ensure clean tenure calculation.' }
         ]
       },
       {
@@ -317,7 +317,7 @@ const GUIDE_TOPICS: Record<string, GuideTopicContent> = {
         description: 'Aligning with South African labor and corporate recruitment practices.',
         points: [
           { label: 'Privacy First', text: 'Protect sensitive personal data: do not include South African ID numbers, marital status, or full street addresses on public submissions.' },
-          { label: 'Authentic Verification', text: 'Back every listed achievement with verifiable records. BonList�s authenticity layer ensures 100% factual fidelity.' }
+          { label: 'Authentic Verification', text: 'Back every listed achievement with verifiable records. BonLists authenticity layer ensures 100% factual fidelity.' }
         ]
       }
     ]
@@ -1613,7 +1613,7 @@ function Home() {
     if (!profileReady) {
     return (
       <div className="mx-auto max-w-6xl px-5 py-20 text-center text-sm text-muted-foreground md:px-8">
-        Loading your workspace�
+        Loading your workspace
       </div>
     );
   }
@@ -1916,10 +1916,10 @@ function Home() {
               className="h-[4.5rem] w-auto max-w-[min(480px,94vw)] object-contain object-left sm:h-20 md:h-24"
             />
             <h1 className="display mt-5 max-w-xl text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl md:text-[2.75rem] md:leading-[1.1]">
-              Let us help you find your next dream job today.
+              Transform your CV into interview Invitations.
             </h1>
             <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground md:text-lg">
-              Upload your CV now for the perfect review and revamp � then see recommended roles that fit your story.
+              Upload your CV now for the perfect review and revamp  then see recommended roles that fit your story.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/signup" className="btn-primary" data-testid="link-start-profile">
@@ -1949,7 +1949,7 @@ function Home() {
             <ul className="mt-6 space-y-3 text-sm text-muted-foreground">
               <li className="flex gap-2">
                 <ShieldCheck size={16} className="mt-0.5 shrink-0 text-primary" />
-                Profile first � then CV upload
+                Profile first and then CV upload
               </li>
               <li className="flex gap-2">
                 <FileCheck2 size={16} className="mt-0.5 shrink-0 text-primary" />

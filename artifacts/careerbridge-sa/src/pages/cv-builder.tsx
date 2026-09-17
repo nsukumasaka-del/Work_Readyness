@@ -7248,7 +7248,7 @@ export default function CvBuilderPage() {
                     <span>{extracting ? "Extracting CV Data…" : "Browse File on Device"}</span>
                     <input
                       type="file"
-                      accept=".txt,.pdf,.docx"
+                      accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                       className="hidden"
                       onChange={handleIntakeFileUpload}
                       disabled={extracting}

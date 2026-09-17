@@ -1781,6 +1781,8 @@ router.post("/career/cv/parse-upload", async (req, res) => {
     const fileData = req.body?.fileData ? String(req.body.fileData) : undefined;
     const pastedText = req.body?.text ? String(req.body.text) : undefined;
 
+    req.log.info({ fileName, hasFileData: !!fileData, hasPastedText: !!pastedText }, "CV parse-upload request received");
+
     let text = "";
     try {
       const extractedDoc = await extractTextFromUpload({
@@ -1789,6 +1791,11 @@ router.post("/career/cv/parse-upload", async (req, res) => {
         fileData,
       });
       text = extractedDoc.text;
+      req.log.info({ 
+        fileName, 
+        textLength: text.length, 
+        kind: extractedDoc.kind 
+      }, "CV text extraction successful");
     } catch (extractErr) {
       const message =
         extractErr instanceof DocumentExtractionError
@@ -1800,6 +1807,7 @@ router.post("/career/cv/parse-upload", async (req, res) => {
     }
 
     if (!text || text.trim().length < 10) {
+      req.log.warn({ fileName, textLength: text?.length || 0 }, "Extracted text too short");
       res.status(400).json({
         error:
           "No readable CV text was found. Scanned/image-only PDFs are not supported — upload a text PDF, Word (.docx), or paste the CV text.",
@@ -1808,6 +1816,12 @@ router.post("/career/cv/parse-upload", async (req, res) => {
     }
 
     const extracted = extractCvDataFromText(text, fileName);
+    req.log.info({ 
+      fileName, 
+      experienceCount: extracted.experiences?.length || 0,
+      educationCount: extracted.education?.length || 0,
+      skillsCount: extracted.skills?.length || 0
+    }, "CV data extraction successful");
     res.json(extracted);
   } catch (err) {
     req.log.error({ err }, "Error in /career/cv/parse-upload");

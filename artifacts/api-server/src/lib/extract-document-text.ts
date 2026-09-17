@@ -170,29 +170,48 @@ function decodeDataUrlOrBase64(fileData: string): Buffer {
  * Avoids pdf-parse/@napi-rs/canvas crashes on Render.
  */
 async function extractPdfText(buffer: Buffer): Promise<string> {
-  const { extractText } = await import("unpdf");
-  const data = new Uint8Array(buffer);
-  const extraction = extractText(data, { mergePages: true });
-  const timeout = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error("PDF parsing timed out")), 25_000);
-  });
-  const result = await Promise.race([extraction, timeout]);
-  const rawText = result.text as string | string[];
-  const text = typeof rawText === "string" ? rawText : rawText.join("\n\n");
-  return sanitizeExtractedCvText(text);
+  try {
+    const { extractText } = await import("unpdf");
+    const data = new Uint8Array(buffer);
+    const extraction = extractText(data, { mergePages: true });
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("PDF parsing timed out")), 25_000);
+    });
+    const result = await Promise.race([extraction, timeout]);
+    const rawText = result.text as string | string[];
+    const text = typeof rawText === "string" ? rawText : rawText.join("\n\n");
+    return sanitizeExtractedCvText(text);
+  } catch (err) {
+    console.error("PDF extraction error:", err);
+    throw new DocumentExtractionError(
+      `PDF extraction failed: ${err instanceof Error ? err.message : 'Unknown error'}`
+    );
+  }
 }
 
 async function extractDocxText(buffer: Buffer): Promise<string> {
-  const mammoth = await import("mammoth");
-  const extractRaw =
-    mammoth.extractRawText ||
-    (mammoth as unknown as { default?: { extractRawText?: typeof mammoth.extractRawText } }).default
-      ?.extractRawText;
-  if (typeof extractRaw !== "function") {
-    throw new DocumentExtractionError("Word document parser is unavailable.");
+  try {
+    const mammoth = await import("mammoth");
+    const extractRaw =
+      mammoth.extractRawText ||
+      (mammoth as unknown as { default?: { extractRawText?: typeof mammoth.extractRawText } }).default
+        ?.extractRawText;
+    if (typeof extractRaw !== "function") {
+      throw new DocumentExtractionError("Word document parser is unavailable.");
+    }
+    const docxRes = await extractRaw({ buffer });
+    const text = sanitizeExtractedCvText(docxRes?.value || "");
+    if (!text || text.length < 10) {
+      throw new DocumentExtractionError("No readable text was found in this Word document.");
+    }
+    return text;
+  } catch (err) {
+    console.error("DOCX extraction error:", err);
+    if (err instanceof DocumentExtractionError) throw err;
+    throw new DocumentExtractionError(
+      `Word document extraction failed: ${err instanceof Error ? err.message : 'Unknown error'}`
+    );
   }
-  const docxRes = await extractRaw({ buffer });
-  return sanitizeExtractedCvText(docxRes?.value || "");
 }
 
 export type UploadedDocumentKind = "pdf" | "docx" | "txt" | "unknown";
@@ -253,6 +272,7 @@ export async function extractTextFromUpload(options: {
     try {
       text = await extractPdfText(buffer);
     } catch (err) {
+      console.error("PDF extraction failed on server:", err);
       if (fromPaste) return { text: fromPaste, kind: "pdf" };
       throw new DocumentExtractionError(
         `Could not read this PDF. ${(err as Error)?.message || "Parser failed."} Try re-exporting as PDF or upload a .docx / .txt copy.`,
@@ -276,6 +296,7 @@ export async function extractTextFromUpload(options: {
     try {
       text = await extractDocxText(buffer);
     } catch (err) {
+      console.error("DOCX extraction failed on server:", err);
       if (fromPaste) return { text: fromPaste, kind: "docx" };
       throw new DocumentExtractionError(
         `Could not read this Word document. ${(err as Error)?.message || "Parser failed."}`,

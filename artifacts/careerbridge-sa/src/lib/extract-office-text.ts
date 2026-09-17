@@ -44,16 +44,21 @@ export async function extractPlainTextFromFile(file: File): Promise<string> {
  * Read word/document.xml from a .docx zip without extra dependencies.
  */
 export async function extractDocxTextFromFile(file: File): Promise<string> {
-  const JSZip = (await import("jszip")).default;
-  const zip = await JSZip.loadAsync(await file.arrayBuffer());
-  const docFile = zip.file("word/document.xml");
-  if (!docFile) {
-    throw new Error("This Word file is missing document.xml and cannot be read.");
+  try {
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const docFile = zip.file("word/document.xml");
+    if (!docFile) {
+      throw new Error("This Word file is missing document.xml and cannot be read.");
+    }
+    const xml = await docFile.async("string");
+    const text = xmlToPlainText(xml);
+    if (!text || text.length < 10) {
+      throw new Error("No readable text was found in this Word document.");
+    }
+    return text;
+  } catch (err) {
+    console.error("Browser DOCX extraction error:", err);
+    throw new Error(`Word document extraction failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
   }
-  const xml = await docFile.async("string");
-  const text = xmlToPlainText(xml);
-  if (!text || text.length < 10) {
-    throw new Error("No readable text was found in this Word document.");
-  }
-  return text;
 }

@@ -125,23 +125,34 @@ function collapseLetterSpacedLocal(text: string): string {
 export async function extractPdfTextFromFile(file: File): Promise<string> {
   ensurePdfWorker();
 
-  const data = new Uint8Array(await file.arrayBuffer());
-  const loadingTask = getDocument({
-    data,
-    useSystemFonts: true,
-  });
+  try {
+    const data = new Uint8Array(await file.arrayBuffer());
+    const loadingTask = getDocument({
+      data,
+      useSystemFonts: true,
+    });
 
-  const pdf = await loadingTask.promise;
-  const pages: string[] = [];
+    const pdf = await loadingTask.promise;
+    const pages: string[] = [];
 
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
-    const page = await pdf.getPage(pageNum);
-    const content = await page.getTextContent();
-    const lines = textContentToLines(content.items || []);
-    const pageText = lines.join("\n").trim();
-    if (pageText) pages.push(pageText);
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
+      const page = await pdf.getPage(pageNum);
+      const content = await page.getTextContent();
+      const lines = textContentToLines(content.items || []);
+      const pageText = lines.join("\n").trim();
+      if (pageText) pages.push(pageText);
+    }
+
+    const raw = pages.join("\n\n").trim();
+    const result = restoreCvSectionBreaks(raw);
+    
+    if (!result || result.length < 10) {
+      throw new Error("Extracted PDF text is too short or empty");
+    }
+    
+    return result;
+  } catch (err) {
+    console.error("Browser PDF extraction error:", err);
+    throw new Error(`PDF extraction failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
   }
-
-  const raw = pages.join("\n\n").trim();
-  return restoreCvSectionBreaks(raw);
 }

@@ -55,7 +55,7 @@ import {
 } from '@/lib/entitlements';
 import { ensureCvProfile } from '@/lib/cv-profile';
 import { buildParseUploadBody, readFileAsDataUrl } from '@/lib/cv-parse-upload';
-import { isPdfFile } from '@/lib/extract-pdf-text';
+
 import { isNativeApp } from '@/lib/platform';
 import { describeApiMisconfiguration } from '@/lib/api-base';
 import { triggerAndroidApkDownload } from '@/lib/download-apk';
@@ -1572,9 +1572,7 @@ function Home() {
       setProfile(ensured as UserProfile);
       persistProfile(ensured as UserProfile);
 
-      const parseBody = isPdfFile(cvFile)
-        ? await buildParseUploadBody(cvFile)
-        : { fileName, fileData: await readFileAsDataUrl(cvFile) };
+      const parseBody = await buildParseUploadBody(cvFile);
 
       const response = await fetch('/api/career/diagnostic', {
         method: 'POST',
@@ -1834,7 +1832,7 @@ function Home() {
                     >
                       <input
                         type="file"
-                        accept=".pdf,.doc,.docx,.txt"
+                        accept=".pdf,.doc,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                         className="sr-only"
                         onChange={(event) => {
                           const file = event.target.files?.[0] ?? null;

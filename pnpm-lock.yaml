@@ -241,6 +241,9 @@ importers:
       '@simplewebauthn/browser':
         specifier: ^14.0.0
         version: 14.0.0
+      jszip:
+        specifier: 3.10.2
+        version: 3.10.2
       pdfjs-dist:
         specifier: ^6.3.289
         version: 6.3.289

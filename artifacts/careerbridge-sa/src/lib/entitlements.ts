@@ -45,9 +45,14 @@ const FREE_FEATURES: Entitlement["features"] = {
   programmeContent: false,
 };
 
-export function defaultEntitlement(profileId = 0): Entitlement {
+function numericProfileId(profileId: string | number): number {
+  const parsed = Number(profileId);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
+}
+
+export function defaultEntitlement(profileId: string | number = 0): Entitlement {
   return {
-    profileId,
+    profileId: numericProfileId(profileId),
     plan: "free",
     planName: "Free",
     accessLevel: "free",
@@ -57,9 +62,11 @@ export function defaultEntitlement(profileId = 0): Entitlement {
   };
 }
 
-export async function fetchEntitlement(profileId: number): Promise<Entitlement> {
-  const response = await fetch(`/api/career/entitlements?profileId=${profileId}`);
-  if (!response.ok) return defaultEntitlement(profileId);
+export async function fetchEntitlement(profileId: string | number): Promise<Entitlement> {
+  const id = numericProfileId(profileId);
+  if (!id) return defaultEntitlement();
+  const response = await fetch(`/api/career/entitlements?profileId=${id}`);
+  if (!response.ok) return defaultEntitlement(id);
   return (await response.json()) as Entitlement;
 }
 

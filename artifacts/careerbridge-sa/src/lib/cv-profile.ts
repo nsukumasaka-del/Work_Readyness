@@ -1,5 +1,5 @@
 import { readStoredProfile } from "@/lib/entitlements";
-import { readProfile as readAuthProfile } from "@/lib/auth-session";
+import { authHeaders, readProfile as readAuthProfile } from "@/lib/auth-session";
 
 export type CareerProfile = {
   id: number | string;
@@ -27,7 +27,7 @@ export async function ensureCvProfile(partial?: {
     .toLowerCase();
   const response = await fetch("/api/career/profile", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders(),
     credentials: "include",
     body: JSON.stringify({
       name,

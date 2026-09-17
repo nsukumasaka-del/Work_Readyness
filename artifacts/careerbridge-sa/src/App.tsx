@@ -1576,7 +1576,7 @@ function Home() {
 
       const response = await fetch('/api/career/diagnostic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         credentials: 'include',
         body: JSON.stringify({
           fileName,

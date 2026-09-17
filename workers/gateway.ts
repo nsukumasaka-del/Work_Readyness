@@ -5,6 +5,7 @@
  * - Everything else → static SPA assets
  */
 import { handleD1Auth, type D1Env } from "./d1/auth";
+import { handleD1Career } from "./d1/career";
 
 export interface Env extends D1Env {
   ASSETS: Fetcher;
@@ -55,6 +56,8 @@ export default {
       if (env.DB) {
         const authResponse = await handleD1Auth(request, env);
         if (authResponse) return authResponse;
+        const careerResponse = await handleD1Career(request, env);
+        if (careerResponse) return careerResponse;
       }
 
       const upstream = String(env.API_UPSTREAM_URL || "")

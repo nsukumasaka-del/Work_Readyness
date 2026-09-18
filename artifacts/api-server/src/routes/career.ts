@@ -1030,70 +1030,19 @@ router.post("/career/diagnostic", async (req, res) => {
     }
 
     const MATCH_LIMIT = 6;
-    const FREE_MATCH_SLOTS = 2;
-
     const liveSearch = await searchTrustedJobBoards({
       role: targetRole,
       location: locationLabel,
       limit: MATCH_LIMIT,
     });
 
-    let relatedJobs = liveSearch.jobs;
-    let jobSearch = {
+    const relatedJobs = liveSearch.jobs;
+    const jobSearch = {
       query: liveSearch.query,
       queriedBoards: liveSearch.queriedBoards,
       liveResults: liveSearch.liveResults,
+      boardSearchLinks: liveSearch.boardSearchLinks,
     };
-
-    if (relatedJobs.length < MATCH_LIMIT) {
-      const jobs = await db.select().from(jobsTable);
-      const need = MATCH_LIMIT - relatedJobs.length;
-      const fallback = [...jobs]
-        .filter((job) => !job.status || job.status === "published")
-        .map((job) => ({
-          job,
-          relevance: scoreJobRelevance(job, targetRole, locationLabel),
-        }))
-        .sort((a, b) => b.relevance - a.relevance)
-        .slice(0, need)
-        .map(({ job, relevance }, index) => {
-          const applyUrl = `https://www.careerjunction.co.za/jobs?keywords=${encodeURIComponent(job.title)}&location=${encodeURIComponent(job.location.split("·")[0]?.trim() || "South Africa")}`;
-          const absoluteIndex = relatedJobs.length + index;
-          const freeStart = MATCH_LIMIT - FREE_MATCH_SLOTS;
-          const isFree = absoluteIndex >= freeStart;
-          return {
-            id: job.id,
-            title: job.title,
-            company: job.company,
-            location: job.location,
-            sector: job.sector,
-            salary: job.salary,
-            match: isFree
-              ? Math.min(89, Math.max(62, relevance - index * 3))
-              : Math.max(90, Math.min(99, relevance)),
-            posted: job.posted,
-            tags: [...job.tags, "BonList verified"],
-            source: "CareerJunction",
-            url: applyUrl,
-            description: `${job.title} at ${job.company}. Location: ${job.location}. Sector: ${job.sector}. Salary: ${job.salary}. This BonList match opens a trusted board search so you can review the live job specification and apply on the listing site.`,
-          };
-        });
-
-      const seen = new Set(relatedJobs.map((job) => job.title.toLowerCase()));
-      for (const job of fallback) {
-        if (seen.has(job.title.toLowerCase())) continue;
-        relatedJobs.push(job);
-        if (relatedJobs.length >= MATCH_LIMIT) break;
-      }
-
-      if (!liveSearch.liveResults) {
-        jobSearch = {
-          query: `${targetRole} · ${locationLabel}`,
-          queriedBoards: getTrustedBoardLabels(),
-          liveResults: false,
-        };
-      }
-    }
 
     const draftPayload = buildDiagnosticPayload({
       fileName,

@@ -55,10 +55,10 @@ const FALLBACK_PLANS: PlanCard[] = [
     name: "Job Seeker",
     priceZar: 149,
     billing: "month",
-    tagline: "Search smarter and unlock stronger matches.",
+    tagline: "Search smarter with more career tools.",
     features: [
       "Everything in Free",
-      "Premium 90%+ job matches",
+      "Advanced job search guidance",
       "Advanced job matching",
       "Enhanced CV feedback",
       "Application strategy tips",

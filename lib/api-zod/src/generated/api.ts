@@ -134,6 +134,7 @@ export const CreateDiagnosticResponse = zod.object({
     query: zod.string(),
     queriedBoards: zod.array(zod.string()),
     liveResults: zod.boolean(),
+    boardSearchLinks: zod.array(zod.object({ board: zod.string(), url: zod.string() })).optional(),
   }),
 });
 

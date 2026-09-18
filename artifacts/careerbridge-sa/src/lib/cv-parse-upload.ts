@@ -88,6 +88,10 @@ export function parseUploadErrorMessage(
   status: number,
   errBody: { error?: string } | null,
 ): string {
+  if (status === 404 || status === 501) {
+    return "The CV upload service is unavailable on this deployment. Please try again later, or paste your CV text / enter your information manually.";
+  }
+
   if (status === 502 || status === 503 || status === 520 || status === 522 || status === 524) {
     return "The CV reading service is starting up or temporarily unavailable. Wait a few seconds and try again, or paste your CV text / use Enter Information Manually.";
   }

@@ -174,7 +174,7 @@ function flattenSearch(payload: SearchResponse | null): Array<SearchResultItem &
 
 export function AdminApp() {
   const [token, setToken] = useState<string | null>(() => sessionStorage.getItem(ADMIN_TOKEN_KEY));
-  const [section, setSection] = useState<SectionKey>("overview");
+  const [section, setSection] = useState<SectionKey>("diagnostics");
   const [range, setRange] = useState<AdminRange>("30d");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");

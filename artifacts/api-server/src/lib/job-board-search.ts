@@ -24,6 +24,11 @@ type SearchInput = {
   role: string;
   location?: string;
   limit?: number;
+  experienceRoles?: string[];
+  expertise?: string[];
+  languages?: string[];
+  adzunaAppId?: string;
+  adzunaAppKey?: string;
 };
 
 const BROWSER_UA =
@@ -88,9 +93,9 @@ function toBoardSlug(value: string): string {
 }
 
 function formatPostedDate(iso?: string): string {
-  if (!iso) return "Recently listed";
+  if (!iso) return "Date unavailable";
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "Recently listed";
+  if (Number.isNaN(date.getTime())) return "Date unavailable";
   return date.toLocaleDateString("en-ZA", {
     day: "numeric",
     month: "short",
@@ -140,28 +145,19 @@ function normalizeIndeedUrl(raw: string): string | null {
   }
 }
 
-function diversifyJobs(jobs: LiveJobListing[], limit: number): LiveJobListing[] {
-  const preferredSources = ["PNet", "Indeed SA", "CareerJunction", "JobMail", "Adzuna", "Careers24"];
-  const picked: LiveJobListing[] = [];
-  const used = new Set<string>();
-
-  for (const source of preferredSources) {
-    const hit = jobs.find((job) => job.source === source && !used.has(job.url.toLowerCase()));
-    if (!hit) continue;
-    picked.push(hit);
-    used.add(hit.url.toLowerCase());
-    if (picked.length >= limit) return picked;
+function postedTime(posted: string): number {
+  const absolute = Date.parse(posted);
+  if (Number.isFinite(absolute)) return Math.min(absolute, Date.now());
+  const relative = posted.match(/(?:posted\s+)?(\d+)\s*(hour|day|week|month)s?\s+ago/i);
+  if (relative) {
+    const days = { hour: 1 / 24, day: 1, week: 7, month: 30 }[relative[2].toLowerCase() as "hour" | "day" | "week" | "month"];
+    return Date.now() - Number(relative[1]) * days * 86_400_000;
   }
+  return /today|just now/i.test(posted) ? Date.now() : -1;
+}
 
-  for (const job of jobs) {
-    if (picked.length >= limit) break;
-    const key = job.url.toLowerCase();
-    if (used.has(key)) continue;
-    picked.push(job);
-    used.add(key);
-  }
-
-  return picked;
+function rankJobs(jobs: LiveJobListing[]): LiveJobListing[] {
+  return jobs.sort((a, b) => postedTime(b.posted) - postedTime(a.posted) || b.match - a.match);
 }
 
 function decodeDuckDuckGoUrl(raw: string): string | null {
@@ -228,10 +224,10 @@ async function searchJobMail(role: string, location?: string): Promise<LiveJobLi
     const title = stripHtml(titleRaw);
     if (!title) continue;
 
-    const posted = stripHtml(block.match(/job-posted">([^<]+)</i)?.[1] || "") || "Recently listed";
+    const posted = stripHtml(block.match(/job-posted">([^<]+)</i)?.[1] || "") || "Date unavailable";
     const salaryRaw = stripHtml(block.match(/job-info"><b>([\s\S]*?)<\/b>/i)?.[1] || "");
     const jobLocation =
-      stripHtml(block.match(/job-location">([^<]+)</i)?.[1] || "") || location || "South Africa";
+      stripHtml(block.match(/job-location">([^<]+)</i)?.[1] || "") || "South Africa";
     const company =
       stripHtml(block.match(/class="recruiter">\s*([\s\S]*?)\s*<\/span>/i)?.[1] || "") ||
       "Hiring company";
@@ -254,7 +250,7 @@ async function searchJobMail(role: string, location?: string): Promise<LiveJobLi
       salary,
       match: scoreListing(role, location, title, `${company} ${jobLocation}`),
       posted,
-      tags: ["JobMail", "Recently listed", "Trusted board"],
+      tags: ["JobMail", "Trusted board"],
       source: "JobMail",
       url,
       description,
@@ -291,11 +287,10 @@ async function searchCareerJunction(role: string, location?: string): Promise<Li
       "Hiring company";
     const jobLocation =
       stripHtml(block.match(/class="location"[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i)?.[1] || "") ||
-      location ||
       "South Africa";
     const salaryRaw = stripHtml(block.match(/class="salary">([^<]+)</i)?.[1] || "");
     const posted =
-      stripHtml(block.match(/class="updated-time">([^<]+)</i)?.[1] || "") || "Recently listed";
+      stripHtml(block.match(/class="updated-time">([^<]+)</i)?.[1] || "") || "Date unavailable";
     const position = stripHtml(block.match(/class="position">([^<]+)</i)?.[1] || "");
     const expires = stripHtml(block.match(/class="expires">([^<]+)</i)?.[1] || "");
     const salary =
@@ -320,7 +315,7 @@ async function searchCareerJunction(role: string, location?: string): Promise<Li
       salary,
       match: scoreListing(role, location, title, `${company} ${jobLocation}`),
       posted,
-      tags: ["CareerJunction", "Recently listed", "Trusted board"],
+      tags: ["CareerJunction", "Trusted board"],
       source: "CareerJunction",
       url,
       description,
@@ -341,7 +336,7 @@ async function searchPNet(role: string, location?: string): Promise<LiveJobListi
     : [`https://www.pnet.co.za/jobs/?search=${encodeURIComponent(role)}`];
 
   for (const url of urls) {
-    const html = await fetchHtml(url, 15000);
+    const html = await fetchHtml(url, 7000);
     if (!html) continue;
     const items = extractJsonArray(html, "items") as Array<{
       id?: number | string;
@@ -363,7 +358,7 @@ async function searchPNet(role: string, location?: string): Promise<LiveJobListi
       if (!path || !/\/jobs--.+--\d+-inline\.html/i.test(path)) continue;
       const jobUrl = path.startsWith("http") ? path : `https://www.pnet.co.za${path}`;
       const company = stripHtml(item.companyName || "Hiring company");
-      const jobLocation = stripHtml(item.location || where || "South Africa");
+      const jobLocation = stripHtml(item.location || "South Africa");
       const salary = stripHtml(item.salary || "") || "See listing";
       const snippet = stripHtml(item.textSnippet || "").slice(0, 420);
       const posted = formatPostedDate(item.datePosted);
@@ -377,7 +372,7 @@ async function searchPNet(role: string, location?: string): Promise<LiveJobListi
         salary,
         match: scoreListing(role, location, title, `${company} ${jobLocation} ${snippet}`),
         posted,
-        tags: ["PNet", "Recently listed", "Trusted board"],
+        tags: ["PNet", "Trusted board"],
         source: "PNet",
         url: jobUrl,
         description: buildSpec([
@@ -440,25 +435,28 @@ async function searchIndeed(role: string, location?: string): Promise<LiveJobLis
         .replace(/\s+-\s+Indeed.*$/i, "")
         .trim();
       if (!title || title.length < 5) title = role;
+      if (/\b\d+\+?\s+.*\bjobs\b|\bjobs,?\s+employment\b|\bjob vacancies\b/i.test(title)) continue;
 
       // Prefer concrete listings (jk/viewjob) over generic search pages.
       const isConcrete = Boolean(normalized);
       const snippet = snippets[index - 1] ?? "";
+      const jobLocation = where === "South Africa" || `${title} ${snippet}`.toLowerCase().includes(where.toLowerCase())
+        ? where : "South Africa";
       results.push({
         id: hashId(jobUrl),
         title: isConcrete ? title : `${role} roles on Indeed SA`,
         company: isConcrete ? "Hiring company" : "Indeed SA",
-        location: where,
+        location: jobLocation,
         sector: "Live listing",
         salary: "See listing",
         match: scoreListing(role, location, title, snippet) - (isConcrete ? 0 : 8),
-        posted: "Recently listed",
-        tags: ["Indeed SA", "Recently listed", "Trusted board"],
+        posted: "Date unavailable",
+        tags: ["Indeed SA", "Trusted board"],
         source: "Indeed SA",
         url: jobUrl,
         description: buildSpec([
           isConcrete ? `${title}.` : `Live Indeed SA results for ${role}.`,
-          `Location: ${where}.`,
+          `Location: ${jobLocation}.`,
           snippet || undefined,
           "Open Indeed SA for the full job specification and to apply on the listing.",
         ]),
@@ -468,35 +466,135 @@ async function searchIndeed(role: string, location?: string): Promise<LiveJobLis
     if (results.some((job) => /viewjob\?jk=/i.test(job.url))) break;
   }
 
-  const concrete = results.filter((job) => /viewjob\?jk=/i.test(job.url));
-  if (concrete.length > 0) return concrete.slice(0, 6);
+  // Search pages are useful links, but they are not individual job listings.
+  return results.filter((job) => /viewjob\?jk=/i.test(job.url)).slice(0, 6);
+}
 
-  // Always include at least one Indeed search deep-link so Apply opens Indeed.
-  if (results.length === 0) {
-    const searchUrl = `https://za.indeed.com/jobs?q=${encodeURIComponent(role)}&l=${encodeURIComponent(where)}&sort=date`;
-    return [
-      {
-        id: hashId(searchUrl),
-        title: `${role} roles on Indeed SA`,
-        company: "Indeed SA",
-        location: where,
-        sector: "Live listing",
-        salary: "See listing",
-        match: scoreListing(role, location, role, where),
-        posted: "Recently listed",
-        tags: ["Indeed SA", "Live search", "Trusted board"],
-        source: "Indeed SA",
-        url: searchUrl,
-        description: buildSpec([
-          `Recent ${role} openings on Indeed SA.`,
-          `Location filter: ${where}.`,
-          "Indeed blocks automated listing scrapes, so BonList opens their live search results for this role. Apply directly on Indeed.",
-        ]),
-      },
-    ];
+async function searchLinkedIn(role: string, location?: string): Promise<LiveJobListing[]> {
+  const linkedInLocation: Record<string, string> = {
+    johannesburg: "Johannesburg, Gauteng, South Africa",
+    "cape town": "Cape Town, Western Cape, South Africa",
+    durban: "Durban, KwaZulu-Natal, South Africa",
+  };
+  const place = location && location !== "Hybrid"
+    ? linkedInLocation[location.toLowerCase()] || location
+    : "South Africa";
+  const variant = role.replace(/\bimports\b/i, "import").replace(/\bexports\b/i, "export");
+  const searches = [...new Set([role, variant])].flatMap((keyword) => [0, 25].map((start) => ({ keyword, start })));
+  const pages = await Promise.all(searches.map(({ keyword, start }) => {
+    const params = new URLSearchParams({
+      keywords: keyword,
+      location: place,
+      start: String(start),
+    });
+    return fetchHtml(`https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?${params.toString()}`);
+  }));
+  const results: LiveJobListing[] = [];
+  const seen = new Set<string>();
+  for (const block of pages.flatMap((html) => html?.split(/<div class="base-card\s/).slice(1) || [])) {
+    const rawUrl = block.match(/class="base-card__full-link[^"]*"\s+href="([^"]+)"/i)?.[1];
+    const title = stripHtml(block.match(/class="base-search-card__title"[^>]*>([\s\S]*?)<\/h3>/i)?.[1] || "");
+    if (!rawUrl || !title) continue;
+    const url = decodeEntities(rawUrl).split("?")[0];
+    try {
+      if (!hostAllowed(new URL(url).hostname) || !/\/jobs\/view\//.test(url)) continue;
+    } catch {
+      continue;
+    }
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const company = stripHtml(block.match(/class="base-search-card__subtitle"[^>]*>([\s\S]*?)<\/h4>/i)?.[1] || "") || "Hiring company";
+    const jobLocation = stripHtml(block.match(/class="job-search-card__location"[^>]*>([\s\S]*?)<\/span>/i)?.[1] || "") || "South Africa";
+    const posted = formatPostedDate(block.match(/<time[^>]*datetime="([^"]+)"/i)?.[1]);
+    results.push({
+      id: hashId(url), title, company, location: jobLocation,
+      sector: "Live listing", salary: "See listing",
+      match: scoreListing(role, location, title, `${company} ${jobLocation}`),
+      posted, tags: ["LinkedIn", "Trusted board"], source: "LinkedIn", url,
+      description: `${title} at ${company}. Location: ${jobLocation}. Open LinkedIn for the full job specification and to apply.`,
+    });
+    if (results.length >= 30) break;
   }
+  const targetTerms = jobTerms(role);
+  const relevant = results.sort((a, b) => {
+    const coverage = (title: string) => targetTerms.filter((term) => jobTerms(title).includes(term)).length;
+    return coverage(b.title) - coverage(a.title);
+  }).slice(0, 20);
+  return Promise.all(relevant.map(async (job) => {
+    const html = await fetchHtml(job.url, 8000);
+    const description = html?.match(/show-more-less-html__markup[^>]*>([\s\S]*?)<\/div>/i)?.[1];
+    const details = description ? stripHtml(description).slice(0, 2400) : "";
+    return details.length >= 60
+      ? { ...job, description: `${details} Open LinkedIn for the full job specification and to apply.` }
+      : job;
+  }));
+}
 
-  return results.slice(0, 4);
+function jobTerms(value: string): string[] {
+  const aliases: Record<string, string> = {
+    client: "customer", clients: "customer", customers: "customer",
+    care: "service", support: "service", success: "service", services: "service",
+    representative: "agent", rep: "agent", advisor: "agent",
+    admin: "administration", administrator: "administration", administrative: "administration",
+    imports: "import", importing: "import",
+    managers: "manager", management: "manager",
+  };
+  return [...new Set((value.toLowerCase().match(/[a-z]+/g) ?? [])
+    .filter((word) => word.length >= 3 && !["and", "the", "for", "with", "jobs", "role"].includes(word))
+    .map((word) => aliases[word] || word))];
+}
+
+function candidateMatch(
+  job: LiveJobListing,
+  role: string,
+  experienceRoles: string[],
+  expertise: string[],
+  location?: string,
+  languages: string[] = [],
+): number {
+  const titleText = job.title.toLowerCase();
+  const listedLanguages = languages.join(" ").toLowerCase();
+  for (const language of ["german", "french", "dutch", "spanish", "portuguese", "italian", "arabic", "mandarin"]) {
+    if (new RegExp(`\\b${language}\\b`, "i").test(titleText)
+      && !listedLanguages.includes(language)) return 0;
+  }
+  const wantedLocation = location?.toLowerCase().trim();
+  if (wantedLocation && !["south africa", "all south africa", "hybrid"].includes(wantedLocation)) {
+    const listedLocation = job.location.toLowerCase();
+    const aliases: Record<string, string[]> = {
+      johannesburg: ["johannesburg", "sandton", "randburg", "rosebank"],
+      "cape town": ["cape town"],
+      durban: ["durban", "umhlanga"],
+      pretoria: ["pretoria", "tshwane"],
+    };
+    if (!listedLocation.includes(wantedLocation)
+      && !(aliases[wantedLocation] ?? []).some((alias) => listedLocation.includes(alias))
+      && !/\bremote\b/i.test(listedLocation)) return 0;
+  }
+  const title = new Set(jobTerms(job.title));
+  const coverage = (terms: string[]) => terms.length
+    ? terms.filter((term) => title.has(term)).length / terms.length
+    : 0;
+  const targetCoverage = coverage(jobTerms(role));
+  const historyCoverage = Math.max(0, ...experienceRoles.map((item) => coverage(jobTerms(item))));
+  const strongestCoverage = Math.max(targetCoverage, historyCoverage * 0.8);
+  if (strongestCoverage === 0) return 0;
+  const evidence = new Set(jobTerms(`${job.title} ${job.description}`));
+  const skillHits = expertise.filter((skill) => jobTerms(skill).some((term) => evidence.has(term))).length;
+  const locationHit = location && job.location.toLowerCase().includes(location.toLowerCase()) ? 3 : 0;
+  return Math.min(99, Math.round(52 + 34 * strongestCoverage + Math.min(9, skillHits * 3) + locationHit));
+}
+
+function boardSearchLinks(role: string, location?: string) {
+  const where = location && location !== "Hybrid" ? location : "South Africa";
+  return [
+    { board: "CareerJunction", url: `https://www.careerjunction.co.za/jobs?keywords=${encodeURIComponent(role)}&location=${encodeURIComponent(where)}` },
+    { board: "JobMail", url: `https://www.jobmail.co.za/jobs?q=${encodeURIComponent(role)}&l=${encodeURIComponent(where)}` },
+    { board: "Careers24", url: `https://www.careers24.com/jobs/?keywords=${encodeURIComponent(role)}` },
+    { board: "Adzuna", url: `https://www.adzuna.co.za/search?q=${encodeURIComponent(role)}&w=${encodeURIComponent(where)}` },
+    { board: "OfferZen", url: "https://www.offerzen.com/jobs" },
+    { board: "Executive Placements", url: "https://www.executiveplacements.com/" },
+  ];
 }
 
 async function searchBoardViaDuckDuckGo(
@@ -534,21 +632,23 @@ async function searchBoardViaDuckDuckGo(
 
     const snippet = snippets[index] ?? "";
     index += 1;
+    const jobLocation = where === "South Africa" || `${title} ${snippet}`.toLowerCase().includes(where.toLowerCase())
+      ? where : "South Africa";
     results.push({
       id: hashId(decoded),
       title,
       company: "Hiring company",
-      location: location || where,
+      location: jobLocation,
       sector: "Live listing",
       salary: "See listing",
       match: scoreListing(role, location, title, snippet),
-      posted: "Recently listed",
-      tags: [trusted.label, "Recently listed", "Trusted board"],
+      posted: "Date unavailable",
+      tags: [trusted.label, "Trusted board"],
       source: trusted.label,
       url: decoded.split("#")[0],
       description: buildSpec([
         `${title}.`,
-        `Location: ${location || where}.`,
+        `Location: ${jobLocation}.`,
         snippet || undefined,
         `Open the full job specification on ${trusted.label} to apply.`,
       ]),
@@ -559,9 +659,14 @@ async function searchBoardViaDuckDuckGo(
   return results;
 }
 
-async function searchViaAdzuna(role: string, location?: string): Promise<LiveJobListing[]> {
-  const appId = process.env.ADZUNA_APP_ID;
-  const appKey = process.env.ADZUNA_APP_KEY;
+async function searchViaAdzuna(
+  role: string,
+  location?: string,
+  credentials?: { appId?: string; appKey?: string },
+): Promise<LiveJobListing[]> {
+  // The API server has process.env; Cloudflare Workers only have env bindings.
+  const appId = credentials?.appId || (typeof process !== "undefined" ? process.env.ADZUNA_APP_ID : undefined);
+  const appKey = credentials?.appKey || (typeof process !== "undefined" ? process.env.ADZUNA_APP_KEY : undefined);
   if (!appId || !appKey) return [];
 
   const params = new URLSearchParams({
@@ -622,17 +727,17 @@ async function searchViaAdzuna(role: string, location?: string): Promise<LiveJob
           id: hashId(String(job.id ?? url)),
           title,
           company: job.company?.display_name || "Hiring company",
-          location: job.location?.display_name || location || "South Africa",
+          location: job.location?.display_name || "South Africa",
           sector: job.category?.label || "Live listing",
           salary,
           match: scoreListing(role, location, title, job.description || ""),
-          posted: "Recently listed",
+          posted: formatPostedDate(job.created),
           tags: [trusted.label, "Live listing", "Trusted board"],
           source: trusted.label,
           url,
           description: buildSpec([
             `${title} at ${job.company?.display_name || "the hiring company"}.`,
-            `Location: ${job.location?.display_name || location || "South Africa"}.`,
+            `Location: ${job.location?.display_name || "South Africa"}.`,
             descriptionText || undefined,
             "Open Adzuna for the full job specification and to apply on the source board.",
           ]),
@@ -649,63 +754,68 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   queriedBoards: string[];
   liveResults: boolean;
   query: string;
+  boardSearchLinks: Array<{ board: string; url: string }>;
 }> {
   const role = input.role.trim() || "Professional";
   const location = input.location?.trim();
   const limit = input.limit ?? 6;
-  const freeMatchSlots = 2;
   const query = [role, location || "South Africa"].filter(Boolean).join(" · ");
-  const queriedBoards = [...new Set(TRUSTED_BOARDS.map((board) => board.label))];
-
-  const ddgBoards = TRUSTED_BOARDS.filter((board) =>
-    ["careers24.com", "linkedin.com"].includes(board.host),
-  );
-
-  const [adzunaJobs, jobMailJobs, careerJunctionJobs, pnetJobs, indeedJobs, ...boardResults] =
-    await Promise.all([
-      searchViaAdzuna(role, location),
-      searchJobMail(role, location),
-      searchCareerJunction(role, location),
-      searchPNet(role, location).catch(() => [] as LiveJobListing[]),
-      searchIndeed(role, location).catch(() => [] as LiveJobListing[]),
-      ...ddgBoards.map((board) =>
-        searchBoardViaDuckDuckGo(board, role, location).catch(() => [] as LiveJobListing[]),
-      ),
-    ]);
-
-  const merged = [
-    ...pnetJobs,
-    ...indeedJobs,
-    ...adzunaJobs,
-    ...jobMailJobs,
-    ...careerJunctionJobs,
-    ...boardResults.flat(),
-  ];
+  const queriedBoards = ["Indeed SA", "PNet", "LinkedIn"];
+  const expertise = [...new Set((input.expertise ?? [])
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 4))].slice(0, 20);
   const deduped = new Map<string, LiveJobListing>();
-  for (const job of merged) {
-    const key = `${job.title.toLowerCase()}|${job.company.toLowerCase()}|${job.url.toLowerCase()}`;
-    const existing = deduped.get(key);
-    if (!existing || job.match > existing.match) deduped.set(key, job);
+  const addMatches = (jobs: LiveJobListing[]) => {
+    for (const job of jobs) {
+      const match = candidateMatch(job, role, input.experienceRoles ?? [], expertise, location, input.languages);
+      if (match < 72) continue;
+      const key = job.company !== "Hiring company"
+        ? `${job.title.toLowerCase()}|${job.company.toLowerCase()}|${job.location.toLowerCase()}`
+        : job.url.toLowerCase();
+      const scored = { ...job, match };
+      const existing = deduped.get(key);
+      if (!existing || postedTime(scored.posted) > postedTime(existing.posted)) deduped.set(key, scored);
+    }
+  };
+
+  // A blocked or changed board must not discard results from every other board.
+  const settled = await Promise.allSettled([
+    searchIndeed(role, location),
+    searchPNet(role, location),
+    searchLinkedIn(role, location),
+    searchBoardViaDuckDuckGo(TRUSTED_BOARDS[1], role, location),
+  ]);
+  for (const result of settled) {
+    if (result.status === "fulfilled") addMatches(result.value);
   }
 
-  const ranked = diversifyJobs(
-    [...deduped.values()].sort((a, b) => b.match - a.match),
-    limit,
-  ).map((job, index, jobs) => {
-    // Only the last two fits stay free (<90%). All stronger matches are premium-gated.
-    const freeStart = Math.max(0, jobs.length - freeMatchSlots);
-    const isFree = index >= freeStart;
-    if (isFree) {
-      return { ...job, match: Math.min(89, Math.max(62, job.match > 89 ? 89 - (index - freeStart) * 3 : job.match)) };
+  const priorityJobs = rankJobs([...deduped.values()]).slice(0, limit);
+  if (priorityJobs.length < limit) {
+    const fallbackBoards = TRUSTED_BOARDS.filter((board) =>
+      !["Indeed SA", "PNet", "LinkedIn"].includes(board.label));
+    queriedBoards.push(...[...new Set(fallbackBoards.map((board) => board.label))]);
+    const fallback = await Promise.allSettled([
+      searchCareerJunction(role, location),
+      searchJobMail(role, location),
+      searchViaAdzuna(role, location, { appId: input.adzunaAppId, appKey: input.adzunaAppKey }),
+      ...fallbackBoards.map((board) => searchBoardViaDuckDuckGo(board, role, location)),
+    ]);
+    for (const result of fallback) {
+      if (result.status === "fulfilled") addMatches(result.value);
     }
-    return { ...job, match: Math.max(90, Math.min(99, job.match < 90 ? 90 + Math.min(8, index) : job.match)) };
-  });
+  }
+  const preferred = rankJobs([...deduped.values()].filter((job) =>
+    ["Indeed SA", "PNet", "LinkedIn"].includes(job.source))).slice(0, limit);
+  const other = rankJobs([...deduped.values()].filter((job) =>
+    !["Indeed SA", "PNet", "LinkedIn"].includes(job.source))).slice(0, limit - preferred.length);
+  const ranked = [...preferred, ...other];
 
   return {
     jobs: ranked,
     queriedBoards,
     liveResults: ranked.length > 0,
     query,
+    boardSearchLinks: boardSearchLinks(role, location),
   };
 }
 

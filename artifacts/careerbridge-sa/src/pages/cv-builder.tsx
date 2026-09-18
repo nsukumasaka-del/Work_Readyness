@@ -219,7 +219,7 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
       location: scrubCvText(exp.location) || undefined,
       startDate: scrubCvText(exp.startDate) || exp.startDate,
       endDate: scrubCvText(exp.endDate) || exp.endDate,
-      bullets: selectProfessionalBullets(exp.bullets, MAX_BULLETS_PER_ROLE),
+      bullets: (exp.bullets || []).map((bullet) => scrubCvText(bullet)).filter(Boolean),
     }))
     .filter((exp) => exp.role || exp.company || exp.bullets.length > 0);
 
@@ -241,7 +241,7 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
       title: scrubCvText(proj.title),
       subtitle: scrubCvText(proj.subtitle) || undefined,
       link: scrubCvText(proj.link) || undefined,
-      bullets: selectProfessionalBullets(proj.bullets || [], 3),
+      bullets: (proj.bullets || []).map((bullet) => scrubCvText(bullet)).filter(Boolean),
     }))
     .filter((p) => p.title);
 
@@ -1009,30 +1009,20 @@ function readReport() {
 }
 
 export async function generateCv(options: { regenerate?: boolean; structure?: string; extracted?: ExtractedCvData } = {}) {
-  // Always upsert a real DB profile first — never invent profileId: 1 locally.
-  const profile = await ensureCvProfile(
-    options.extracted?.personal
-      ? {
-          name: options.extracted.personal.fullName,
-          email: options.extracted.personal.email,
-          phone: options.extracted.personal.phone,
-          location: options.extracted.personal.location,
-          targetRole: options.extracted.personal.professionalTitle,
-        }
-      : undefined,
-  );
+  // The edge generator upserts a signed-in profile and can preview a guest CV.
+  const candidate = options.extracted?.cv_content?.personal || options.extracted?.personal;
+  const existing = readStoredProfile() || readAuthProfile();
   const diagnostic = readReport();
   const response = await fetch("/api/career/cv/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify({
-      profileId: profile.id,
-      name: profile.name,
-      email: profile.email,
-      phone: profile.phone,
-      location: profile.location,
-      targetRole: profile.targetRole,
+      name: candidate?.fullName || existing?.name,
+      email: candidate?.email || existing?.email,
+      phone: candidate?.phone || existing?.phone,
+      location: candidate?.location || existing?.location,
+      targetRole: candidate?.professionalTitle || existing?.targetRole,
       diagnosticId: diagnostic?.id,
       diagnostic,
       regenerate: Boolean(options.regenerate),
@@ -2297,15 +2287,6 @@ export default function CvBuilderPage() {
     try {
       setAgentStepIndex(1);
       setAgentStepText("Structuring roles, qualifications & core skills…");
-      // Ensure career profile exists on the API before generate (handles D1 UUID sessions).
-      await ensureCvProfile({
-        name: mergedName,
-        email: mergedEmail || undefined,
-        phone: manualInput.phone.trim() || authProfile?.phone || undefined,
-        location: manualInput.location.trim() || authProfile?.location || undefined,
-        targetRole: manualInput.professionalTitle.trim() || authProfile?.targetRole || undefined,
-      });
-
       const rawExperiences = manualInput.experiences
         .filter((exp) => exp.role.trim() || exp.company.trim())
         .map((exp) => ({

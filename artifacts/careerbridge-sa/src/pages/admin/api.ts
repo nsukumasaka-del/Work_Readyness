@@ -60,7 +60,7 @@ export const PERMISSIONS = {
 /* ------------------------------------------------------------------ types */
 
 export type AdminMe = {
-  id: number;
+  id: number | string;
   email: string;
   name: string;
   isPrimary: boolean;

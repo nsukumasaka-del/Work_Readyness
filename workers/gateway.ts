@@ -5,6 +5,10 @@
  * - Everything else → static SPA assets
  */
 import { handleD1Auth, type D1Env } from "./d1/auth";
+import { handleCvParseUpload } from "./cv-parse";
+import { handleCvCareer } from "./cv-career";
+import { handleCvDiagnostic } from "./cv-diagnostic";
+import { handleCvAdmin } from "./cv-admin";
 
 export interface Env extends D1Env {
   ASSETS: Fetcher;
@@ -52,6 +56,19 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+      if (url.pathname === "/api/career/cv/parse-upload") {
+        return handleCvParseUpload(request);
+      }
+
+      const cvResponse = await handleCvCareer(request, env);
+      if (cvResponse) return cvResponse;
+
+      const adminResponse = await handleCvAdmin(request, env);
+      if (adminResponse) return adminResponse;
+
+      const diagnosticResponse = await handleCvDiagnostic(request, env);
+      if (diagnosticResponse) return diagnosticResponse;
+
       if (env.DB) {
         const authResponse = await handleD1Auth(request, env);
         if (authResponse) return authResponse;

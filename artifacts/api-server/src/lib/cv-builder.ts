@@ -11,7 +11,7 @@
  * 5. UNSUPPORTED: Information the AI must NEVER introduce (blocked).
  */
 
-import { sanitizeExtractedCvText } from "./extract-document-text";
+import { sanitizeExtractedCvText } from "./cv-text-sanitize";
 
 export const CV_STRUCTURES = [
   // Enhancv Core 15 Templates
@@ -2575,7 +2575,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       continue;
     } else if (
       looksLikeSectionTitle(line) &&
-      /^(?:key impact|key achievements|selected achievements|career highlights|highlights)\s*:?\s*$/i.test(lower)
+      /^(?:key impact(?:\s+at\s+.+)?|key achievements|selected achievements|career highlights|highlights)\s*:?\s*$/i.test(lower)
     ) {
       currentSection = "impact";
       continue;
@@ -2798,34 +2798,46 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
         classification: "VERIFIED",
       };
     } else if (currentExp) {
+      const startsBullet = /^[\s•\-\*▪▫►]/.test(el);
       const cleanBullet = el.replace(/^[\s•\-\*▪▫►]+/, "").trim();
       if (cleanBullet.length > 3 && !isGarbagePersonalToken(cleanBullet) && !isPageMarker(cleanBullet)) {
-        currentExp.bullets.push(cleanBullet);
+        const prior = currentExp.bullets.at(-1);
+        if (!startsBullet && prior && !/[.!?]$/.test(prior)) {
+          currentExp.bullets[currentExp.bullets.length - 1] = `${prior} ${cleanBullet}`;
+        } else {
+          currentExp.bullets.push(cleanBullet);
+        }
       }
     }
   }
   if (currentExp) experiences.push(currentExp);
 
-  // Cap bullets during extraction — keep the strongest lines only
+  // Preserve source bullets in their original order for the editable CV.
   for (const exp of experiences) {
-    exp.bullets = selectProfessionalBullets(exp.bullets, 6);
+    exp.bullets = preserveSourceBullets(exp.bullets);
   }
 
   // Attach KEY IMPACT bullets to the first/current role when present
   if (impactLines.length > 0 && experiences.length > 0) {
-    const impactBullets = selectProfessionalBullets(
-      impactLines
-        .map((l) => l.replace(/^[\s•\-\*▪▫►]+/, "").trim())
-        .filter((b) => b.length > 8 && !isGarbagePersonalToken(b)),
-      4,
-    );
+    const joinedImpact: string[] = [];
+    for (const line of impactLines) {
+      const startsBullet = /^[\s•\-\*▪▫►]/.test(line);
+      const clean = line.replace(/^[\s•\-\*▪▫►]+/, "").trim();
+      if (!clean) continue;
+      if (!startsBullet && joinedImpact.length > 0) {
+        joinedImpact[joinedImpact.length - 1] += ` ${clean}`;
+      } else {
+        joinedImpact.push(clean);
+      }
+    }
+    const impactBullets = preserveSourceBullets(joinedImpact);
     if (impactBullets.length > 0) {
       const target = experiences[0]!;
       const existing = new Set(target.bullets.map((b) => b.toLowerCase()));
       for (const b of impactBullets) {
         if (!existing.has(b.toLowerCase())) target.bullets.push(b);
       }
-      target.bullets = selectProfessionalBullets(target.bullets, 5);
+      target.bullets = preserveSourceBullets(target.bullets);
     }
   }
 
@@ -3250,10 +3262,24 @@ export function selectProfessionalBullets(bullets: string[], limit = MAX_BULLETS
     .map((b) => polishBulletText(b));
 }
 
+function preserveSourceBullets(bullets: string[]): string[] {
+  const seen = new Set<string>();
+  const preserved: string[] = [];
+  for (const raw of bullets || []) {
+    const bullet = String(raw || "").replace(/^[\s•\-\*▪▫►]+/, "").replace(/\s+/g, " ").trim();
+    if (bullet.length < 4 || isGarbagePersonalToken(bullet)) continue;
+    const key = bullet.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    preserved.push(bullet);
+  }
+  return preserved;
+}
+
 export function condenseExperiences(experiences: CvExperienceItem[]): CvExperienceItem[] {
   return (experiences || []).map((exp) => ({
     ...exp,
-    bullets: selectProfessionalBullets(exp.bullets, MAX_BULLETS_PER_ROLE),
+    bullets: preserveSourceBullets(exp.bullets),
   }));
 }
 

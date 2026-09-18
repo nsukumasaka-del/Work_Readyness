@@ -30,6 +30,8 @@ export type D1Env = MailEnv & {
   DB: D1Database;
   /** Optional legacy proxy for non-auth /api routes until fully on Workers. */
   API_UPSTREAM_URL?: string;
+  ADZUNA_APP_ID?: string;
+  ADZUNA_APP_KEY?: string;
   PRIMARY_ADMIN_EMAIL?: string;
   PRIMARY_ADMIN_PASSWORD?: string;
   PRIMARY_ADMIN_NAME?: string;
@@ -319,6 +321,22 @@ async function resolveSession(
       expires_at: row.expires_at,
       created_at: row.session_created_at,
     },
+  };
+}
+
+export async function getAuthenticatedUser(
+  request: Request,
+  db: D1Database,
+): Promise<{ id: string; name: string; email: string; isAdmin: boolean } | null> {
+  const token = readSessionToken(request);
+  if (!token) return null;
+  const resolved = await resolveSession(db, token);
+  if (!resolved) return null;
+  return {
+    id: resolved.user.id,
+    name: resolved.user.name,
+    email: resolved.user.email,
+    isAdmin: Boolean(resolved.user.is_admin),
   };
 }
 

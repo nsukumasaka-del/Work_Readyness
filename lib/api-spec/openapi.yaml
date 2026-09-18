@@ -247,6 +247,16 @@ components:
             type: string
         liveResults:
           type: boolean
+        boardSearchLinks:
+          type: array
+          items:
+            type: object
+            required: [board, url]
+            properties:
+              board:
+                type: string
+              url:
+                type: string
     DiagnosticInput:
       type: object
       required: [fileName]

@@ -10,6 +10,10 @@ main = "workers/gateway.ts"
 compatibility_date = "2025-09-01"
 workers_dev = true
 
+[[routes]]
+pattern = "www.bonlist.site/*"
+zone_name = "bonlist.site"
+
 [vars]
 # Local/dev only — never leave true in production once Resend is wired.
 AUTH_ALLOW_DEV_OTP = "false"

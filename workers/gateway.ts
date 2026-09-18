@@ -6,6 +6,7 @@
  */
 import { handleD1Auth, type D1Env } from "./d1/auth";
 import { handleD1Career } from "./d1/career";
+import { handleCvTools } from "./d1/cv-tools";
 
 export interface Env extends D1Env {
   ASSETS: Fetcher;
@@ -58,6 +59,8 @@ export default {
         if (authResponse) return authResponse;
         const careerResponse = await handleD1Career(request, env);
         if (careerResponse) return careerResponse;
+        const cvToolsResponse = await handleCvTools(request, env);
+        if (cvToolsResponse) return cvToolsResponse;
       }
 
       const upstream = String(env.API_UPSTREAM_URL || "")

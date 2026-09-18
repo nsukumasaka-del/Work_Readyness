@@ -510,10 +510,10 @@ async function handleSave(request: Request, env: D1Env, user: UserRow): Promise<
   const structure = clean(document.structure) || "professional";
   const title = clean(input.title) || `${profile.name} · ${clean(document.headline) || "Professional"} CV`;
   const inserted = await env.DB.prepare(
-    `INSERT INTO generated_cvs (user_id, structure, title, document_json, version, created_at)
-     VALUES (?, ?, ?, ?, COALESCE((SELECT MAX(version) + 1 FROM generated_cvs WHERE user_id = ?), 1), datetime('now'))`,
+    `INSERT INTO generated_cvs (user_id, profile_id, structure, title, content_json, version, created_at)
+     VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(version) + 1 FROM generated_cvs WHERE profile_id = ?), 1), datetime('now'))`,
   )
-    .bind(user.id, structure, title, JSON.stringify(document), user.id)
+    .bind(user.id, profile.id, structure, title, JSON.stringify(document), profile.id)
     .run();
   const id = Number(inserted.meta.last_row_id || 0);
   const versionRow = await env.DB.prepare(
@@ -534,11 +534,11 @@ async function handleSave(request: Request, env: D1Env, user: UserRow): Promise<
 
 async function handleLatestCv(request: Request, env: D1Env, user: UserRow): Promise<Response> {
   const row = await env.DB.prepare(
-    `SELECT id, structure, title, document_json, version, created_at
+    `SELECT id, structure, title, content_json, version, created_at
      FROM generated_cvs WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
   )
     .bind(user.id)
-    .first<{ id: number; structure: string; title: string; document_json: string; version: number; created_at: string }>();
+    .first<{ id: number; structure: string; title: string; content_json: string; version: number; created_at: string }>();
   if (!row) return error(404, "No saved CV found yet.");
   try {
     return json({
@@ -547,7 +547,7 @@ async function handleLatestCv(request: Request, env: D1Env, user: UserRow): Prom
       title: row.title,
       version: row.version,
       createdAt: row.created_at,
-      document: JSON.parse(row.document_json),
+      document: JSON.parse(row.content_json),
     });
   } catch {
     return error(500, "Saved CV is invalid.");

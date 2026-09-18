@@ -1478,7 +1478,10 @@ export default function CvBuilderPage() {
 
   // Enhancv-Style Left Navigation Rail State
   // 5 Main Options: "templates" | "design" | "sections" | "ai" | "ats" (null if collapsed)
-  const [activeNavPanel, setActiveNavPanel] = useState<"templates" | "design" | "sections" | "ai" | "ats" | null>("templates");
+  const [activeNavPanel, setActiveNavPanel] = useState<"templates" | "design" | "sections" | "ai" | "ats" | null>(null);
+  const showTemplatesAfterGeneration = () => {
+    setActiveNavPanel(window.innerWidth >= 768 ? "templates" : null);
+  };
 
   // Right Slide-Out Drawers
   const [showAtsDrawer, setShowAtsDrawer] = useState(false);
@@ -2091,8 +2094,8 @@ export default function CvBuilderPage() {
       persistGeneratedCv(created);
 
       // Automatically open the templates panel on the left rail for instant template switching
-      setActiveNavPanel("templates");
-      setMessage(`CV built successfully from ${file.name}! Switch across any of the 15 templates on the left.`);
+      showTemplatesAfterGeneration();
+      setMessage(`CV built successfully from ${file.name}! Use Templates to try another layout.`);
       setTimeout(() => setMessage(""), 6000);
       void runQualityEvaluation(created.document, jobDescription);
     } catch (err) {
@@ -2248,8 +2251,8 @@ export default function CvBuilderPage() {
       persistGeneratedCv(created);
 
       setShowPasteInsideUpload(false);
-      setActiveNavPanel("templates");
-      setMessage("CV created from text! Select any of the 15 templates on the left to switch layouts.");
+      showTemplatesAfterGeneration();
+      setMessage("CV created from text! Use Templates to switch layouts.");
       setTimeout(() => setMessage(""), 6000);
       void runQualityEvaluation(created.document, jobDescription);
     } catch {
@@ -2461,8 +2464,8 @@ export default function CvBuilderPage() {
       }
       persistGeneratedCv(created);
       setIsIntakeModalOpen(false);
-      setActiveNavPanel("templates");
-      setMessage("Your modern ATS CV is ready! Select from different templates on the left to test layouts.");
+      showTemplatesAfterGeneration();
+      setMessage("Your modern ATS CV is ready! Use Templates to test layouts.");
       setTimeout(() => setMessage(""), 5000);
       void runQualityEvaluation(created.document, jobDescription);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2576,7 +2579,7 @@ export default function CvBuilderPage() {
         setMessage("Your previous CV was incomplete. Please re-upload your PDF/DOCX so we can rebuild all sections.");
         setTimeout(() => setMessage(""), 8000);
         setIsIntakeModalOpen(true);
-        setActiveNavPanel("templates");
+        showTemplatesAfterGeneration();
         return;
       }
       setCv(condensed);
@@ -2589,7 +2592,7 @@ export default function CvBuilderPage() {
 
     // No existing CV — land on the setup flow immediately
     setIsIntakeModalOpen(true);
-    setActiveNavPanel("templates");
+    showTemplatesAfterGeneration();
   }, [profile?.id, setLocation]);
 
   // Close download menu when clicking outside
@@ -3819,8 +3822,8 @@ export default function CvBuilderPage() {
         }
         persistGeneratedCv(created);
         setIsIntakeModalOpen(false);
-        setActiveNavPanel("templates");
-        setMessage("Your CV has been built and verified! You can test different layouts from the template catalog on the left.");
+        showTemplatesAfterGeneration();
+        setMessage("Your CV has been built and verified! Use Templates to test different layouts.");
         setTimeout(() => setMessage(""), 5000);
         void runQualityEvaluation(created.document, jobDescription);
       }
@@ -3855,7 +3858,7 @@ export default function CvBuilderPage() {
 
       setCv(created);
       persistGeneratedCv(created);
-      setActiveNavPanel("templates");
+      showTemplatesAfterGeneration();
       setMessage("Your CV has been generated from your verified information.");
       void runQualityEvaluation(created.document);
     } catch (err) {
@@ -4051,7 +4054,7 @@ export default function CvBuilderPage() {
   return (
     <div className="cv-builder flex min-h-[calc(100dvh-4rem)] min-w-0 flex-1 flex-col overflow-x-hidden bg-[#F4F5F7] font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       {/* 1. MINIMALIST TOP COMMAND HEADER (ENHANCV-STYLE) */}
-      <header className="cv-builder-command-header no-print sticky top-14 z-30 border-b border-border bg-card/95 backdrop-blur-md sm:top-16">
+      <header className="cv-builder-command-header no-print relative z-30 border-b border-border bg-card/95 backdrop-blur-md sm:sticky sm:top-16">
         <div className="mx-auto flex min-h-14 max-w-full flex-wrap items-center justify-between gap-x-2 gap-y-1.5 px-3 py-2 sm:h-14 sm:flex-nowrap sm:gap-3 sm:px-6 sm:py-0">
           {/* Left: Brand + Role Title + Cloud Saved Indicator */}
           <div className="flex min-w-0 max-w-[calc(100%-4rem)] items-center gap-2 sm:max-w-none sm:gap-3">
@@ -4175,7 +4178,7 @@ export default function CvBuilderPage() {
           </div>
 
           {/* Right: Live ATS Score Badge + Job Match + Export + Save */}
-          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <div className="order-2 flex w-full min-w-0 flex-wrap items-center justify-end gap-1.5 sm:order-none sm:w-auto sm:shrink-0 sm:gap-2">
             {/* ATS Live Score Slide-Out Button */}
             <button
               type="button"
@@ -4303,7 +4306,7 @@ export default function CvBuilderPage() {
               type="button"
               disabled={saving}
               onClick={() => void handleSaveCv()}
-              className="hidden sm:flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-secondary disabled:opacity-50 transition"
+              className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-secondary disabled:opacity-50 transition"
               title="Save snapshot to cloud"
             >
               <Save size={13} />
@@ -4312,6 +4315,29 @@ export default function CvBuilderPage() {
           </div>
         </div>
       </header>
+
+      {!isPreviewMode && (
+        <nav className="no-print flex w-full gap-2 overflow-x-auto border-b border-border bg-card px-3 py-2 md:hidden" aria-label="CV builder tools">
+          {([
+            ["templates", "Templates"],
+            ["design", "Design"],
+            ["sections", "Sections"],
+            ["ai", "AI help"],
+          ] as const).map(([panel, label]) => (
+            <button
+              key={panel}
+              type="button"
+              onClick={() => setActiveNavPanel(activeNavPanel === panel ? null : panel)}
+              aria-expanded={activeNavPanel === panel}
+              className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold ${activeNavPanel === panel ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"}`}
+            >
+              {label}
+            </button>
+          ))}
+          <button type="button" onClick={() => { setShowAtsDrawer(true); setShowJobMatchDrawer(false); }} className="shrink-0 rounded-lg bg-secondary px-3 py-2 text-xs font-semibold text-foreground">ATS score</button>
+          <button type="button" onClick={() => { setShowJobMatchDrawer(true); setShowAtsDrawer(false); }} className="shrink-0 rounded-lg bg-secondary px-3 py-2 text-xs font-semibold text-foreground">Job match</button>
+        </nav>
+      )}
 
       {/* Notifications / Toast */}
       {message ? (
@@ -4326,7 +4352,7 @@ export default function CvBuilderPage() {
       ) : null}
 
       {/* 2. ENHANCV-STYLE WORKSPACE (LEFT ICON RAIL + FLYOUT PANEL + A4 CANVAS + RIGHT DRAWERS) */}
-      <div className="cv-builder-workspace relative flex min-h-0 flex-1 overflow-visible md:overflow-hidden">
+      <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 flex-col overflow-visible md:flex-row md:overflow-hidden">
         {/* LEFT COMPACT ICON RAIL (4 MAIN OPTIONS: Templates, Design, Sections, AI) */}
         {!isPreviewMode && (
           <nav className="no-print hidden w-16 shrink-0 flex-col items-center justify-between border-r border-border bg-card py-4 md:flex md:z-20">
@@ -4439,7 +4465,7 @@ export default function CvBuilderPage() {
 
         {/* LEFT EXPANDABLE DRAWER PANEL (340px) */}
         {!isPreviewMode && activeNavPanel && (
-          <aside className="no-print absolute inset-0 z-40 max-h-full w-full shrink-0 overflow-y-auto border-r border-border bg-card p-4 shadow-lg animate-in slide-in-from-left duration-200 md:relative md:inset-auto md:z-10 md:block md:w-[22rem] md:max-w-[26rem] md:border-r md:p-4">
+          <aside className="no-print relative z-20 max-h-[min(65dvh,36rem)] w-full min-w-0 shrink-0 overflow-y-auto border-b border-border bg-card p-4 shadow-lg animate-in slide-in-from-left duration-200 md:inset-auto md:z-10 md:max-h-full md:w-[22rem] md:max-w-[26rem] md:border-b-0 md:border-r">
             <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
               <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 {activeNavPanel === "templates" && "Layout & Templates"}
@@ -6293,7 +6319,7 @@ export default function CvBuilderPage() {
 
         {/* 3. INTERACTIVE SLIDE-OUT ATS LIVE SCORE PANEL (RIGHT DRAWER) */}
         {showAtsDrawer && (
-          <aside className="no-print w-96 shrink-0 border-l border-border bg-card p-5 overflow-y-auto z-20 shadow-xl animate-in slide-in-from-right duration-200">
+          <aside className="no-print fixed inset-x-0 bottom-0 z-50 max-h-[80dvh] w-full overflow-y-auto rounded-t-2xl border border-border bg-card p-4 shadow-xl animate-in slide-in-from-right duration-200 md:static md:max-h-none md:w-96 md:shrink-0 md:rounded-none md:border-y-0 md:border-r-0 md:p-5">
             <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
               <div className="flex items-center gap-2">
                 <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
@@ -6419,7 +6445,7 @@ export default function CvBuilderPage() {
 
         {/* 4. INTERACTIVE SLIDE-OUT JOB MATCH & KEYWORD DRAWER (RIGHT DRAWER) */}
         {showJobMatchDrawer && (
-          <aside className="no-print w-96 shrink-0 border-l border-border bg-card p-5 overflow-y-auto z-20 shadow-xl animate-in slide-in-from-right duration-200">
+          <aside className="no-print fixed inset-x-0 bottom-0 z-50 max-h-[80dvh] w-full overflow-y-auto rounded-t-2xl border border-border bg-card p-4 shadow-xl animate-in slide-in-from-right duration-200 md:static md:max-h-none md:w-96 md:shrink-0 md:rounded-none md:border-y-0 md:border-r-0 md:p-5">
             <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
               <div className="flex items-center gap-2">
                 <span className="grid h-7 w-7 place-items-center rounded-lg bg-sky-500/15 text-sky-600 dark:text-sky-400">

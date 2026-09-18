@@ -138,6 +138,9 @@ function mirrorWebToWww() {
   rmSync(www, { recursive: true, force: true });
   mkdirSync(www, { recursive: true });
   cpSync(webDist, www, { recursive: true });
+  // The website offers the APK as a download; bundling that APK inside the
+  // Android app makes each subsequent build contain the previous app package.
+  rmSync(resolve(www, "downloads/BonList.apk"), { force: true });
   injectRuntimeConfig();
 
   // Keep Download APK button working when a debug APK exists

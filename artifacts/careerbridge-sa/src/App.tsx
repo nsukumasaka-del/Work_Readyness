@@ -63,6 +63,7 @@ import {
   clearAuthSession,
   dismissSecurityNudgeLocal,
   hasProfile as hasAuthProfile,
+  getAdminToken,
   isAdminUser as isAuthAdminUser,
   persistAdminAccess,
   persistProfile,
@@ -652,6 +653,7 @@ function AppShell({ children }: { children: ReactNode }) {
   const [cvReady, setCvReady] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
   const [activeDropdown, setActiveDropdown] = useState<'resume' | 'tools' | null>(null);
   const [guideModalTopic, setGuideModalTopic] = useState<string | null>(null);
   const [mobileResumeOpen, setMobileResumeOpen] = useState(true);
@@ -717,13 +719,20 @@ function AppShell({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const handleLogout = () => {
-    void authFetch('/api/auth/logout', { method: 'POST', body: '{}' }).catch(() => undefined);
-    clearAuthSession();
-    setProfile(null);
-    setIsAdmin(false);
-    setMenuOpen(false);
-    setLocation('/');
+  const handleLogout = async () => {
+    setLogoutError('');
+    try {
+      const response = await authFetch('/api/career/auth/logout', { method: 'POST', body: '{}' });
+      if (!response.ok) throw new Error('Sign-out failed');
+      clearAuthSession();
+      queryClient.clear();
+      setProfile(null);
+      setIsAdmin(false);
+      setMenuOpen(false);
+      setLocation('/login');
+    } catch {
+      setLogoutError('Could not sign out. Please try again.');
+    }
   };
 
   const [showNudge, setShowNudge] = useState(false);
@@ -736,6 +745,7 @@ function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className={`min-h-[100dvh] bg-background text-foreground ${isCvBuilder ? 'flex flex-col' : ''}`}>
+      {logoutError ? <p role="alert" className="bg-destructive px-5 py-2 text-center text-sm text-destructive-foreground">{logoutError}</p> : null}
       {showNudge ? (
         <SecurityNudgeBanner
           onSecure={() => {
@@ -1599,10 +1609,8 @@ function Home() {
     try {
       const parseBody = await buildParseUploadBody(cvFile);
 
-      const response = await fetch('/api/career/diagnostic', {
+      const response = await authFetch('/api/career/diagnostic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           fileName,
           fileData: parseBody.fileData,
@@ -2274,9 +2282,7 @@ function DiagnosticPage() {
         const params = new URLSearchParams();
         if (profile?.id) params.set('profileId', String(profile.id));
         if (profile?.email) params.set('email', profile.email);
-        const response = await fetch(`/api/career/diagnostic/latest?${params.toString()}`, {
-          credentials: 'include',
-        });
+        const response = await authFetch(`/api/career/diagnostic/latest?${params.toString()}`);
         if (!response.ok) {
           if (!cancelled) setReport(null);
           return;
@@ -3370,27 +3376,82 @@ function Field({
   );
 }
 
-function Router() {
-  const [location] = useLocation();
-  const isAdmin = location === '/admin' || location.startsWith('/admin/');
+const PUBLIC_AUTH_PATHS = new Set(['/login', '/signup', '/forgot-password', '/reset-password', '/auth/callback']);
 
-  if (isAdmin) {
+function ProtectedApp() {
+  const [location, setLocation] = useLocation();
+  const [check, setCheck] = useState(0);
+  const [access, setAccess] = useState<{ location: string; check: number; status: 'allowed' | 'unavailable' } | null>(null);
+
+  useEffect(() => {
+    const refresh = () => setCheck((value) => value + 1);
+    window.addEventListener('storage', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
+
+  useEffect(() => {
+    let current = true;
+    setAccess(null);
+    void authFetch('/api/career/auth/me')
+      .then(async (response) => {
+        if (!current) return;
+        if (response.status === 401 || response.status === 403) {
+          clearAuthSession();
+          queryClient.clear();
+          setLocation(`/login?returnTo=${encodeURIComponent(location)}`);
+          return;
+        }
+        if (!response.ok) throw new Error('Session check failed');
+        const profile = await response.json() as UserProfile & { isAdmin?: boolean; adminToken?: string };
+        if (!profile.id || !profile.email) throw new Error('Invalid session response');
+        const storedProfile = readProfile();
+        if (!storedProfile || storedProfile.email.toLowerCase() !== profile.email.toLowerCase()) {
+          sessionStorage.removeItem(REPORT_KEY);
+          sessionStorage.removeItem('bonlist-report');
+          sessionStorage.removeItem(SELECTED_JOB_KEY);
+          queryClient.clear();
+          persistProfile(profile);
+        }
+        if (profile.isAdmin && profile.adminToken && getAdminToken() !== profile.adminToken) {
+          persistAdminAccess(profile.adminToken, true);
+        } else if (profile.isAdmin === false && isAuthAdminUser()) {
+          persistAdminAccess(undefined, false);
+        }
+        if (current) setAccess({ location, check, status: 'allowed' });
+      })
+      .catch(() => {
+        if (current) setAccess({ location, check, status: 'unavailable' });
+      });
+    return () => { current = false; };
+  }, [location, check, setLocation]);
+
+  if (!access || access.location !== location || access.check !== check) {
+    return <div className="grid min-h-[100dvh] place-items-center bg-background text-sm text-muted-foreground">Checking your session…</div>;
+  }
+  if (access.status === 'unavailable') {
     return (
-      <RoutedErrorBoundary>
-        <AdminRoute />
-      </RoutedErrorBoundary>
+      <div className="grid min-h-[100dvh] place-items-center bg-background px-5 text-center">
+        <div>
+          <p className="text-sm text-foreground">We could not verify your sign-in right now.</p>
+          <button type="button" className="btn-primary mt-4" onClick={() => setCheck((value) => value + 1)}>Try again</button>
+          <Link href="/login" className="mt-4 block text-sm text-primary">Go to sign in</Link>
+        </div>
+      </div>
     );
   }
 
-  return (
+  const isAdmin = location === '/admin' || location.startsWith('/admin/');
+  return isAdmin ? (
+    <RoutedErrorBoundary><AdminRoute /></RoutedErrorBoundary>
+  ) : (
     <RoutedErrorBoundary>
       <AppShell>
         <Switch>
           <Route path="/" component={Home} />
-          <Route path="/login" component={LoginPage} />
-          <Route path="/signup" component={SignupPage} />
-          <Route path="/forgot-password" component={ForgotPasswordPage} />
-          <Route path="/reset-password" component={ResetPasswordPage} />
           <Route path="/settings/security" component={SecuritySettingsPage} />
           <Route path="/security/admin-mfa" component={AdminMfaSetupPage} />
           <Route path="/profile" component={ProfilePage} />
@@ -3407,6 +3468,24 @@ function Router() {
       </AppShell>
     </RoutedErrorBoundary>
   );
+}
+
+function Router() {
+  const [location] = useLocation();
+  if (PUBLIC_AUTH_PATHS.has(location.split('?')[0])) {
+    return (
+      <RoutedErrorBoundary>
+        <Switch>
+          <Route path="/login" component={LoginPage} />
+          <Route path="/signup" component={SignupPage} />
+          <Route path="/forgot-password" component={ForgotPasswordPage} />
+          <Route path="/reset-password" component={ResetPasswordPage} />
+          <Route path="/auth/callback" component={AuthCallbackPage} />
+        </Switch>
+      </RoutedErrorBoundary>
+    );
+  }
+  return <ProtectedApp />;
 }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) {

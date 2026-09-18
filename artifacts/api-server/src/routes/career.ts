@@ -15,6 +15,7 @@ import {
 import { db, adminUsersTable, applicationOutcomesTable, coachingApplicationsTable, diagnosticReportsTable, generatedCvsTable, jobsTable, profilesTable, programmesTable } from "@workspace/db";
 import { and, count, desc, eq, ne } from "drizzle-orm";
 import { searchTrustedJobBoards, getTrustedBoardLabels } from "../lib/job-board-search";
+import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
 import { ensurePrimaryAdmin } from "../lib/admin-auth";
 import { createAdminNotification } from "../lib/admin-ops";
 import {
@@ -971,7 +972,7 @@ router.get("/career/jobs", async (req, res) => {
   res.json(ListJobsResponse.parse(filtered));
 });
 
-router.post("/career/diagnostic", async (req, res) => {
+router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, res) => {
   try {
     await ensureJobs();
     const body = (req.body || {}) as Record<string, unknown>;
@@ -981,13 +982,7 @@ router.post("/career/diagnostic", async (req, res) => {
       return;
     }
 
-    const profile = await resolveOrUpsertCvProfile(body);
-    if (!profile) {
-      res.status(400).json({
-        error: "A valid profile is required. Please sign in before uploading your CV.",
-      });
-      return;
-    }
+    const profile = req.userProfile!;
 
     const roleFromBody = typeof body.role === "string" ? body.role.trim() : "";
     const locationFromBody = typeof body.location === "string" ? body.location.trim() : "";
@@ -1122,24 +1117,13 @@ router.post("/career/diagnostic", async (req, res) => {
   }
 });
 
-router.get("/career/diagnostic/latest", async (req, res) => {
-  const profileId = Number(req.query.profileId);
-  const email = String(req.query.email || "")
-    .trim()
-    .toLowerCase();
-  if ((!Number.isFinite(profileId) || profileId <= 0) && !email) {
-    res.status(400).json({ error: "profileId or email is required" });
-    return;
-  }
+router.get("/career/diagnostic/latest", requireUser, async (req: AuthedUserRequest, res) => {
+  const profileId = req.userProfile!.id;
 
   const [row] = await db
     .select()
     .from(diagnosticReportsTable)
-    .where(
-      Number.isFinite(profileId) && profileId > 0
-        ? eq(diagnosticReportsTable.profileId, profileId)
-        : eq(diagnosticReportsTable.profileEmail, email),
-    )
+    .where(eq(diagnosticReportsTable.profileId, profileId))
     .orderBy(desc(diagnosticReportsTable.createdAt))
     .limit(1);
 
@@ -1724,7 +1708,7 @@ router.get("/career/cv/structures", (_req, res) => {
   res.json({ structures });
 });
 
-router.post("/career/cv/parse-upload", async (req, res) => {
+router.post("/career/cv/parse-upload", requireUser, async (req, res) => {
   try {
     const fileName = req.body?.fileName ? String(req.body.fileName) : undefined;
     const fileData = req.body?.fileData ? String(req.body.fileData) : undefined;

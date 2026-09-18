@@ -65,6 +65,9 @@ export function clearAuthSession() {
     store.removeItem(ADMIN_TOKEN_KEY);
     store.removeItem(ADMIN_FLAG_KEY);
   }
+  sessionStorage.removeItem('careerbridge-report');
+  sessionStorage.removeItem('bonlist-report');
+  sessionStorage.removeItem('careerbridge-selected-job');
 }
 
 export function persistProfile(profile: UserProfile) {

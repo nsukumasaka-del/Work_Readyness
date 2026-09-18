@@ -17,8 +17,6 @@ import {
   authFetch,
   completeAuthSession,
   friendlyClientError,
-  hasProfile,
-  isAdminUser,
   readApiJson,
 } from '@/lib/auth-session';
 
@@ -232,7 +230,7 @@ function afterAuthNavigate(
     setLocation(`/login?mfaToken=${payload.mfaToken}`);
     return;
   }
-  setLocation(fallback);
+  setLocation(fallback.startsWith('/') && !fallback.startsWith('//') && !fallback.startsWith('/\\') ? fallback : '/');
 }
 
 export function SignupPage() {
@@ -257,11 +255,6 @@ export function SignupPage() {
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
   const [resendIn, setResendIn] = useState(0);
-
-  useEffect(() => {
-    if (isAdminUser()) setLocation('/admin');
-    else if (hasProfile()) setLocation('/');
-  }, [setLocation]);
 
   useEffect(() => {
     if (resendIn <= 0) return;
@@ -479,6 +472,7 @@ export function SignupPage() {
 export function LoginPage() {
   const [location, setLocation] = useLocation();
   const params = useMemo(() => new URLSearchParams(location.split('?')[1] || ''), [location]);
+  const returnTo = params.get('returnTo') || '/';
   const initialMfa = params.get('mfaToken') || '';
   const oauthError = params.get('error');
 
@@ -503,11 +497,6 @@ export function LoginPage() {
   const [passkeysOn, setPasskeysOn] = useState(false);
 
   useEffect(() => {
-    if (!initialMfa && isAdminUser()) setLocation('/admin');
-    else if (!initialMfa && hasProfile()) setLocation('/');
-  }, [setLocation, initialMfa]);
-
-  useEffect(() => {
     void authFetch('/api/career/auth/config')
       .then((r) => r.json())
       .then((d) => setPasskeysOn(Boolean(d.passkeys)))
@@ -520,7 +509,7 @@ export function LoginPage() {
       return;
     }
     await completeAuthSession(payload as any);
-    afterAuthNavigate(setLocation, payload, '/');
+    afterAuthNavigate(setLocation, payload, returnTo);
   };
 
   const submitLogin = async (event: FormEvent) => {
@@ -558,7 +547,7 @@ export function LoginPage() {
       const payload = await readApiJson(response);
       if (!response.ok) throw new Error(payload.error || 'Verification failed');
       await completeAuthSession(payload as any);
-      afterAuthNavigate(setLocation, payload, '/');
+      afterAuthNavigate(setLocation, payload, returnTo);
     } catch (err) {
       setError(friendlyClientError(err, 'That code was incorrect.'));
     } finally {
@@ -686,7 +675,7 @@ export function LoginPage() {
         </>
       }
     >
-      <SocialAuthButtons returnTo="/" />
+      <SocialAuthButtons returnTo={returnTo} />
       {passkeysOn ? (
         <button
           type="button"

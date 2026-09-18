@@ -4,7 +4,7 @@
  * - Other /api/* → optional legacy upstream only if API_UPSTREAM_URL is set
  * - Everything else → static SPA assets
  */
-import { handleD1Auth, type D1Env } from "./d1/auth";
+import { getAuthenticatedUser, handleD1Auth, type D1Env } from "./d1/auth";
 import { handleCvParseUpload } from "./cv-parse";
 import { handleCvCareer } from "./cv-career";
 import { handleCvDiagnostic } from "./cv-diagnostic";
@@ -57,6 +57,9 @@ export default {
 
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
       if (url.pathname === "/api/career/cv/parse-upload") {
+        if (!env.DB || !await getAuthenticatedUser(request, env.DB)) {
+          return jsonError(401, "Please sign in to continue.");
+        }
         return handleCvParseUpload(request);
       }
 

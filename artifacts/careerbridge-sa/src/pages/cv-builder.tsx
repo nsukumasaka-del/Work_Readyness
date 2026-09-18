@@ -66,7 +66,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { readStoredProfile } from "@/lib/entitlements";
-import { readProfile as readAuthProfile } from "@/lib/auth-session";
+import { authFetch, readProfile as readAuthProfile } from "@/lib/auth-session";
 import { ensureCvProfile } from "@/lib/cv-profile";
 import { buildParseUploadBody, parseUploadErrorMessage } from "@/lib/cv-parse-upload";
 
@@ -1947,7 +1947,7 @@ export default function CvBuilderPage() {
       setAgentStepIndex(1);
       setAgentStepText("Structuring verified employment history…");
 
-      const res = await fetch("/api/career/cv/parse-upload", {
+      const res = await authFetch("/api/career/cv/parse-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parseBody),
@@ -2108,7 +2108,7 @@ export default function CvBuilderPage() {
       setAgentStepIndex(1);
       setAgentStepText("Extracting career progression & contact details…");
 
-      const res = await fetch("/api/career/cv/parse-upload", {
+      const res = await authFetch("/api/career/cv/parse-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: intakePasteText, fileName: "Pasted CV" }),
@@ -2745,7 +2745,7 @@ export default function CvBuilderPage() {
     if (!pasteInputText.trim()) return;
     setExtracting(true);
     try {
-      const res = await fetch("/api/career/cv/parse-upload", {
+      const res = await authFetch("/api/career/cv/parse-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: pasteInputText, fileName: "Pasted CV" }),
@@ -3726,7 +3726,7 @@ export default function CvBuilderPage() {
       setAgentStepIndex(1);
       setAgentStepText("Structuring verified employment history…");
 
-      const res = await fetch("/api/career/cv/parse-upload", {
+      const res = await authFetch("/api/career/cv/parse-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parseBody),

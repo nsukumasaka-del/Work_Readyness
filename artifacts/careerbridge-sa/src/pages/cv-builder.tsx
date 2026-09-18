@@ -1013,7 +1013,7 @@ export async function generateCv(options: { regenerate?: boolean; structure?: st
   const candidate = options.extracted?.cv_content?.personal || options.extracted?.personal;
   const existing = readStoredProfile() || readAuthProfile();
   const diagnostic = readReport();
-  const response = await fetch("/api/career/cv/generate", {
+  const response = await authFetch("/api/career/cv/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -2700,7 +2700,7 @@ export default function CvBuilderPage() {
     if (!cv || !questionText.trim()) return;
     setAdvisorLoading(true);
     try {
-      const res = await fetch("/api/career/cv/advisor", {
+      const res = await authFetch("/api/career/cv/advisor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2786,17 +2786,17 @@ export default function CvBuilderPage() {
     setQualityLoading(true);
     try {
       const [resScore, resRecruiter, resPos] = await Promise.all([
-        fetch("/api/career/cv/quality-score", {
+        authFetch("/api/career/cv/quality-score", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cvDocument: doc, jobDescription: jd }),
         }),
-        fetch("/api/career/cv/recruiter-view", {
+        authFetch("/api/career/cv/recruiter-view", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cvDocument: doc }),
         }),
-        fetch("/api/career/cv/positioning", {
+        authFetch("/api/career/cv/positioning", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cvDocument: doc, targetJob: doc.headline }),
@@ -2860,7 +2860,7 @@ export default function CvBuilderPage() {
     setError("");
     try {
       const ensured = await ensureCvProfile();
-      const res = await fetch("/api/career/cv/save", {
+      const res = await authFetch("/api/career/cv/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -2901,7 +2901,7 @@ export default function CvBuilderPage() {
   const handleOpenEnhanceBullet = async (expIdx: number, bulletIdx: number, bulletText: string) => {
     setUserMetricInput("");
     try {
-      const res = await fetch("/api/career/cv/enhance-bullet", {
+      const res = await authFetch("/api/career/cv/enhance-bullet", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bullet: bulletText, role: cv?.document.headline }),
@@ -3003,7 +3003,7 @@ export default function CvBuilderPage() {
     setImproveLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/career/cv/improve", {
+      const res = await authFetch("/api/career/cv/improve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3212,7 +3212,7 @@ export default function CvBuilderPage() {
     setSelectedTone(tone);
     setHumanizing(true);
     try {
-      const res = await fetch("/api/career/cv/humanize", {
+      const res = await authFetch("/api/career/cv/humanize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3248,7 +3248,7 @@ export default function CvBuilderPage() {
     setTailoringLoading(true);
     try {
       const [resTailor, resAdvanced, resTrans] = await Promise.all([
-        fetch("/api/career/cv/tailor", {
+        authFetch("/api/career/cv/tailor", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -3256,7 +3256,7 @@ export default function CvBuilderPage() {
             jobDescription,
           }),
         }),
-        fetch("/api/career/cv/match-advanced", {
+        authFetch("/api/career/cv/match-advanced", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -3264,7 +3264,7 @@ export default function CvBuilderPage() {
             jobDescription,
           }),
         }),
-        fetch("/api/career/cv/transferable-skills", {
+        authFetch("/api/career/cv/transferable-skills", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -3361,7 +3361,7 @@ export default function CvBuilderPage() {
     setDiscoveryLoading(true);
     setIsAchievementDiscoveryOpen(true);
     try {
-      const res = await fetch("/api/career/cv/achievement-discovery", {
+      const res = await authFetch("/api/career/cv/achievement-discovery", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cvDocument: cv.document }),
@@ -3384,7 +3384,7 @@ export default function CvBuilderPage() {
     if (!cv || !q || !discoveryAnswerInput.trim()) return;
 
     try {
-      const res = await fetch("/api/career/cv/achievement-incorporate", {
+      const res = await authFetch("/api/career/cv/achievement-incorporate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3451,7 +3451,7 @@ export default function CvBuilderPage() {
     };
 
     try {
-      const res = await fetch("/api/career/cv/pre-flight-audit", {
+      const res = await authFetch("/api/career/cv/pre-flight-audit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cvDocument: cv.document }),
@@ -3686,7 +3686,7 @@ export default function CvBuilderPage() {
   const fetchLoggedOutcomes = async () => {
     if (!profile?.id) return;
     try {
-      const res = await fetch(`/api/career/cv/outcomes?profileId=${profile.id}`);
+      const res = await authFetch(`/api/career/cv/outcomes?profileId=${profile.id}`);
       if (res.ok) {
         const data = await res.json();
         setLoggedOutcomes(data.outcomes || []);
@@ -3700,7 +3700,7 @@ export default function CvBuilderPage() {
     if (!profile?.id || !newOutcomeRole.trim() || !newOutcomeCompany.trim()) return;
     setOutcomesLoading(true);
     try {
-      const res = await fetch("/api/career/cv/outcomes", {
+      const res = await authFetch("/api/career/cv/outcomes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

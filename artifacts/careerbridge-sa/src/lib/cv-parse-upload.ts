@@ -25,10 +25,20 @@ export type ParseUploadBody = {
   fileData?: string;
 };
 
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+function assertUploadSize(file: File) {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error("This file is too large. Please upload a CV under 20MB or paste the text directly.");
+  }
+}
+
 export async function buildParseUploadBody(
   file: File,
   onProgress?: (message: string) => void,
 ): Promise<ParseUploadBody> {
+  assertUploadSize(file);
+
   if (isPdfFile(file)) {
     onProgress?.("Reading PDF text in your browser…");
     let text = "";
@@ -65,7 +75,11 @@ export async function buildParseUploadBody(
       return { fileName: file.name, text };
     } catch (err) {
       console.error("DOCX extraction failed:", err);
-      throw new Error(`Could not read Word document: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      // Browser ZIP parsing can fail for valid Word files in older browsers or
+      // when the document contains an uncommon compression method. Keep the
+      // upload usable by giving the API's mammoth parser a chance.
+      onProgress?.("Browser Word extraction was unavailable; trying the secure CV reader…");
+      return { fileName: file.name, fileData: await readFileAsDataUrl(file) };
     }
   }
 

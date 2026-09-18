@@ -1040,7 +1040,17 @@ export async function generateCv(options: { regenerate?: boolean; structure?: st
       extracted: options.extracted,
     }),
   });
-  const payload = await response.json();
+  const rawResponse = await response.text();
+  let payload: Record<string, any> = {};
+  try {
+    payload = rawResponse ? (JSON.parse(rawResponse) as Record<string, any>) : {};
+  } catch {
+    throw new Error(
+      response.ok
+        ? "The CV builder returned an unreadable response. Please try again."
+        : "The CV builder service is unavailable. Please try again in a moment.",
+    );
+  }
   if (!response.ok) throw new Error(payload.error || "Could not generate CV");
   persistGeneratedCv(payload as GeneratedCvResponse);
   return payload as GeneratedCvResponse;
@@ -1449,10 +1459,13 @@ export default function CvBuilderPage() {
   const [, setLocation] = useLocation();
   const profile = readStoredProfile() || readAuthProfile();
   const printRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [a4PageCount, setA4PageCount] = useState(1);
   const [a4StackHeightPx, setA4StackHeightPx] = useState(0);
   const [a4Spacers, setA4Spacers] = useState<Record<string, number>>({});
+  const [canvasFitScale, setCanvasFitScale] = useState(1);
+  const [canvasPageWidthPx, setCanvasPageWidthPx] = useState(794);
 
   const [cv, setCv] = useState<GeneratedCvResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -2123,7 +2136,10 @@ export default function CvBuilderPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: intakePasteText, fileName: "Pasted CV" }),
       });
-      if (!res.ok) throw new Error("Failed to parse text");
+       if (!res.ok) {
+         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+         throw new Error(parseUploadErrorMessage(res.status, errBody));
+       }
 
       setAgentStepIndex(2);
       setAgentStepText("Structuring ATS competencies & bullet points…");
@@ -4011,6 +4027,33 @@ export default function CvBuilderPage() {
     cv?.document.projects,
   ]);
 
+  // Keep the A4 preview inside the available canvas on phones and narrow
+  // split-screen views. The document itself stays print-sized; only the
+  // screen preview is scaled down so controls never create horizontal scroll.
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const updateCanvasScale = () => {
+      const pageWidth = printRef.current?.offsetWidth || 794;
+      const availableWidth = Math.max(240, canvas.clientWidth - 24);
+      setCanvasPageWidthPx((previous) => (previous === pageWidth ? previous : pageWidth));
+      const nextScale = Math.min(1, availableWidth / pageWidth);
+      setCanvasFitScale((previous) => (Math.abs(previous - nextScale) < 0.01 ? previous : nextScale));
+    };
+
+    updateCanvasScale();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateCanvasScale) : null;
+    observer?.observe(canvas);
+    if (printRef.current) observer?.observe(printRef.current);
+    window.addEventListener("resize", updateCanvasScale);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateCanvasScale);
+    };
+  }, [cv, activeNavPanel, isPreviewMode]);
+
   const meta = resolveTemplate(selectedTemplate);
 
   const filteredTemplates = TEMPLATE_CATALOG.filter((t) => {
@@ -4025,12 +4068,12 @@ export default function CvBuilderPage() {
   });
 
   return (
-    <div className="flex min-h-[calc(100dvh-4rem)] flex-1 flex-col bg-[#F4F5F7] text-slate-900 dark:bg-slate-950 dark:text-slate-100 font-sans">
+    <div className="cv-builder flex min-h-[calc(100dvh-4rem)] min-w-0 flex-1 flex-col overflow-x-hidden bg-[#F4F5F7] font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       {/* 1. MINIMALIST TOP COMMAND HEADER (ENHANCV-STYLE) */}
-      <header className="no-print sticky top-16 z-30 border-b border-border bg-card/95 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-full items-center justify-between px-4 sm:px-6">
+      <header className="cv-builder-command-header no-print sticky top-14 z-30 border-b border-border bg-card/95 backdrop-blur-md sm:top-16">
+        <div className="mx-auto flex min-h-14 max-w-full flex-wrap items-center justify-between gap-x-2 gap-y-1.5 px-3 py-2 sm:h-14 sm:flex-nowrap sm:gap-3 sm:px-6 sm:py-0">
           {/* Left: Brand + Role Title + Cloud Saved Indicator */}
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 max-w-[calc(100%-4rem)] items-center gap-2 sm:max-w-none sm:gap-3">
             <Link href="/" className="flex items-center gap-2 group" aria-label="BonList home">
               <img src="/brand/bonlist-mark.png" alt="" className="h-8 w-8 object-contain transition group-hover:scale-105 md:hidden" width={32} height={32} />
               <img
@@ -4051,7 +4094,7 @@ export default function CvBuilderPage() {
                 className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-secondary transition"
               >
                 <Layers size={13} className="text-primary" />
-                <span className="max-w-[130px] truncate sm:max-w-[180px]">{currentVersionName}</span>
+                <span className="max-w-[110px] truncate sm:max-w-[180px]">{currentVersionName}</span>
                 <ChevronDown size={12} className="text-muted-foreground" />
               </button>
 
@@ -4105,7 +4148,7 @@ export default function CvBuilderPage() {
           </div>
 
           {/* Center: Quick Document Actions (Undo, Reset, Pre-Flight Status) */}
-          <div className="flex items-center gap-1.5">
+          <div className="order-3 flex w-full min-w-0 items-center justify-end gap-1.5 overflow-x-auto border-t border-border/60 pt-1.5 sm:order-none sm:w-auto sm:overflow-visible sm:border-t-0 sm:pt-0">
             <button
               type="button"
               disabled={changeHistory.length === 0}
@@ -4121,22 +4164,22 @@ export default function CvBuilderPage() {
             <button
               type="button"
               onClick={() => setIsIntakeModalOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary hover:bg-primary/20 transition shadow-xs"
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary shadow-xs transition hover:bg-primary/20"
               title="Upload existing CV or add information manually"
             >
               <FileUp size={13} />
-              <span>Upload / Manual Setup</span>
+               <span className="hidden sm:inline">Upload / Manual Setup</span>
             </button>
 
             <button
               type="button"
               onClick={openImproveCvModal}
               disabled={!cv && !loading}
-              className="flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 transition shadow-xs disabled:opacity-40"
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-700 shadow-xs transition hover:bg-emerald-500/20 disabled:opacity-40 dark:text-emerald-300"
               title="Improve wording without inventing experience"
             >
               <Wand2 size={13} />
-              <span>Improve CV</span>
+               <span className="hidden sm:inline">Improve CV</span>
             </button>
 
             <button
@@ -4151,7 +4194,7 @@ export default function CvBuilderPage() {
           </div>
 
           {/* Right: Live ATS Score Badge + Job Match + Export + Save */}
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             {/* ATS Live Score Slide-Out Button */}
             <button
               type="button"
@@ -4159,7 +4202,7 @@ export default function CvBuilderPage() {
                 setShowAtsDrawer(!showAtsDrawer);
                 if (showJobMatchDrawer) setShowJobMatchDrawer(false);
               }}
-              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold transition ${
+              className={`hidden items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold transition sm:flex ${
                 showAtsDrawer
                   ? "border-primary bg-primary text-primary-foreground shadow-xs"
                   : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20"
@@ -4214,7 +4257,7 @@ export default function CvBuilderPage() {
                 data-export-menu
               >
                 <Download size={14} />
-                <span>Download</span>
+              <span className="hidden sm:inline">Download</span>
                 <ChevronDown size={12} />
               </button>
 
@@ -4302,10 +4345,10 @@ export default function CvBuilderPage() {
       ) : null}
 
       {/* 2. ENHANCV-STYLE WORKSPACE (LEFT ICON RAIL + FLYOUT PANEL + A4 CANVAS + RIGHT DRAWERS) */}
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+      <div className="cv-builder-workspace relative flex min-h-0 flex-1 overflow-visible md:overflow-hidden">
         {/* LEFT COMPACT ICON RAIL (4 MAIN OPTIONS: Templates, Design, Sections, AI) */}
         {!isPreviewMode && (
-          <nav className="no-print flex w-16 shrink-0 flex-col items-center justify-between border-r border-border bg-card py-4 z-20">
+          <nav className="no-print hidden w-16 shrink-0 flex-col items-center justify-between border-r border-border bg-card py-4 md:flex md:z-20">
             {/* Top 4 Primary Workspace Modules */}
             <div className="flex flex-col items-center gap-3">
               {/* 1. Templates */}
@@ -4415,7 +4458,7 @@ export default function CvBuilderPage() {
 
         {/* LEFT EXPANDABLE DRAWER PANEL (340px) */}
         {!isPreviewMode && activeNavPanel && (
-          <aside className="no-print w-[22rem] sm:w-[26rem] shrink-0 border-r border-border bg-card p-4 overflow-y-auto z-10 animate-in slide-in-from-left duration-200 shadow-lg">
+          <aside className="no-print absolute inset-0 z-40 max-h-full w-full shrink-0 overflow-y-auto border-r border-border bg-card p-4 shadow-lg animate-in slide-in-from-left duration-200 md:relative md:inset-auto md:z-10 md:block md:w-[22rem] md:max-w-[26rem] md:border-r md:p-4">
             <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
               <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 {activeNavPanel === "templates" && "Layout & Templates"}
@@ -4896,7 +4939,7 @@ export default function CvBuilderPage() {
         )}
 
         {/* CENTER CANVAS: LIGHT NEUTRAL BACKGROUND (#F4F5F7) + REALISTIC A4 PAGE */}
-        <main className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto p-4 sm:p-8">
+        <main ref={canvasRef} className="min-w-0 flex min-h-0 flex-1 flex-col items-center overflow-visible p-2 sm:overflow-y-auto sm:p-8">
           {/* Preview Banner Pill */}
           {isPreviewMode && (
             <div className="no-print sticky top-2 z-40 mx-auto mb-4 flex items-center gap-3 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur-md animate-in fade-in slide-in-from-top-2">
@@ -4916,8 +4959,8 @@ export default function CvBuilderPage() {
           )}
 
           {/* Quick Floating Format & Zoom Bar */}
-          <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 w-full max-w-[210mm] rounded-2xl border border-border bg-card/90 backdrop-blur-md px-4 py-2 text-xs shadow-xs">
-            <div className="flex items-center gap-2 text-muted-foreground">
+          <div className="no-print mb-3 flex w-full max-w-[210mm] flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-card/90 px-3 py-2 text-xs shadow-xs backdrop-blur-md sm:mb-4 sm:gap-3 sm:px-4">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-muted-foreground sm:gap-2">
               <span className="font-semibold text-foreground">Layout: {meta.name}</span>
               <span>·</span>
               <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">{meta.structuralTag}</span>
@@ -4933,7 +4976,7 @@ export default function CvBuilderPage() {
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
               {/* Highlight Keywords Toggle */}
               {advancedMatchReport && (
                 <button
@@ -4994,17 +5037,18 @@ export default function CvBuilderPage() {
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
             <div className="cv-a4-viewport">
-              <div
+                <div
                 className="cv-zoom-outer"
                 style={{
-                  height: a4StackHeightPx
-                    ? `${Math.ceil(a4StackHeightPx * (zoomLevel / 100))}px`
-                    : undefined,
+                   width: `${Math.ceil(canvasPageWidthPx * Math.min(zoomLevel / 100, canvasFitScale))}px`,
+                   height: a4StackHeightPx
+                     ? `${Math.ceil(a4StackHeightPx * Math.min(zoomLevel / 100, canvasFitScale))}px`
+                     : undefined,
                 }}
               >
                 <div
                   style={{
-                    transform: `scale(${zoomLevel / 100})`,
+                    transform: `scale(${Math.min(zoomLevel / 100, canvasFitScale)})`,
                     transformOrigin: "top center",
                     transition: "transform 0.15s ease-out",
                   }}

@@ -1,1 +1,2 @@
 - [Generated client DOM iterable requirement](generated-client-dom-iterable.md) — keep DOM.Iterable enabled for Orval-generated Fetch client types.
+- [Workspace tooling constraints](workspace-tooling.md) — nested pnpm commands need the package-manager opt-out; APK binaries need an Android SDK.

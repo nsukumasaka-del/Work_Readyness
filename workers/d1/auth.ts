@@ -47,7 +47,7 @@ export type D1Env = MailEnv & {
   FACEBOOK_APP_SECRET?: string;
 };
 
-type UserRow = {
+export type UserRow = {
   id: string;
   email: string;
   password_hash: string;
@@ -56,6 +56,17 @@ type UserRow = {
   is_admin?: number;
   created_at: string;
 };
+
+/** Resolve the signed-in D1 user for other Worker-native API modules. */
+export async function getAuthenticatedUser(
+  request: Request,
+  env: D1Env,
+): Promise<UserRow | null> {
+  const token = readSessionToken(request);
+  if (!token) return null;
+  const resolved = await resolveSession(env.DB, token);
+  return resolved?.user || null;
+}
 
 type SessionRow = {
   id: string;
@@ -321,22 +332,6 @@ async function resolveSession(
       expires_at: row.expires_at,
       created_at: row.session_created_at,
     },
-  };
-}
-
-export async function getAuthenticatedUser(
-  request: Request,
-  db: D1Database,
-): Promise<{ id: string; name: string; email: string; isAdmin: boolean } | null> {
-  const token = readSessionToken(request);
-  if (!token) return null;
-  const resolved = await resolveSession(db, token);
-  if (!resolved) return null;
-  return {
-    id: resolved.user.id,
-    name: resolved.user.name,
-    email: resolved.user.email,
-    isAdmin: Boolean(resolved.user.is_admin),
   };
 }
 

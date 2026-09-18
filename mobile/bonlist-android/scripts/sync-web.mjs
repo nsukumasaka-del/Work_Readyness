@@ -86,7 +86,13 @@ function buildWeb() {
   }
   const result = run(
     "pnpm",
-    ["--filter", "@workspace/careerbridge-sa", "run", "build"],
+    [
+      "--config.manage-package-manager-versions=false",
+      "--filter",
+      "@workspace/careerbridge-sa",
+      "run",
+      "build",
+    ],
     repoRoot,
     {
       BONLIST_SKIP_MOBILE_POSTBUILD: "1",

@@ -1860,7 +1860,7 @@ function Home() {
                     >
                       <input
                         type="file"
-                        accept=".pdf,.doc,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                        accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                         className="sr-only"
                         onChange={(event) => {
                           const file = event.target.files?.[0] ?? null;

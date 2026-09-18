@@ -4,11 +4,8 @@
  * - Other /api/* → optional legacy upstream only if API_UPSTREAM_URL is set
  * - Everything else → static SPA assets
  */
-import { getAuthenticatedUser, handleD1Auth, type D1Env } from "./d1/auth";
-import { handleCvParseUpload } from "./cv-parse";
-import { handleCvCareer } from "./cv-career";
-import { handleCvDiagnostic } from "./cv-diagnostic";
-import { handleCvAdmin } from "./cv-admin";
+import { handleD1Auth, type D1Env } from "./d1/auth";
+import { handleD1Career } from "./d1/career";
 
 export interface Env extends D1Env {
   ASSETS: Fetcher;
@@ -56,25 +53,11 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-      if (url.pathname === "/api/career/cv/parse-upload") {
-        if (!env.DB || !await getAuthenticatedUser(request, env.DB)) {
-          return jsonError(401, "Please sign in to continue.");
-        }
-        return handleCvParseUpload(request);
-      }
-
-      const cvResponse = await handleCvCareer(request, env);
-      if (cvResponse) return cvResponse;
-
-      const adminResponse = await handleCvAdmin(request, env);
-      if (adminResponse) return adminResponse;
-
-      const diagnosticResponse = await handleCvDiagnostic(request, env);
-      if (diagnosticResponse) return diagnosticResponse;
-
       if (env.DB) {
         const authResponse = await handleD1Auth(request, env);
         if (authResponse) return authResponse;
+        const careerResponse = await handleD1Career(request, env);
+        if (careerResponse) return careerResponse;
       }
 
       const upstream = String(env.API_UPSTREAM_URL || "")

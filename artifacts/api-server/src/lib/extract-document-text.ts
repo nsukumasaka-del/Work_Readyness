@@ -161,8 +161,17 @@ export function sanitizeExtractedCvText(raw: string): string {
 }
 
 function decodeDataUrlOrBase64(fileData: string): Buffer {
-  const base64Data = fileData.includes(",") ? fileData.split(",")[1]! : fileData;
-  return Buffer.from(base64Data, "base64");
+  const value = String(fileData || "").trim();
+  const base64Data = value.includes(",") ? value.slice(value.indexOf(",") + 1) : value;
+  if (!base64Data || !/^[A-Za-z0-9+/=\s]+$/.test(base64Data)) {
+    throw new DocumentExtractionError("The uploaded file data is invalid. Please choose the file again.");
+  }
+  const normalized = base64Data.replace(/\s/g, "");
+  const buffer = Buffer.from(normalized, "base64");
+  if (!buffer.length) {
+    throw new DocumentExtractionError("The uploaded file was empty. Please choose a different file.");
+  }
+  return buffer;
 }
 
 /**
@@ -266,6 +275,10 @@ export async function extractTextFromUpload(options: {
   }
 
   const buffer = decodeDataUrlOrBase64(options.fileData);
+  const maxUploadBytes = 20 * 1024 * 1024;
+  if (buffer.length > maxUploadBytes) {
+    throw new DocumentExtractionError("This file is too large. Please upload a CV under 20MB or paste the text directly.");
+  }
 
   if (kind === "pdf") {
     let text = "";

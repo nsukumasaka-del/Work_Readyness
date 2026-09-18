@@ -92,6 +92,18 @@ app.use((err: unknown, _req: express.Request, res: express.Response, next: expre
     err !== null &&
     "body" in err;
 
+  if (
+    err &&
+    typeof err === "object" &&
+    "type" in err &&
+    (err as { type?: string }).type === "entity.too.large"
+  ) {
+    res.status(413).json({
+      error: "The uploaded request is too large. Please upload a CV under 20MB or paste the text directly.",
+    });
+    return;
+  }
+
   if (isBodySyntaxError) {
     res.status(400).json({ error: "Invalid JSON in request body" });
     return;

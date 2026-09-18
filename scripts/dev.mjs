@@ -66,7 +66,13 @@ function shutdown(code = 0) {
 for (const proc of processes) {
   const child = spawn(
     "pnpm",
-    ["--filter", proc.filter, "run", "dev"],
+    [
+      "--config.manage-package-manager-versions=false",
+      "--filter",
+      proc.filter,
+      "run",
+      "dev",
+    ],
     {
       cwd: root,
       env: proc.env,

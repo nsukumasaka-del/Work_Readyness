@@ -582,9 +582,11 @@ async function handleParse(request: Request, env: D1Env, user?: UserRow): Promis
   const fileData = clean(input.fileData);
   const lowerFileName = fileName.toLowerCase();
   const text = clean(input.text) || (
-    /\.(txt|text)$/i.test(lowerFileName)
-      ? decodeBase64Text(fileData)
-      : extractSimplePdfText(fileData)
+  /\.(txt|text)$/i.test(lowerFileName)
+  ? decodeBase64Text(fileData)
+  : /\.pdf$/i.test(lowerFileName)
+  ? extractSimplePdfText(fileData)
+  : ""
   );
   if (!text) {
     return error(415, "Cloudflare could not read the file bytes. Re-export the CV as a text-based PDF, save Word documents as .docx, or use the paste-text option.");

@@ -61,7 +61,7 @@ function resolveUploadText(input: Record<string, unknown>, fileName: string): st
   const pasted = str(input.text);
   if (pasted) return pasted;
   const fileData = str(input.fileData);
-  if (!fileData || !/\\.pdf$/i.test(fileName)) return "";
+  if (!fileData || !/\.pdf$/i.test(fileName)) return "";
   return decodePdfLiteralText(fileData);
 }
 

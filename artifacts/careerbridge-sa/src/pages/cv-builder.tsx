@@ -2322,26 +2322,19 @@ export default function CvBuilderPage() {
       const extractedPayload: ExtractedCvData = extractedData
         ? {
             ...extractedData,
-            personal: {
-              ...extractedData.personal,
-              fullName: extractedData.personal?.fullName || candidateContent.personal.fullName,
-              email: extractedData.personal?.email || candidateContent.personal.email,
-              phone: extractedData.personal?.phone || candidateContent.personal.phone,
-              location: extractedData.personal?.location || candidateContent.personal.location,
-              professionalTitle:
-                extractedData.personal?.professionalTitle || candidateContent.personal.professionalTitle,
-            },
-            cv_content: extractedData.cv_content
-              ? {
-                  ...extractedData.cv_content,
-                  personal: {
-                    ...extractedData.cv_content.personal,
-                    fullName:
-                      extractedData.cv_content.personal?.fullName || candidateContent.personal.fullName,
-                    email: extractedData.cv_content.personal?.email || candidateContent.personal.email,
-                  },
-                }
-              : candidateContent,
+            // Always send the reviewed form as the source of truth. Previously the
+            // extracted document was spread back over manual edits, so changes made
+            // after upload silently disappeared before generation.
+            personal: candidateContent.personal,
+            summary: candidateContent.summary,
+            experiences: rawExperiences,
+            education: rawEducation,
+            skills: rawSkills,
+            certifications: rawCertifications,
+            languages: rawLanguages,
+            projects: rawProjects,
+            references: rawReferences,
+            cv_content: candidateContent,
           }
         : {
             cv_content: candidateContent,

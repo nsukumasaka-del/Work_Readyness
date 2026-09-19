@@ -1945,7 +1945,7 @@ function Home() {
               className="h-[4.5rem] w-auto max-w-[min(480px,94vw)] object-contain object-left sm:h-20 md:h-24"
             />
             <h1 className="display mt-5 max-w-xl text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl md:text-[2.75rem] md:leading-[1.1]">
-              Transform your CV into interview Invitations.
+              Transform your CV into interview Invitations now.
             </h1>
             <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground md:text-lg">
               Upload your CV now for the perfect accurate review and revamp  then see recommended roles that fit your story today.

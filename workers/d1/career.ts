@@ -99,10 +99,22 @@ function clean(value: unknown): string {
  * still extracted in the browser; compressed/image-only PDFs need a text
  * export or pasted text because Workers do not provide OCR.
  */
+function decodeBase64Text(fileData: string): string {
+  const encoded = fileData.includes(",") ? fileData.slice(fileData.indexOf(",") + 1) : fileData;
+  try {
+    const binary = atob(encoded.replace(/\s/g, ""));
+    return new TextDecoder("utf-8", { fatal: false }).decode(
+      Uint8Array.from(binary, (character) => character.charCodeAt(0)),
+    ).replace(/\u0000/g, "").trim();
+  } catch {
+    return "";
+  }
+}
+
 function extractSimplePdfText(fileData: string): string {
   const encoded = fileData.includes(",") ? fileData.slice(fileData.indexOf(",") + 1) : fileData;
   try {
-    const binary = atob(encoded);
+    const binary = atob(encoded.replace(/\s/g, ""));
     const blocks = binary.match(/BT[\s\S]*?ET/g) || [];
     const parts: string[] = [];
     for (const block of blocks) {
@@ -566,12 +578,19 @@ async function handleParse(request: Request, env: D1Env, user?: UserRow): Promis
   void env;
   void user;
   const input = await body(request);
-  const text = clean(input.text) || extractSimplePdfText(clean(input.fileData));
+  const fileName = clean(input.fileName) || "CV";
+  const fileData = clean(input.fileData);
+  const lowerFileName = fileName.toLowerCase();
+  const text = clean(input.text) || (
+    /\.(txt|text)$/i.test(lowerFileName)
+      ? decodeBase64Text(fileData)
+      : extractSimplePdfText(fileData)
+  );
   if (!text) {
-    return error(415, "Cloudflare could not read the file bytes. Re-export the CV as a text-based PDF, or use the paste-text option.");
+    return error(415, "Cloudflare could not read the file bytes. Re-export the CV as a text-based PDF, save Word documents as .docx, or use the paste-text option.");
   }
   if (text.length < 10) return error(400, "No readable CV text was found. Please paste the CV text or upload a text-based document.");
-  const data = parseCvText(text, clean(input.fileName) || "CV");
+  const data = parseCvText(text, fileName);
   return json(cvContent(data));
 }
 

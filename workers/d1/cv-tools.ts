@@ -36,6 +36,35 @@ function str(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function decodePdfLiteralText(fileData: string): string {
+  const encoded = fileData.includes(",") ? fileData.slice(fileData.indexOf(",") + 1) : fileData;
+  try {
+    const binary = atob(encoded.replace(/\s/g, ""));
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const source = new TextDecoder("latin1").decode(bytes);
+    const parts: string[] = [];
+    for (const match of source.matchAll(/\\((?:\\\\.|[^\\)])*\\)\\s*(?:Tj|TJ)/g)) {
+      const literal = match[0].replace(/\\s*(?:Tj|TJ)$/, "").slice(1, -1);
+      parts.push(literal
+        .replace(/\\\\([\\()\\\\])/g, "$1")
+        .replace(/\\n/g, "\n")
+        .replace(/\\r/g, "")
+        .replace(/\\t/g, "\t"));
+    }
+    return parts.join(" ").replace(/\s+/g, " ").trim();
+  } catch {
+    return "";
+  }
+}
+
+function resolveUploadText(input: Record<string, unknown>, fileName: string): string {
+  const pasted = str(input.text);
+  if (pasted) return pasted;
+  const fileData = str(input.fileData);
+  if (!fileData || !/\\.pdf$/i.test(fileName)) return "";
+  return decodePdfLiteralText(fileData);
+}
+
 async function outcomes(request: Request, env: D1Env, user: UserRow): Promise<Response> {
   const profile = await env.DB.prepare("SELECT id FROM career_profiles WHERE user_id = ?")
     .bind(user.id).first<{ id: number }>();
@@ -79,11 +108,11 @@ export async function handleCvTools(request: Request, env: D1Env): Promise<Respo
   const input = await request.json().catch(() => ({})) as Record<string, unknown>;
 
   if (tool === "parse-upload") {
-    const text = str(input.text);
     const fileName = str(input.fileName) || "uploaded-cv";
+    const text = resolveUploadText(input, fileName);
     if (!text) {
       return json({
-        error: "This Cloudflare deployment needs readable document text. Please re-save the CV as a text-based PDF or DOCX and try again.",
+        error: "We could not read text from this upload. Please use a text-based PDF, DOCX, or paste the CV text directly.",
       }, 415);
     }
     if (text.length > 250_000) {

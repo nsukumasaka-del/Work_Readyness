@@ -5,14 +5,17 @@
 #
 # Deploy: pnpm run cf:deploy
 
-name = "bonlist"
+# Cloudflare Workers Builds deploys this project as `work-readyness`.
+# Keep the name aligned so Wrangler does not rewrite the config during CI.
+name = "work-readyness"
 main = "workers/gateway.ts"
 compatibility_date = "2025-09-01"
 workers_dev = true
 
-[[routes]]
-pattern = "www.bonlist.site/*"
-zone_name = "bonlist.site"
+# The bonlist.site route is already owned by the existing `bonlist` Worker.
+# Do not declare it here: Cloudflare rejects deployments when two Workers claim
+# the same route. Assign the custom-domain route to this Worker in Cloudflare
+# after the old Worker is retired; the workers.dev endpoint remains available.
 
 [vars]
 # Local/dev only — never leave true in production once Resend is wired.

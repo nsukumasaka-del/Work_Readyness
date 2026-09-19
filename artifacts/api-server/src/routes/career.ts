@@ -287,8 +287,8 @@ function documentFromExtracted(extracted: ExtractedCvData, targetRole: string): 
     structureLabel: "Classic",
     structureDescription: "Diagnostic analysis document",
     templateType: "single_column",
-    fullName: extracted.personal?.fullName || "Candidate",
-    headline: extracted.personal?.professionalTitle || targetRole || "Professional",
+  fullName: extracted.personal?.fullName || "",
+  headline: extracted.personal?.professionalTitle || targetRole || "",
     contactLine: [extracted.personal?.email, extracted.personal?.phone, extracted.personal?.location]
       .filter(Boolean)
       .join(" · "),
@@ -1458,31 +1458,15 @@ router.post("/career/programme/progress", async (req, res) => {
   });
 });
 
-router.get("/career/cv/structures", (_req, res) => {
-  res.json({
-    structures: CV_STRUCTURES.map((id) => {
-      const sample = buildGeneratedCv({
-        profile: { name: "Candidate", email: "you@example.com", targetRole: "Target role" },
-        structure: id,
-      });
-      return {
-        id,
-        label: sample.structureLabel,
-        description: sample.structureDescription,
-      };
-    }),
-  });
-});
-
-router.post("/career/cv/generate", async (req, res) => {
+router.post("/career/cv/generate", async (req: AuthedUserRequest, res) => {
   const regenerate = Boolean(req.body?.regenerate);
   let structure = String(req.body?.structure || "").trim() as CvStructure | "";
 
-  const profile = await resolveOrUpsertCvProfile(req.body);
+  // CV generation supports the intake flow before sign-in. Resolve the submitted
+  // candidate data to a real profile instead of relying on a stale guest id.
+  const profile = req.userProfile || (await resolveOrUpsertCvProfile(req.body));
   if (!profile) {
-    res.status(400).json({
-      error: "A valid profile is required. Please sign in or provide your name and email.",
-    });
+    res.status(400).json({ error: "Please provide your name and email before generating a CV." });
     return;
   }
   const profileId = profile.id;
@@ -1647,12 +1631,8 @@ router.post("/career/cv/generate", async (req, res) => {
   });
 });
 
-router.get("/career/cv/latest", async (req, res) => {
-  const profileId = Number(req.query.profileId);
-  if (!Number.isFinite(profileId) || profileId <= 0) {
-    res.status(400).json({ error: "profileId is required" });
-    return;
-  }
+router.get("/career/cv/latest", requireUser, async (req: AuthedUserRequest, res) => {
+  const profileId = req.userProfile!.id;
   const [row] = await db
     .select()
     .from(generatedCvsTable)
@@ -1708,7 +1688,7 @@ router.get("/career/cv/structures", (_req, res) => {
   res.json({ structures });
 });
 
-router.post("/career/cv/parse-upload", requireUser, async (req, res) => {
+router.post("/career/cv/parse-upload", async (req, res) => {
   try {
     const fileName = req.body?.fileName ? String(req.body.fileName) : undefined;
     const fileData = req.body?.fileData ? String(req.body.fileData) : undefined;

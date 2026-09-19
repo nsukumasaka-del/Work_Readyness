@@ -3961,7 +3961,7 @@ export default function CvBuilderPage() {
   });
 
   return (
-    <div className="cv-builder flex min-h-[calc(100dvh-4rem)] min-w-0 flex-1 flex-col overflow-x-hidden bg-[#F4F5F7] font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="cv-builder flex min-h-[calc(100dvh-4rem)] min-w-0 flex-1 flex-col overflow-x-hidden bg-[#eef7f6] font-sans text-[#102a2a] dark:bg-[#071b1d] dark:text-[#e8f6f3]">
       {/* 1. MINIMALIST TOP COMMAND HEADER (ENHANCV-STYLE) */}
       <header className="cv-builder-command-header no-print relative z-30 border-b border-border bg-card/95 backdrop-blur-md sm:sticky sm:top-16">
         <div className="mx-auto flex min-h-14 max-w-full flex-wrap items-center justify-between gap-x-2 gap-y-1.5 px-3 py-2 sm:h-14 sm:flex-nowrap sm:gap-3 sm:px-6 sm:py-0">

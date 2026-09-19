@@ -744,9 +744,58 @@
   max-width: 100% !important;
   box-sizing: border-box !important;
   resize: none !important;
-  word-break: normal !important;
-  overflow-wrap: break-word !important;
-  hyphens: manual;
+}
+
+/* CV builder workspace: calm ink canvas with a focused teal action layer. */
+.cv-builder {
+  --cv-ink: #102a2a;
+  --cv-teal: #0f766e;
+  --cv-teal-bright: #14b8a6;
+  --cv-mist: #eef7f6;
+  background-image: radial-gradient(circle at 10% 0%, rgba(20, 184, 166, 0.1), transparent 28rem), linear-gradient(135deg, #eef7f6 0%, #f7fbfa 52%, #e8f3f2 100%);
+}
+
+.dark .cv-builder {
+  background-image: radial-gradient(circle at 10% 0%, rgba(20, 184, 166, 0.14), transparent 30rem), linear-gradient(135deg, #071b1d 0%, #0b2527 55%, #071719 100%);
+}
+
+.cv-builder-command-header {
+  border-color: rgba(15, 118, 110, 0.2) !important;
+  background: rgba(255, 255, 255, 0.88) !important;
+  box-shadow: 0 1px 0 rgba(15, 118, 110, 0.08), 0 12px 30px rgba(15, 76, 73, 0.06);
+}
+
+.dark .cv-builder-command-header {
+  background: rgba(7, 27, 29, 0.9) !important;
+  border-color: rgba(45, 212, 191, 0.16) !important;
+  box-shadow: 0 1px 0 rgba(45, 212, 191, 0.08), 0 14px 32px rgba(0, 0, 0, 0.18);
+}
+
+.cv-builder button:not(:disabled):focus-visible,
+.cv-builder input:focus-visible,
+.cv-builder textarea:focus-visible,
+.cv-builder select:focus-visible {
+  outline: 3px solid rgba(20, 184, 166, 0.35);
+  outline-offset: 2px;
+}
+
+.cv-builder .cv-autogrow-textarea {
+  border-radius: 0.55rem;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.cv-builder .cv-autogrow-textarea:focus {
+  border-color: var(--cv-teal-bright) !important;
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12);
+}
+
+@media (max-width: 640px) {
+  .cv-builder-command-header {
+    background: rgba(255, 255, 255, 0.96) !important;
+  }
+  .dark .cv-builder-command-header {
+    background: rgba(7, 27, 29, 0.96) !important;
+  }
 }
 
 #bonlist-cv-document textarea,

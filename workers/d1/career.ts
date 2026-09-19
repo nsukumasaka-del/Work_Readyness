@@ -431,7 +431,7 @@ export function parseCvText(rawText: string, fileName: string): ExtractedCv {
   };
   return {
     personal,
-    summary: summary || `${title} with experience documented in the submitted CV.`,
+    summary,
     experiences,
     education,
     skills,
@@ -521,7 +521,7 @@ function buildGeneratedDocument(profile: CareerProfileRow, extracted: Partial<Ex
   const email = clean(personal.email) || profile.email;
   const phone = clean(personal.phone) || profile.phone || "";
   const location = clean(personal.location) || profile.location || "South Africa";
-  const summary = clean(extracted?.summary) || `${headline} with verified experience and skills documented for ATS-friendly applications.`;
+  const summary = clean(extracted?.summary);
   const structureLabel = structure || "BonList Standard";
   return {
     structure: structure || "professional",
@@ -549,9 +549,9 @@ function buildGeneratedDocument(profile: CareerProfileRow, extracted: Partial<Ex
     certifications: extracted?.certifications || [],
     languages: extracted?.languages || [],
     references: extracted?.references || [],
-    sections: [{ heading: "Professional Summary", items: [summary] }],
+    sections: summary ? [{ heading: "Professional Summary", items: [summary] }] : [],
     keywords: [],
-    footerNote: "Engineered by BonList AI. Candidate information is based on the submitted source CV.",
+    footerNote: "",
     authenticityScore: 100,
     aiFeedback: { internalTips: [], missingKeywords: [], jobBoardAdvice: [], flaggedPhrases: [], strengths: [], improvements: [] },
   };
@@ -636,13 +636,49 @@ async function handleGenerate(request: Request, env: D1Env, user: UserRow): Prom
     profile = await currentProfile(env, user);
   }
   if (!profile) return error(400, "Please complete your profile before generating a CV.");
-  const extracted = input.extracted && typeof input.extracted === "object" ? (input.extracted as Partial<ExtractedCv>) : undefined;
+  const rawExtracted = input.extracted && typeof input.extracted === "object"
+    ? (input.extracted as Record<string, unknown>)
+    : undefined;
+  const nestedContent = rawExtracted?.cv_content && typeof rawExtracted.cv_content === "object"
+    ? (rawExtracted.cv_content as Partial<ExtractedCv>)
+    : undefined;
+  const topLevelContent = rawExtracted as Partial<ExtractedCv> | undefined;
+  const hasTopLevelContent = Boolean(
+    topLevelContent?.personal ||
+    topLevelContent?.summary ||
+    topLevelContent?.experiences ||
+    topLevelContent?.education ||
+    topLevelContent?.skills,
+  );
+  const extracted = hasTopLevelContent ? topLevelContent : nestedContent;
+  const hasSourceEvidence = Boolean(
+    clean(extracted?.summary) ||
+    extracted?.experiences?.length ||
+    extracted?.education?.length ||
+    extracted?.skills?.length ||
+    extracted?.projects?.length ||
+    extracted?.certifications?.length,
+  );
+  if (!hasSourceEvidence) {
+    return error(400, "Add employment, education, skills, or a professional summary, or upload your existing CV before generating.");
+  }
+  const serialized = JSON.stringify(extracted);
+  const syntheticMarkers = [
+    /\bEnterprise Services\b/i,
+    /\bRelevant Qualification\b/i,
+    /Delivered high-quality support as a .*resolving customer queries/i,
+    /Tracked service metrics and escalations to improve response times/i,
+    /Collaborated with teammates to maintain accurate records/i,
+  ];
+  if (syntheticMarkers.filter((marker) => marker.test(serialized)).length >= 2) {
+    return error(422, "Unsupported placeholder content was detected. Re-upload the source CV or enter the missing sections manually.");
+  }
   const document = buildGeneratedDocument(profile, extracted, clean(input.structure) || "professional");
   return json({
     id: Date.now(),
     version: 1,
     structure: document.structure,
-    title: `${profile.name} · ${document.headline} CV (${document.structureLabel})`,
+    title: `${document.fullName} · ${document.headline} CV (${document.structureLabel})`,
     createdAt: new Date().toISOString(),
     document,
     cv_content: extracted || { personal: { fullName: document.fullName, email: document.email }, summary: document.summary, experiences: document.experiences, education: document.education, skills: document.skills },

@@ -81,6 +81,13 @@ const PDF_JUNK_RE =
   /\b(?:\d+\s+\d+\s+obj|endobj|endstream|stream\b|xref\b|trailer\b|startxref|\/Type\s*\/|\/Filter\s*\/|\/Length\s+\d+|<<|>>)\b/i;
 const UI_PLACEHOLDER_RE =
   /click\s+[“"+]|no (?:education|projects|certifications|languages|references|skills)|add qualification|add project|available upon request above|synthesized? your background/i;
+const SYNTHETIC_CV_MARKERS = [
+  /\bEnterprise Services\b/i,
+  /\bRelevant Qualification\b/i,
+  /Delivered high-quality support as a .*resolving customer queries/i,
+  /Tracked service metrics and escalations to improve response times/i,
+  /Collaborated with teammates to maintain accurate records/i,
+];
 
 function scrubCvText(value: string | undefined | null): string {
   if (!value) return "";
@@ -281,6 +288,15 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     references,
     footerNote: "",
   };
+}
+
+function containsSyntheticCvContent(doc: GeneratedCvDocument): boolean {
+  const text = [
+    doc.summary,
+    ...doc.experiences.flatMap((exp) => [exp.role, exp.company, ...exp.bullets]),
+    ...doc.education.flatMap((edu) => [edu.degree, edu.institution]),
+  ].join("\n");
+  return SYNTHETIC_CV_MARKERS.filter((marker) => marker.test(text)).length >= 2;
 }
 
 function condenseCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
@@ -1045,8 +1061,14 @@ export async function generateCv(options: { regenerate?: boolean; structure?: st
     );
   }
   if (!response.ok) throw new Error(payload.error || "Could not generate CV");
-  persistGeneratedCv(payload as GeneratedCvResponse);
-  return payload as GeneratedCvResponse;
+  const generated = payload as GeneratedCvResponse;
+  if (!generated.document) throw new Error("The CV builder returned an incomplete document. Please re-upload your CV.");
+  generated.document = sanitizeCvDocument(generated.document);
+  if (containsSyntheticCvContent(generated.document)) {
+    throw new Error("The builder detected unsupported placeholder content. Please re-upload your CV or enter the missing sections manually.");
+  }
+  persistGeneratedCv(generated);
+  return generated;
 }
 
 // ---------------------------------------------------------------------------
@@ -1694,8 +1716,8 @@ export default function CvBuilderPage() {
     skills: "",
     projects: [],
     certifications: [],
-    languages: "English",
-    references: "Available upon request",
+    languages: "",
+    references: "",
   });
 
   // Decoupled AI Feedback Channel State (Quarantined from CV document canvas)
@@ -1709,11 +1731,11 @@ export default function CvBuilderPage() {
         ...prev.experiences,
         {
           id: `exp-${prev.experiences.length + 1}`,
-          role: "Target Role Title",
-          company: "Company Name",
-          startDate: "2023",
-          endDate: "Present",
-          bullets: ["Coordinated operational deliverables and communicated with stakeholders."],
+          role: "",
+          company: "",
+          startDate: "",
+          endDate: "",
+          bullets: [],
         },
       ],
     }));
@@ -1730,7 +1752,7 @@ export default function CvBuilderPage() {
     setManualInput((prev) => {
       const exps = [...prev.experiences];
       const exp = { ...exps[expIdx]! };
-      exp.bullets = [...exp.bullets, "Executed key milestones with measurable operational improvements."];
+      exp.bullets = [...exp.bullets, ""];
       exps[expIdx] = exp;
       return { ...prev, experiences: exps };
     });
@@ -1753,9 +1775,9 @@ export default function CvBuilderPage() {
         ...prev.education,
         {
           id: `edu-${prev.education.length + 1}`,
-          degree: "Degree / Diploma",
-          institution: "University / Institution",
-          graduationYear: "2024",
+          degree: "",
+          institution: "",
+          graduationYear: "",
         },
       ],
     }));
@@ -1812,85 +1834,10 @@ export default function CvBuilderPage() {
     }));
   };
 
-  const handlePrefillSample = () => {
-    const diag = readReport();
-    const targetRole = diag?.targetRole || "Software Engineer";
-    const name = diag?.fileName ? diag.fileName.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ") : "Kgotso Maduna";
-    setManualInput({
-      fullName: name,
-      professionalTitle: targetRole,
-      email: profile?.email || "candidate@bonlist.co.za",
-      phone: profile?.phone || "+27 82 555 1234",
-      location: profile?.location || "Johannesburg, South Africa",
-      linkedin: "https://linkedin.com/in/kgotsomaduna",
-      website: "https://kgotsomaduna.dev",
-      summary: "Disciplined Software Engineer with hands-on experience designing and deploying scalable web services, RESTful APIs, and responsive enterprise interfaces.",
-      experiences: [
-        {
-          id: "exp-1",
-          role: targetRole,
-          company: "Enterprise Technology Services",
-          startDate: "2022",
-          endDate: "Present",
-          bullets: [
-            "Architected and deployed responsive C# and .NET web applications improving delivery turnaround by 25%.",
-            "Developed RESTful APIs and optimized SQL database queries for seamless high-concurrency performance.",
-            "Collaborated across engineering and QA teams to maintain 98% test coverage across release branches.",
-          ],
-        },
-        {
-          id: "exp-2",
-          role: "Junior Software Developer",
-          company: "Digital Solutions Group",
-          startDate: "2020",
-          endDate: "2022",
-          bullets: [
-            "Implemented frontend features and backend integration endpoints using modern clean architecture principles.",
-            "Participated in agile sprints, code reviews, and automated CI/CD deployment pipelines.",
-          ],
-        },
-      ],
-      education: [
-        {
-          id: "edu-1",
-          degree: "BSc in Computer Science & Applied Information Technology",
-          institution: "University of the Witwatersrand",
-          graduationYear: "2020",
-        },
-      ],
-      skills: "C#, .NET Core, ASP.NET, SQL Server, REST APIs, Git, Docker, CI/CD, Problem Solving, Agile",
-      projects: [
-        {
-          id: "proj-1",
-          title: "Automated Enterprise Document Pipeline",
-          subtitle: "Lead Developer · React, Node.js, PostgreSQL",
-          link: "https://github.com/kgotso/enterprise-pipeline",
-          bullets: [
-            "Built end-to-end document verification pipeline reducing manual review time by 40%.",
-            "Implemented webhook notifications and real-time processing queues with robust observability.",
-          ],
-        },
-      ],
-      certifications: [
-        {
-          id: "cert-1",
-          name: "AWS Certified Solutions Architect",
-          issuer: "Amazon Web Services",
-          year: "2023",
-        },
-      ],
-      languages: "English (Native), isiZulu (Fluent), Afrikaans (Conversational)",
-      references: "Available upon request",
-    });
-    setMessage("Pre-filled form with professional Software Engineer sample data!");
-    setTimeout(() => setMessage(""), 3500);
-  };
-
   const handlePrefillWithDiagnostic = () => {
     const diag = readReport();
     if (!diag) return;
-    const targetRole = diag.targetRole || "Software Engineer";
-    const name = diag.fileName ? diag.fileName.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ") : (profile?.name || "Candidate Name");
+    const targetRole = diag.targetRole || profile?.targetRole || "";
 
     // Decouple internal feedback: route reviewer critique to isolated aiFeedback channel
     if (diag.summary) {
@@ -1908,37 +1855,15 @@ export default function CvBuilderPage() {
       }));
     }
 
-    const cleanCandidateBio = `Dedicated ${targetRole} with proven background delivering reliable, high-quality technical outcomes. Combines structured software engineering delivery with proactive cross-functional collaboration and practical problem-solving.`;
-
     setManualInput((prev) => ({
       ...prev,
-      fullName: name,
-      professionalTitle: targetRole,
-      email: profile?.email || prev.email || "candidate@bonlist.co.za",
-      phone: profile?.phone || prev.phone || "+27 82 555 1234",
-      location: profile?.location || prev.location || "Johannesburg, South Africa",
-      summary: cleanCandidateBio,
-      experiences: prev.experiences.length > 0 ? prev.experiences : [
-        {
-          id: "exp-1",
-          role: targetRole,
-          company: "Enterprise Technology Services",
-          startDate: "2022",
-          endDate: "Present",
-          bullets: diag.rewriteExamples && diag.rewriteExamples.length > 0
-            ? diag.rewriteExamples.map((ex: any) => ex.after || ex.before)
-            : [
-                "Engineered robust solutions and APIs aligned with business requirements.",
-                "Optimized database performance and streamlined delivery pipelines.",
-              ],
-        },
-      ],
-      education: prev.education,
-      skills: diag.missingKeywords && diag.missingKeywords.length > 0
-        ? Array.from(new Set([...(prev.skills ? prev.skills.split(/[,;\n]+/).map(s => s.trim()) : []), ...diag.missingKeywords.slice(0, 5)])).filter(Boolean).join(", ")
-        : prev.skills,
+      fullName: prev.fullName || profile?.name || "",
+      professionalTitle: prev.professionalTitle || targetRole,
+      email: prev.email || profile?.email || "",
+      phone: prev.phone || profile?.phone || "",
+      location: prev.location || profile?.location || "",
     }));
-    setMessage("Pre-filled form with target role! Reviewer feedback has been routed to the AI Guidance panel.");
+    setMessage("Profile details and the chosen target role were added. Upload the original CV to import employment and education.");
     setTimeout(() => setMessage(""), 3500);
   };
 
@@ -1987,19 +1912,19 @@ export default function CvBuilderPage() {
 
       const rawExperiences = (candidateContent.experiences || []).map((exp, idx) => ({
         id: exp.id || `exp-${idx + 1}`,
-        role: exp.role || "Target Role",
-        company: exp.company || "Company",
-        startDate: exp.startDate || "2022",
-        endDate: exp.endDate || "Present",
+        role: exp.role || "",
+        company: exp.company || "",
+        startDate: exp.startDate || "",
+        endDate: exp.endDate || "",
         bullets: exp.bullets || [],
         classification: "VERIFIED" as const,
       }));
 
       const rawEducation = (candidateContent.education || []).map((edu, idx) => ({
         id: edu.id || `edu-${idx + 1}`,
-        degree: edu.degree || "Qualification",
-        institution: edu.institution || "Institution",
-        graduationYear: edu.graduationYear || "Completed",
+        degree: edu.degree || "",
+        institution: edu.institution || "",
+        graduationYear: edu.graduationYear || "",
         classification: "VERIFIED" as const,
       }));
 
@@ -2011,8 +1936,8 @@ export default function CvBuilderPage() {
       }
       const rawProjects = candidateContent.projects || [];
       const rawCertifications = candidateContent.certifications || [];
-      const rawLanguages = candidateContent.languages && candidateContent.languages.length > 0 ? candidateContent.languages : ["English"];
-      const rawReferences = candidateContent.references && candidateContent.references.length > 0 ? candidateContent.references : ["Available upon request"];
+      const rawLanguages = candidateContent.languages || [];
+      const rawReferences = candidateContent.references || [];
 
       // Update manual form state in case the user wants to adjust details later
       setManualInput({
@@ -2147,19 +2072,19 @@ export default function CvBuilderPage() {
 
       const rawExperiences = (candidateContent.experiences || []).map((exp, idx) => ({
         id: exp.id || `exp-${idx + 1}`,
-        role: exp.role || "Target Role",
-        company: exp.company || "Company",
-        startDate: exp.startDate || "2022",
-        endDate: exp.endDate || "Present",
+        role: exp.role || "",
+        company: exp.company || "",
+        startDate: exp.startDate || "",
+        endDate: exp.endDate || "",
         bullets: exp.bullets || [],
         classification: "VERIFIED" as const,
       }));
 
       const rawEducation = (candidateContent.education || []).map((edu, idx) => ({
         id: edu.id || `edu-${idx + 1}`,
-        degree: edu.degree || "Qualification",
-        institution: edu.institution || "Institution",
-        graduationYear: edu.graduationYear || "Completed",
+        degree: edu.degree || "",
+        institution: edu.institution || "",
+        graduationYear: edu.graduationYear || "",
         classification: "VERIFIED" as const,
       }));
 
@@ -2171,8 +2096,8 @@ export default function CvBuilderPage() {
       }
       const rawProjects = candidateContent.projects || [];
       const rawCertifications = candidateContent.certifications || [];
-      const rawLanguages = candidateContent.languages && candidateContent.languages.length > 0 ? candidateContent.languages : ["English"];
-      const rawReferences = candidateContent.references && candidateContent.references.length > 0 ? candidateContent.references : ["Available upon request"];
+      const rawLanguages = candidateContent.languages || [];
+      const rawReferences = candidateContent.references || [];
 
       setManualInput({
         fullName: candidateContent.personal?.fullName || "",
@@ -2314,10 +2239,10 @@ export default function CvBuilderPage() {
         .filter((exp) => exp.role.trim() || exp.company.trim())
         .map((exp) => ({
           id: exp.id || `exp-${Math.random().toString(36).substring(2, 7)}`,
-          role: exp.role.trim() || "Role Title",
-          company: exp.company.trim() || "Company",
-          startDate: exp.startDate.trim() || "2023",
-          endDate: exp.endDate.trim() || "Present",
+          role: exp.role.trim(),
+          company: exp.company.trim(),
+          startDate: exp.startDate.trim(),
+          endDate: exp.endDate.trim(),
           bullets: exp.bullets.filter((b) => b.trim().length > 0),
           classification: "VERIFIED" as const,
         }));
@@ -2326,9 +2251,9 @@ export default function CvBuilderPage() {
         .filter((edu) => edu.degree.trim() || edu.institution.trim())
         .map((edu) => ({
           id: edu.id || `edu-${Math.random().toString(36).substring(2, 7)}`,
-          degree: edu.degree.trim() || "Qualification",
-          institution: edu.institution.trim() || "Institution",
-          graduationYear: edu.graduationYear.trim() || "Completed",
+          degree: edu.degree.trim(),
+          institution: edu.institution.trim(),
+          graduationYear: edu.graduationYear.trim(),
           classification: "VERIFIED" as const,
         }));
 
@@ -2352,7 +2277,7 @@ export default function CvBuilderPage() {
         .map((c) => ({
           id: c.id || `cert-${Math.random().toString(36).substring(2, 7)}`,
           name: c.name.trim(),
-          issuer: c.issuer.trim() || "Accredited Body",
+          issuer: c.issuer.trim(),
           year: c.year?.trim() || undefined,
         }));
 
@@ -2365,6 +2290,18 @@ export default function CvBuilderPage() {
         .split("\n")
         .map((r) => r.trim())
         .filter(Boolean);
+
+      const hasManualEvidence = Boolean(
+        manualInput.summary.trim() ||
+        rawExperiences.length ||
+        rawEducation.length ||
+        rawSkills.length ||
+        rawProjects.length ||
+        rawCertifications.length,
+      );
+      if (!extractedData && !hasManualEvidence) {
+        throw new Error("Add employment, education, skills, or a professional summary, or upload your existing CV before generating.");
+      }
 
       const candidateContent: CvContentData = {
         personal: {
@@ -2383,9 +2320,9 @@ export default function CvBuilderPage() {
         skills: rawSkills,
         toolsAndSoftware: [],
         certifications: rawCertifications,
-        languages: rawLanguages.length > 0 ? rawLanguages : ["English"],
+        languages: rawLanguages,
         projects: rawProjects,
-        references: rawReferences.length > 0 ? rawReferences : ["Available upon request"],
+        references: rawReferences,
       };
 
       const extractedPayload: ExtractedCvData = extractedData
@@ -2429,9 +2366,9 @@ export default function CvBuilderPage() {
             skills: rawSkills,
             toolsAndSoftware: [],
             certifications: rawCertifications,
-            languages: rawLanguages.length > 0 ? rawLanguages : ["English"],
+            languages: rawLanguages,
             projects: rawProjects,
-            references: rawReferences.length > 0 ? rawReferences : ["Available upon request"],
+            references: rawReferences,
             verificationBreakdown: {
               personal: {
                 verified: Boolean(mergedName && (mergedEmail || manualInput.phone.trim())),
@@ -2439,7 +2376,7 @@ export default function CvBuilderPage() {
               },
               experience: {
                 count: rawExperiences.length,
-                verifiedDates: true,
+                verifiedDates: rawExperiences.every((exp) => Boolean(exp.startDate && exp.endDate)),
                 verifiedCompanies: rawExperiences.length > 0,
               },
               education: { count: rawEducation.length, verified: rawEducation.length > 0 },
@@ -2488,24 +2425,11 @@ export default function CvBuilderPage() {
 
     const diag = readReport();
     const prof = readStoredProfile() || readAuthProfile();
-    const targetRole = diag?.targetRole || prof?.targetRole || "Customer Service Agent";
-    const name =
-      prof?.name ||
-      (diag?.fileName
-        ? diag.fileName.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")
-        : "");
+    const targetRole = diag?.targetRole || prof?.targetRole || "";
+    const name = prof?.name || "";
     const email = prof?.email || "";
     const phone = prof?.phone || "";
-    const loc = prof?.location || "Johannesburg, South Africa";
-    const summary =
-      diag?.summary ||
-      (targetRole
-        ? `Results-focused ${targetRole} with verified experience delivering reliable service and measurable outcomes.`
-        : "Results-focused professional with verified experience delivering reliable outcomes.");
-    const skillsList =
-      diag?.missingKeywords && diag.missingKeywords.length > 0
-        ? ["Customer Service", "Communication", "CRM", ...diag.missingKeywords.slice(0, 4)].join(", ")
-        : "Customer Service, Communication, CRM, Problem Solving, Microsoft Office";
+    const loc = prof?.location || "";
 
     setManualInput((prev) => ({
       ...prev,
@@ -2514,40 +2438,6 @@ export default function CvBuilderPage() {
       email: prev.email || email,
       phone: prev.phone || phone,
       location: prev.location || loc,
-      summary: prev.summary || summary,
-      skills: prev.skills || skillsList,
-      experiences:
-        prev.experiences?.length && prev.experiences[0]?.role
-          ? prev.experiences
-          : [
-              {
-                id: "exp-1",
-                role: targetRole,
-                company: "Enterprise Services",
-                startDate: "2022",
-                endDate: "Present",
-                bullets:
-                  diag?.rewriteExamples && diag.rewriteExamples.length > 0
-                    ? diag.rewriteExamples.map((ex: any) => ex.after || ex.before)
-                    : [
-                        `Delivered high-quality support as a ${targetRole}, resolving customer queries with clear communication.`,
-                        "Tracked service metrics and escalations to improve response times and customer satisfaction.",
-                        "Collaborated with teammates to maintain accurate records and consistent service standards.",
-                      ],
-              },
-            ],
-      education: prev.education?.length
-        ? prev.education
-        : [
-            {
-              id: "edu-1",
-              degree: "Relevant Qualification",
-              institution: "Institution",
-              graduationYear: "Completed",
-            },
-          ],
-      languages: prev.languages || "English",
-      references: prev.references || "Available upon request",
     }));
 
     if (prof?.name || prof?.email) {
@@ -2574,7 +2464,11 @@ export default function CvBuilderPage() {
         document: sanitizeCvDocument(existing.document),
       };
       const looksBroken =
-        !condensed.document.experiences.length ||
+        (!condensed.document.experiences.length &&
+          !condensed.document.education.length &&
+          !condensed.document.skills.length &&
+          !condensed.document.summary) ||
+        containsSyntheticCvContent(condensed.document) ||
         /obj|endobj/i.test(existing.document.summary || "") ||
         /[\uFFFD]/.test(existing.document.fullName || "");
       if (looksBroken) {
@@ -3773,27 +3667,27 @@ export default function CvBuilderPage() {
 
         const rawExperiences = (candidateContent.experiences || []).map((exp, idx) => ({
           id: exp.id || `exp-${idx + 1}`,
-          role: exp.role || "Target Role",
-          company: exp.company || "Company",
-          startDate: exp.startDate || "2022",
-          endDate: exp.endDate || "Present",
+          role: exp.role || "",
+          company: exp.company || "",
+          startDate: exp.startDate || "",
+          endDate: exp.endDate || "",
           bullets: exp.bullets || [],
           classification: "VERIFIED" as const,
         }));
 
         const rawEducation = (candidateContent.education || []).map((edu, idx) => ({
           id: edu.id || `edu-${idx + 1}`,
-          degree: edu.degree || "Qualification",
-          institution: edu.institution || "Institution",
-          graduationYear: edu.graduationYear || "Completed",
+          degree: edu.degree || "",
+          institution: edu.institution || "",
+          graduationYear: edu.graduationYear || "",
           classification: "VERIFIED" as const,
         }));
 
         const rawSkills = candidateContent.skills || [];
         const rawProjects = candidateContent.projects || [];
         const rawCertifications = candidateContent.certifications || [];
-        const rawLanguages = candidateContent.languages && candidateContent.languages.length > 0 ? candidateContent.languages : ["English"];
-        const rawReferences = candidateContent.references && candidateContent.references.length > 0 ? candidateContent.references : ["Available upon request"];
+        const rawLanguages = candidateContent.languages || [];
+        const rawReferences = candidateContent.references || [];
 
         setManualInput({
           fullName: candidateContent.personal?.fullName || "",
@@ -6770,20 +6664,13 @@ export default function CvBuilderPage() {
                     Fill in your professional details below. BonList will structure them into verified ATS-compliant format.
                   </span>
                   <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={handlePrefillSample}
-                      className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-1 text-[11px] font-bold text-primary hover:bg-primary/20 transition"
-                    >
-                      ✨ Pre-fill with Sample Data
-                    </button>
                     {readReport() && (
                       <button
                         type="button"
                         onClick={handlePrefillWithDiagnostic}
                         className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-[11px] font-bold text-sky-600 dark:text-sky-300 hover:bg-sky-500/20 transition"
                       >
-                        ⚡ Pre-fill from Review
+                        Use profile & target role
                       </button>
                     )}
                   </div>
@@ -7323,7 +7210,7 @@ export default function CvBuilderPage() {
                           Detected Review: {readReport()?.fileName || "Uploaded CV"}
                         </div>
                         <div className="text-[11px] text-muted-foreground">
-                          Targeting {readReport()?.targetRole || "Software Engineer"}. You can pre-fill your extracted data with one click!
+                          Targeting {readReport()?.targetRole || "your selected role"}. Upload the original CV to import source-backed employment and education.
                         </div>
                       </div>
                     </div>
@@ -7332,7 +7219,7 @@ export default function CvBuilderPage() {
                       onClick={handlePrefillWithDiagnostic}
                       className="rounded-xl bg-sky-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-sky-500 transition"
                     >
-                      Pre-fill from Review
+                      Use profile & target role
                     </button>
                   </div>
                 )}

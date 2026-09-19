@@ -205,15 +205,12 @@ function selectProfessionalBullets(bullets: string[], limit = MAX_BULLETS_PER_RO
 }
 
 function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
-  const fullName =
-    scrubCvText(doc.fullName) ||
-    (scrubCvText(doc.email)?.split("@")[0]?.replace(/[._]/g, " ") || "") ||
-    "Candidate";
-  const headline = scrubCvText(doc.headline) || "Professional";
+  const fullName = scrubCvText(doc.fullName) || "";
+  const headline = scrubCvText(doc.headline) || "";
   const summary = scrubCvText(doc.summary);
   const email = scrubCvText(doc.email);
   const phone = scrubCvText(doc.phone);
-  const location = scrubCvText(doc.location) || "South Africa";
+  const location = scrubCvText(doc.location);
   const linkedin = scrubCvText(doc.linkedin) || undefined;
   const website = scrubCvText(doc.website) || undefined;
   const contactLine = [email, phone, location, linkedin, website].filter(Boolean).join(" · ");
@@ -1092,17 +1089,14 @@ function TemplateThumbnail({
   const isAnalystClean = tpl.id === "analyst_clean" || tpl.id === "minimal";
   const isCreative = tpl.id === "creative";
 
-  const name = (doc?.fullName || "Your Name").trim() || "Your Name";
-  const title = (doc?.headline || "Professional Title").trim() || "Professional Title";
-  const contact = [doc?.email, doc?.phone, doc?.location].filter(Boolean).join(" · ") || "email · phone · city";
-  const summaryRaw = (doc?.summary || "Professional summary highlighting your experience and strengths.").trim();
+  const name = (doc?.fullName || "").trim();
+  const title = (doc?.headline || "").trim();
+  const contact = [doc?.email, doc?.phone, doc?.location].filter(Boolean).join(" · ");
+  const summaryRaw = (doc?.summary || "").trim();
   const summary = summaryRaw.slice(0, 90) + (summaryRaw.length > 90 ? "…" : "");
-  const experiences = (doc?.experiences?.length
-    ? doc.experiences
-    : [{ role: "Role Title", company: "Company", startDate: "2022", endDate: "Present", bullets: ["Key responsibility one.", "Key responsibility two."] }]
-  ).slice(0, 2);
-  const skills = (doc?.skills?.length ? doc.skills : ["Skill One", "Skill Two", "Skill Three", "Skill Four"]).slice(0, 6);
-  const education = (doc?.education?.length ? doc.education : [{ degree: "Qualification", institution: "Institution", graduationYear: "Year" }]).slice(0, 2);
+  const experiences = (doc?.experiences || []).slice(0, 2);
+  const skills = (doc?.skills || []).slice(0, 6);
+  const education = (doc?.education || []).slice(0, 2);
   const languages = (doc?.languages || []).slice(0, 3);
   const certs = (doc?.certifications || []).slice(0, 1);
 
@@ -1326,7 +1320,7 @@ function TemplateThumbnail({
       <div className="min-w-0 px-0.5">
         <div className="truncate text-xs font-bold text-foreground">{tpl.name}</div>
         <div className="mt-0.5 text-[10px] text-muted-foreground">
-          {isDouble ? "2-Column" : isTimeline ? "Timeline" : "Single-Column"} · {tpl.pageDensity}
+          {isDouble ? "2-Column" : isTimeline ? "Timeline" : "Single-Column"} �� {tpl.pageDensity}
         </div>
       </div>
     </button>
@@ -2305,12 +2299,11 @@ export default function CvBuilderPage() {
 
       const candidateContent: CvContentData = {
         personal: {
-          fullName: mergedName || "Candidate Name",
-          professionalTitle:
-            manualInput.professionalTitle.trim() || authProfile?.targetRole || "Professional",
-          email: mergedEmail || "",
-          phone: manualInput.phone.trim() || authProfile?.phone || "",
-          location: manualInput.location.trim() || authProfile?.location || "South Africa",
+  fullName: mergedName,
+  professionalTitle:
+    manualInput.professionalTitle.trim() || authProfile?.targetRole || "",
+  phone: manualInput.phone.trim() || authProfile?.phone || "",
+  location: manualInput.location.trim() || authProfile?.location || "",
           linkedin: manualInput.linkedin.trim() || undefined,
           website: manualInput.website.trim() || undefined,
         },
@@ -5741,9 +5734,8 @@ export default function CvBuilderPage() {
                         type="button"
                         onClick={() => {
                           updateDocumentField("references", [
-                            ...(cv.document.references || []),
-                            "Available upon request",
-                          ]);
+  ...(cv.document.references || []),
+]);
                         }}
                         className="text-[10px] font-bold text-primary hover:underline"
                       >

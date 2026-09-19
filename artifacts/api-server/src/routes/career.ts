@@ -287,8 +287,8 @@ function documentFromExtracted(extracted: ExtractedCvData, targetRole: string): 
     structureLabel: "Classic",
     structureDescription: "Diagnostic analysis document",
     templateType: "single_column",
-    fullName: extracted.personal?.fullName || "Candidate",
-    headline: extracted.personal?.professionalTitle || targetRole || "Professional",
+  fullName: extracted.personal?.fullName || "",
+  headline: extracted.personal?.professionalTitle || targetRole || "",
     contactLine: [extracted.personal?.email, extracted.personal?.phone, extracted.personal?.location]
       .filter(Boolean)
       .join(" · "),

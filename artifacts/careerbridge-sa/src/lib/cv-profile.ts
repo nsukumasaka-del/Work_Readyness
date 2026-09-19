@@ -23,8 +23,8 @@ export async function ensureCvProfile(partial?: {
   const existing = readStoredProfile() || readAuthProfile();
   const name = (
     partial?.name ||
-    existing?.name ||
-    "Professional Candidate"
+  existing?.name ||
+  ""
   ).trim();
   const email = (partial?.email || existing?.email || "candidate@bonlist.co.za")
     .trim()

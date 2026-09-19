@@ -3047,22 +3047,13 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       .map((l) => l.replace(/^[\s•\-\*▪▫►]+/, "").trim())
       .filter((l) => l.length > 3 && !/^(references|referees)$/i.test(l) && !isPageMarker(l));
   }
-  if (references.length === 0) {
-    references = ["Available upon request"];
-  }
+  // Candidate summary is copied from the CV when present; missing content stays empty.
 
   // Candidate summary: strictly 2-3 sentence biography, never reviewer notes
   let summary = summaryLines.join(" ").replace(/\s+/g, " ").trim();
   // Keep full professional summaries — only hard-cap extreme paste dumps
   if (summary.length > 2500) summary = summary.slice(0, 2500).trim();
-  if (!summary || isReviewerFeedbackNote(summary)) {
-    summary = generateCandidateBiography({
-      fullName,
-      professionalTitle: professionalTitle.split("|")[0]?.trim() || professionalTitle,
-      experiences,
-      skills: finalSkills,
-    });
-  }
+  if (isReviewerFeedbackNote(summary)) summary = "";
 
   const rawCandidateContent: CvContentData = {
     personal: {
@@ -3302,7 +3293,7 @@ export function buildGeneratedCv({
       ? extracted.personal.professionalTitle
       : profile.targetRole) ||
     extracted?.personal?.professionalTitle ||
-    "Professional";
+    "";
 
   const fullName =
     (extracted?.personal?.fullName && extracted.personal.fullName !== "Candidate"
@@ -3310,10 +3301,10 @@ export function buildGeneratedCv({
       : "") ||
     profile.name ||
     extracted?.personal?.fullName ||
-    "Candidate";
+    "";
 
   const email = extracted?.personal?.email || profile.email || "";
-  const location = extracted?.personal?.location || profile.location || "South Africa";
+  const location = extracted?.personal?.location || profile.location || "";
   const phone = extracted?.personal?.phone || profile.phone || "";
   const linkedin = extracted?.personal?.linkedin || extracted?.cv_content?.personal?.linkedin || undefined;
   const website = extracted?.personal?.website || extracted?.cv_content?.personal?.website || undefined;
@@ -3384,13 +3375,7 @@ export function buildGeneratedCv({
   } else if (extracted?.summary && !isReviewerFeedbackNote(extracted.summary)) {
     summary = extracted.summary;
   } else {
-    // Generate clean 2-3 sentence candidate biography based ONLY on actual experience and target role
-    summary = generateCandidateBiography({
-      fullName,
-      professionalTitle: targetRole,
-      experiences,
-      skills,
-    });
+    summary = "";
   }
 
   const skillGroups: CvSkillGroup[] = [

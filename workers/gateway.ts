@@ -7,6 +7,7 @@
 import { handleD1Auth, type D1Env } from "./d1/auth";
 import { handleD1Career } from "./d1/career";
 import { handleCvTools } from "./d1/cv-tools";
+import { handlePlatformTools } from "./d1/platform-tools";
 
 export interface Env extends D1Env {
   ASSETS: Fetcher;
@@ -22,7 +23,10 @@ function jsonError(status: number, error: string): Response {
   });
 }
 
-async function proxyApi(request: Request, upstreamBase: string): Promise<Response> {
+async function proxyApi(
+  request: Request,
+  upstreamBase: string,
+): Promise<Response> {
   const incoming = new URL(request.url);
   const target = new URL(incoming.pathname + incoming.search, upstreamBase);
 
@@ -45,7 +49,10 @@ async function proxyApi(request: Request, upstreamBase: string): Promise<Respons
   try {
     return await fetch(target.toString(), init);
   } catch {
-    return jsonError(502, "Could not reach the BonList API. Please try again in a moment.");
+    return jsonError(
+      502,
+      "Could not reach the BonList API. Please try again in a moment.",
+    );
   }
 }
 
@@ -61,6 +68,8 @@ export default {
         if (careerResponse) return careerResponse;
         const cvToolsResponse = await handleCvTools(request, env);
         if (cvToolsResponse) return cvToolsResponse;
+        const platformResponse = await handlePlatformTools(request, env);
+        if (platformResponse) return platformResponse;
       }
 
       const upstream = String(env.API_UPSTREAM_URL || "")

@@ -469,7 +469,7 @@
 
 .cv-zoom-stage {
   width: var(--cv-a4-width);
-  transform-origin: top center;
+  transform-origin: top left;
   overflow: visible !important;
 }
 

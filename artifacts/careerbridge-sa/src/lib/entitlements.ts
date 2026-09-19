@@ -1,4 +1,5 @@
 import type { UserProfile } from "@workspace/api-client-react";
+import { authFetch } from "@/lib/auth-session";
 
 export type PlanId = "free" | "job_seeker" | "career_pro";
 
@@ -50,7 +51,9 @@ function numericProfileId(profileId: string | number): number {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
 }
 
-export function defaultEntitlement(profileId: string | number = 0): Entitlement {
+export function defaultEntitlement(
+  profileId: string | number = 0,
+): Entitlement {
   return {
     profileId: numericProfileId(profileId),
     plan: "free",
@@ -62,10 +65,12 @@ export function defaultEntitlement(profileId: string | number = 0): Entitlement 
   };
 }
 
-export async function fetchEntitlement(profileId: string | number): Promise<Entitlement> {
+export async function fetchEntitlement(
+  profileId: string | number,
+): Promise<Entitlement> {
   const id = numericProfileId(profileId);
   if (!id) return defaultEntitlement();
-  const response = await fetch(`/api/career/entitlements?profileId=${id}`);
+  const response = await authFetch(`/api/career/entitlements?profileId=${id}`);
   if (!response.ok) return defaultEntitlement(id);
   return (await response.json()) as Entitlement;
 }

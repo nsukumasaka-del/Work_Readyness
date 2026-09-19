@@ -2108,7 +2108,7 @@ function ProfilePage() {
         profileId = ensured.id;
       }
 
-      const response = await fetch('/api/career/profile', {
+      const response = await authFetch('/api/career/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

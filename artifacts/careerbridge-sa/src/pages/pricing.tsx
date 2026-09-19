@@ -15,6 +15,7 @@ import {
   type Entitlement,
   type PlanId,
 } from "@/lib/entitlements";
+import { authFetch } from "@/lib/auth-session";
 
 type PlanCard = {
   id: PlanId;
@@ -87,7 +88,8 @@ const FALLBACK_PROGRAMME: ProgrammeInfo = {
   priceZar: 2000,
   headline: "STOP SOUNDING LIKE EVERYONE ELSE.",
   tagline: "A 3-Month Career Transformation Programme.",
-  badge: "3 MONTHS · FULL PLATFORM ACCESS · STRUCTURED CAREER & INTERVIEW TRAINING",
+  badge:
+    "3 MONTHS · FULL PLATFORM ACCESS · STRUCTURED CAREER & INTERVIEW TRAINING",
   disclaimer:
     "Designed to help you become interview-ready and improve your chances of securing interviews. Does not guarantee employment, a job offer, a specific salary, or an interview.",
   includes: [
@@ -107,7 +109,9 @@ export default function PricingPage() {
   const profile = readStoredProfile();
   const [plans, setPlans] = useState<PlanCard[]>(FALLBACK_PLANS);
   const [programme, setProgramme] = useState<ProgrammeInfo>(FALLBACK_PROGRAMME);
-  const [entitlement, setEntitlement] = useState<Entitlement>(defaultEntitlement(profile?.id || 0));
+  const [entitlement, setEntitlement] = useState<Entitlement>(
+    defaultEntitlement(profile?.id || 0),
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -116,7 +120,9 @@ export default function PricingPage() {
     let cancelled = false;
     (async () => {
       try {
-        const pricing = await fetch("/api/career/pricing").then((r) => r.json());
+        const pricing = await authFetch("/api/career/pricing").then((r) =>
+          r.json(),
+        );
         if (!cancelled && pricing?.plans) setPlans(pricing.plans);
         if (!cancelled && pricing?.programme) setProgramme(pricing.programme);
       } catch {
@@ -145,13 +151,14 @@ export default function PricingPage() {
     setError("");
     setMessage("");
     try {
-      const response = await fetch("/api/career/subscribe", {
+      const response = await authFetch("/api/career/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profileId: profile.id, plan }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Could not update plan");
+      if (!response.ok)
+        throw new Error(payload.error || "Could not update plan");
       setEntitlement(payload.entitlement);
       setMessage(
         plan === "free"
@@ -179,13 +186,14 @@ export default function PricingPage() {
     setError("");
     setMessage("");
     try {
-      const response = await fetch("/api/career/programme/purchase", {
+      const response = await authFetch("/api/career/programme/purchase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profileId: profile.id }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Could not join programme");
+      if (!response.ok)
+        throw new Error(payload.error || "Could not join programme");
       setEntitlement(payload.entitlement);
       setMessage(payload.message || "Programme activated.");
       window.dispatchEvent(new Event("careerbridge-entitlement-updated"));
@@ -200,7 +208,9 @@ export default function PricingPage() {
   const programmeActive = entitlement.programme?.status === "active";
   const [premiumNudge, setPremiumNudge] = useState(false);
   useEffect(() => {
-    setPremiumNudge(sessionStorage.getItem("careerbridge-premium-security-nudge") === "1");
+    setPremiumNudge(
+      sessionStorage.getItem("careerbridge-premium-security-nudge") === "1",
+    );
   }, [message]);
 
   return (
@@ -209,11 +219,17 @@ export default function PricingPage() {
         <div className="mb-8 rounded-2xl border border-teal-200 bg-teal-50 px-5 py-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex gap-3">
-              <ShieldCheck className="mt-0.5 shrink-0 text-teal-800" size={20} />
+              <ShieldCheck
+                className="mt-0.5 shrink-0 text-teal-800"
+                size={20}
+              />
               <div>
-                <p className="text-sm font-semibold text-teal-950">Protect your Premium account</p>
+                <p className="text-sm font-semibold text-teal-950">
+                  Protect your Premium account
+                </p>
                 <p className="mt-1 text-xs leading-5 text-teal-900/80">
-                  Your account contains personal information and saved CVs. We recommend enabling a passkey or authenticator app.
+                  Your account contains personal information and saved CVs. We
+                  recommend enabling a passkey or authenticator app.
                 </p>
               </div>
             </div>
@@ -225,7 +241,9 @@ export default function PricingPage() {
                 type="button"
                 className="rounded-xl px-3 py-2 text-sm font-semibold text-teal-900"
                 onClick={() => {
-                  sessionStorage.removeItem("careerbridge-premium-security-nudge");
+                  sessionStorage.removeItem(
+                    "careerbridge-premium-security-nudge",
+                  );
                   setPremiumNudge(false);
                 }}
               >
@@ -236,13 +254,16 @@ export default function PricingPage() {
         </div>
       ) : null}
       <div className="max-w-3xl">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Pricing</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+          Pricing
+        </p>
         <h1 className="display mt-3 text-4xl font-semibold text-foreground md:text-5xl">
           Choose how you want to grow.
         </h1>
         <p className="mt-4 text-sm leading-6 text-muted-foreground md:text-base">
-          Three monthly subscriptions for everyday platform access — plus one stand-alone 3-month
-          career transformation programme that unlocks everything.
+          Three monthly subscriptions for everyday platform access — plus one
+          stand-alone 3-month career transformation programme that unlocks
+          everything.
         </p>
         {entitlement.planName ? (
           <p className="mt-4 text-xs font-medium text-foreground">
@@ -257,8 +278,12 @@ export default function PricingPage() {
       </div>
 
       <section className="mt-10">
-        <h2 className="display text-2xl font-semibold text-foreground">Subscriptions</h2>
-        <p className="mt-2 text-sm text-muted-foreground">Billed monthly. Cancel or change anytime.</p>
+        <h2 className="display text-2xl font-semibold text-foreground">
+          Subscriptions
+        </h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Billed monthly. Cancel or change anytime.
+        </p>
         <div className="mt-6 grid gap-5 lg:grid-cols-3">
           {plans.map((plan) => {
             const active = !programmeActive && entitlement.plan === plan.id;
@@ -267,7 +292,9 @@ export default function PricingPage() {
               <article
                 key={plan.id}
                 className={`flex flex-col rounded-3xl border p-6 ${
-                  featured ? "border-primary bg-secondary/40 shadow-sm" : "border-border bg-card"
+                  featured
+                    ? "border-primary bg-secondary/40 shadow-sm"
+                    : "border-border bg-card"
                 }`}
                 data-testid={`card-plan-${plan.id}`}
               >
@@ -276,13 +303,23 @@ export default function PricingPage() {
                 </p>
                 <p className="display mt-3 text-4xl font-semibold text-foreground">
                   {formatZar(plan.priceZar)}
-                  <span className="ml-1 text-sm font-medium text-muted-foreground">/month</span>
+                  <span className="ml-1 text-sm font-medium text-muted-foreground">
+                    /month
+                  </span>
                 </p>
-                <p className="mt-3 text-sm text-muted-foreground">{plan.tagline}</p>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {plan.tagline}
+                </p>
                 <ul className="mt-6 flex-1 space-y-2.5">
                   {plan.features.map((feature) => (
-                    <li key={feature} className="flex gap-2 text-sm text-foreground">
-                      <Check size={16} className="mt-0.5 shrink-0 text-primary" />
+                    <li
+                      key={feature}
+                      className="flex gap-2 text-sm text-foreground"
+                    >
+                      <Check
+                        size={16}
+                        className="mt-0.5 shrink-0 text-primary"
+                      />
                       <span>{feature}</span>
                     </li>
                   ))}
@@ -307,7 +344,9 @@ export default function PricingPage() {
                         : plan.id === "free"
                           ? "Use Free"
                           : "Choose plan"}
-                  {!active && !programmeActive ? <ArrowRight size={15} /> : null}
+                  {!active && !programmeActive ? (
+                    <ArrowRight size={15} />
+                  ) : null}
                 </button>
               </article>
             );
@@ -321,16 +360,23 @@ export default function PricingPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary-foreground/80">
               Stand-alone programme · not a monthly subscription
             </p>
-            <h2 className="display mt-4 text-3xl font-semibold md:text-4xl">{programme.headline}</h2>
-            <p className="mt-3 text-lg font-medium text-primary-foreground/95">{programme.tagline}</p>
+            <h2 className="display mt-4 text-3xl font-semibold md:text-4xl">
+              {programme.headline}
+            </h2>
+            <p className="mt-3 text-lg font-medium text-primary-foreground/95">
+              {programme.tagline}
+            </p>
             <p className="mt-5 max-w-xl text-sm leading-6 text-primary-foreground/80">
-              AI has changed the job-search game. But when everyone uses the same tools, the same
-              phrases and the same answers, candidates start sounding exactly the same. We teach you
-              how to use AI strategically while keeping your own voice, personality and experience.
+              AI has changed the job-search game. But when everyone uses the
+              same tools, the same phrases and the same answers, candidates
+              start sounding exactly the same. We teach you how to use AI
+              strategically while keeping your own voice, personality and
+              experience.
             </p>
             <p className="mt-4 max-w-xl text-sm leading-6 text-primary-foreground/80">
-              Our structured 3-month programme helps you become job-ready, prepare for interviews,
-              communicate with confidence and stand out from the crowd.
+              Our structured 3-month programme helps you become job-ready,
+              prepare for interviews, communicate with confidence and stand out
+              from the crowd.
             </p>
             <p className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary-foreground/15 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.08em]">
               <Sparkles size={14} />
@@ -341,25 +387,34 @@ export default function PricingPage() {
                 <p className="text-xs uppercase tracking-[0.14em] text-primary-foreground/70">
                   Once-off investment
                 </p>
-                <p className="display mt-1 text-5xl font-semibold">{formatZar(programme.priceZar)}</p>
+                <p className="display mt-1 text-5xl font-semibold">
+                  {formatZar(programme.priceZar)}
+                </p>
               </div>
-              <p className="pb-2 text-sm text-primary-foreground/80">Full platform access for 3 months</p>
+              <p className="pb-2 text-sm text-primary-foreground/80">
+                Full platform access for 3 months
+              </p>
             </div>
           </div>
 
           <div className="p-7 md:p-10">
             <div className="flex items-center gap-2 text-primary">
               <HeartHandshake size={22} />
-              <h3 className="display text-xl font-semibold text-foreground">{programme.shortName}</h3>
+              <h3 className="display text-xl font-semibold text-foreground">
+                {programme.shortName}
+              </h3>
             </div>
             <p className="mt-3 text-sm text-muted-foreground">
-              Premium all-access career programme. No additional subscription payment during the
-              3-month period.
+              Premium all-access career programme. No additional subscription
+              payment during the 3-month period.
             </p>
             <ul className="mt-6 space-y-2.5">
               {programme.includes.map((item) => (
                 <li key={item} className="flex gap-2 text-sm text-foreground">
-                  <ShieldCheck size={16} className="mt-0.5 shrink-0 text-primary" />
+                  <ShieldCheck
+                    size={16}
+                    className="mt-0.5 shrink-0 text-primary"
+                  />
                   <span>{item}</span>
                 </li>
               ))}
@@ -388,24 +443,34 @@ export default function PricingPage() {
                 Open your programme dashboard
               </Link>
             ) : null}
-            <p className="mt-4 text-[11px] leading-5 text-muted-foreground">{programme.disclaimer}</p>
+            <p className="mt-4 text-[11px] leading-5 text-muted-foreground">
+              {programme.disclaimer}
+            </p>
           </div>
         </div>
       </section>
 
       {(error || message) && (
-        <p className={`mt-6 text-sm ${error ? "text-destructive" : "text-emerald-700"}`}>
+        <p
+          className={`mt-6 text-sm ${error ? "text-destructive" : "text-emerald-700"}`}
+        >
           {error || message}
         </p>
       )}
 
       {!profile ? (
         <p className="mt-6 text-sm text-muted-foreground">
-          <Link href="/login" className="font-semibold text-primary hover:underline">
+          <Link
+            href="/login"
+            className="font-semibold text-primary hover:underline"
+          >
             Log in
           </Link>{" "}
           or{" "}
-          <Link href="/signup" className="font-semibold text-primary hover:underline">
+          <Link
+            href="/signup"
+            className="font-semibold text-primary hover:underline"
+          >
             create an account
           </Link>{" "}
           to activate a plan or join the programme.

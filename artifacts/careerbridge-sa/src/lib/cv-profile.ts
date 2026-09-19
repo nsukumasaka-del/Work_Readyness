@@ -1,5 +1,5 @@
 import { readStoredProfile } from "@/lib/entitlements";
-import { authHeaders, readProfile as readAuthProfile } from "@/lib/auth-session";
+import { authFetch, readProfile as readAuthProfile } from "@/lib/auth-session";
 
 export type CareerProfile = {
   id: number | string;
@@ -21,26 +21,32 @@ export async function ensureCvProfile(partial?: {
   targetRole?: string;
 }): Promise<CareerProfile> {
   const existing = readStoredProfile() || readAuthProfile();
-  const name = (partial?.name || existing?.name || "Professional Candidate").trim();
+  const name = (
+    partial?.name ||
+    existing?.name ||
+    "Professional Candidate"
+  ).trim();
   const email = (partial?.email || existing?.email || "candidate@bonlist.co.za")
     .trim()
     .toLowerCase();
-  const response = await fetch("/api/career/profile", {
+  const response = await authFetch("/api/career/profile", {
     method: "POST",
-    headers: authHeaders(),
     credentials: "include",
     body: JSON.stringify({
       name,
       email,
       phone: (partial?.phone || existing?.phone || "").trim() || undefined,
-      location: (partial?.location || existing?.location || "").trim() || undefined,
-      targetRole: (partial?.targetRole || existing?.targetRole || "").trim() || undefined,
+      location:
+        (partial?.location || existing?.location || "").trim() || undefined,
+      targetRole:
+        (partial?.targetRole || existing?.targetRole || "").trim() || undefined,
     }),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(
-      (payload as { error?: string }).error || "Could not prepare your BonList profile",
+      (payload as { error?: string }).error ||
+        "Could not prepare your BonList profile",
     );
   }
   const profile = payload as CareerProfile;

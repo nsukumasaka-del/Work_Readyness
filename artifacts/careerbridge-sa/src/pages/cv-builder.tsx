@@ -5056,7 +5056,7 @@ export default function CvBuilderPage() {
                 <div
                   style={{
                     transform: `scale(${Math.min(zoomLevel / 100, canvasFitScale)})`,
-                    transformOrigin: "top center",
+                    transformOrigin: "top left",
                     transition: "transform 0.15s ease-out",
                   }}
                   className="cv-zoom-stage"

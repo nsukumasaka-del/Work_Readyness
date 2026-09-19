@@ -13,6 +13,7 @@ import {
   readStoredProfile,
   type Entitlement,
 } from "@/lib/entitlements";
+import { authFetch } from "@/lib/auth-session";
 
 type Lesson = {
   id: string;
@@ -57,7 +58,9 @@ export default function ProgrammePage() {
       setData(null);
       return;
     }
-    const response = await fetch(`/api/career/programme?profileId=${profile.id}`);
+    const response = await authFetch(
+      `/api/career/programme?profileId=${profile.id}`,
+    );
     if (!response.ok) {
       setError("Could not load programme dashboard.");
       return;
@@ -74,7 +77,7 @@ export default function ProgrammePage() {
     if (!profile?.id || data?.programme?.status !== "active") return;
     setBusyLesson(lessonId);
     try {
-      const response = await fetch("/api/career/programme/progress", {
+      const response = await authFetch("/api/career/programme/progress", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profileId: profile.id, lessonId, completed }),
@@ -85,7 +88,9 @@ export default function ProgrammePage() {
       }
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update progress");
+      setError(
+        err instanceof Error ? err.message : "Could not update progress",
+      );
     } finally {
       setBusyLesson(null);
     }
@@ -109,14 +114,21 @@ export default function ProgrammePage() {
   if (!data?.programme) {
     return (
       <div className="mx-auto max-w-3xl px-5 py-16 md:px-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Programme</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+          Programme
+        </p>
         <h1 className="display mt-3 text-4xl font-semibold text-foreground">
           Your Career Accelerator
         </h1>
         <p className="mt-4 text-sm text-muted-foreground">
-          {error || "Join the stand-alone 3-month programme to unlock this dashboard."}
+          {error ||
+            "Join the stand-alone 3-month programme to unlock this dashboard."}
         </p>
-        <Link href="/pricing" className="btn-primary mt-8" data-testid="link-pricing-from-programme">
+        <Link
+          href="/pricing"
+          className="btn-primary mt-8"
+          data-testid="link-pricing-from-programme"
+        >
           View pricing <ArrowRight size={15} />
         </Link>
       </div>
@@ -143,7 +155,9 @@ export default function ProgrammePage() {
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
             Programme status
           </p>
-          <p className="mt-2 text-lg font-semibold text-foreground">{statusLabel}</p>
+          <p className="mt-2 text-lg font-semibold text-foreground">
+            {statusLabel}
+          </p>
           <p className="mt-1 text-muted-foreground">
             Access level: Full platform access
           </p>
@@ -154,14 +168,24 @@ export default function ProgrammePage() {
         {[
           ["Start date", formatDate(programme.startDate)],
           ["End date", formatDate(programme.endDate)],
-          ["Days remaining", programme.status === "active" ? String(programme.daysRemaining) : "0"],
+          [
+            "Days remaining",
+            programme.status === "active"
+              ? String(programme.daysRemaining)
+              : "0",
+          ],
           ["Current month", `Month ${programme.currentMonth}`],
         ].map(([label, value]) => (
-          <div key={label} className="rounded-2xl border border-border bg-card p-4">
+          <div
+            key={label}
+            className="rounded-2xl border border-border bg-card p-4"
+          >
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               {label}
             </p>
-            <p className="mt-2 text-lg font-semibold text-foreground">{value}</p>
+            <p className="mt-2 text-lg font-semibold text-foreground">
+              {value}
+            </p>
           </div>
         ))}
       </div>
@@ -185,7 +209,9 @@ export default function ProgrammePage() {
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
                 Current training module
               </p>
-              <p className="mt-1 font-semibold text-foreground">{data.currentModule.title}</p>
+              <p className="mt-1 font-semibold text-foreground">
+                {data.currentModule.title}
+              </p>
             </div>
           ) : null}
         </div>
@@ -199,13 +225,20 @@ export default function ProgrammePage() {
 
       {programme.status !== "active" ? (
         <div className="mt-6 rounded-2xl border border-border bg-secondary/50 p-5 text-sm">
-          <p className="font-semibold text-foreground">Your programme period has ended.</p>
-          <p className="mt-2 text-muted-foreground">
-            Your CV, profile, applications, saved jobs, career information, interview history and
-            programme progress remain intact. Continue on Free, subscribe to Job Seeker or Career
-            Pro, or purchase another programme when you are ready.
+          <p className="font-semibold text-foreground">
+            Your programme period has ended.
           </p>
-          <Link href="/pricing" className="btn-primary mt-4" data-testid="link-post-programme-pricing">
+          <p className="mt-2 text-muted-foreground">
+            Your CV, profile, applications, saved jobs, career information,
+            interview history and programme progress remain intact. Continue on
+            Free, subscribe to Job Seeker or Career Pro, or purchase another
+            programme when you are ready.
+          </p>
+          <Link
+            href="/pricing"
+            className="btn-primary mt-4"
+            data-testid="link-post-programme-pricing"
+          >
             Choose your next plan <ArrowRight size={15} />
           </Link>
         </div>
@@ -215,41 +248,63 @@ export default function ProgrammePage() {
         <section className="rounded-3xl border border-border bg-card p-6">
           <div className="flex items-center gap-2 text-primary">
             <Clock3 size={18} />
-            <h3 className="display text-xl font-semibold text-foreground">This week&apos;s focus</h3>
+            <h3 className="display text-xl font-semibold text-foreground">
+              This week&apos;s focus
+            </h3>
           </div>
           <ul className="mt-5 space-y-3">
             {data.upcoming.length === 0 ? (
-              <li className="text-sm text-muted-foreground">All lessons complete — well done.</li>
+              <li className="text-sm text-muted-foreground">
+                All lessons complete — well done.
+              </li>
             ) : (
               data.upcoming.map((lesson) => (
-                <li key={lesson.id} className="rounded-xl border border-border px-4 py-3">
+                <li
+                  key={lesson.id}
+                  className="rounded-xl border border-border px-4 py-3"
+                >
                   <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
                     Week {lesson.week} · {lesson.type.replace("_", " ")}
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">{lesson.title}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{lesson.summary}</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">
+                    {lesson.title}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {lesson.summary}
+                  </p>
                 </li>
               ))
             )}
           </ul>
           <div className="mt-6 rounded-2xl bg-primary p-5 text-primary-foreground">
             <Sparkles size={18} />
-            <p className="mt-3 text-sm font-semibold">Use AI as a tool. Don&apos;t let AI become your voice.</p>
+            <p className="mt-3 text-sm font-semibold">
+              Use AI as a tool. Don&apos;t let AI become your voice.
+            </p>
             <p className="mt-2 text-xs leading-5 text-primary-foreground/80">
-              Sound authentic, natural, confident and professionally distinctive — not generic.
+              Sound authentic, natural, confident and professionally distinctive
+              — not generic.
             </p>
           </div>
         </section>
 
         <section>
-          <h3 className="display text-xl font-semibold text-foreground">Training modules</h3>
+          <h3 className="display text-xl font-semibold text-foreground">
+            Training modules
+          </h3>
           <p className="mt-2 text-sm text-muted-foreground">
-            Completed lessons, upcoming work, exercises, interview prep, AI strategy and career tasks.
+            Completed lessons, upcoming work, exercises, interview prep, AI
+            strategy and career tasks.
           </p>
           <div className="mt-5 space-y-6">
             {data.months.map((month) => (
-              <div key={month.month} className="rounded-3xl border border-border bg-card p-5">
-                <h4 className="text-sm font-semibold text-foreground">{month.label}</h4>
+              <div
+                key={month.month}
+                className="rounded-3xl border border-border bg-card p-5"
+              >
+                <h4 className="text-sm font-semibold text-foreground">
+                  {month.label}
+                </h4>
                 <ul className="mt-4 space-y-2">
                   {month.lessons.map((lesson) => {
                     const done = Boolean(lesson.completed);
@@ -260,19 +315,32 @@ export default function ProgrammePage() {
                       >
                         <button
                           type="button"
-                          disabled={programme.status !== "active" || busyLesson === lesson.id}
+                          disabled={
+                            programme.status !== "active" ||
+                            busyLesson === lesson.id
+                          }
                           onClick={() => toggleLesson(lesson.id, !done)}
                           className="mt-0.5 text-primary disabled:opacity-40"
                           data-testid={`button-lesson-${lesson.id}`}
-                          aria-label={done ? "Mark incomplete" : "Mark complete"}
+                          aria-label={
+                            done ? "Mark incomplete" : "Mark complete"
+                          }
                         >
-                          {done ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+                          {done ? (
+                            <CheckCircle2 size={18} />
+                          ) : (
+                            <Circle size={18} />
+                          )}
                         </button>
                         <div className="min-w-0 flex-1">
-                          <p className={`text-sm font-medium ${done ? "text-muted-foreground line-through" : "text-foreground"}`}>
+                          <p
+                            className={`text-sm font-medium ${done ? "text-muted-foreground line-through" : "text-foreground"}`}
+                          >
                             {lesson.title}
                           </p>
-                          <p className="mt-1 text-xs text-muted-foreground">{lesson.summary}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {lesson.summary}
+                          </p>
                         </div>
                         <span className="shrink-0 rounded-md bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
                           {lesson.type.replace("_", " ")}
@@ -288,7 +356,9 @@ export default function ProgrammePage() {
       </div>
 
       {error ? <p className="mt-6 text-sm text-destructive">{error}</p> : null}
-      <p className="mt-8 text-[11px] leading-5 text-muted-foreground">{data.disclaimer}</p>
+      <p className="mt-8 text-[11px] leading-5 text-muted-foreground">
+        {data.disclaimer}
+      </p>
     </div>
   );
 }

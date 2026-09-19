@@ -1458,22 +1458,6 @@ router.post("/career/programme/progress", async (req, res) => {
   });
 });
 
-router.get("/career/cv/structures", (_req, res) => {
-  res.json({
-    structures: CV_STRUCTURES.map((id) => {
-      const sample = buildGeneratedCv({
-        profile: { name: "Candidate", email: "you@example.com", targetRole: "Target role" },
-        structure: id,
-      });
-      return {
-        id,
-        label: sample.structureLabel,
-        description: sample.structureDescription,
-      };
-    }),
-  });
-});
-
 router.post("/career/cv/generate", async (req: AuthedUserRequest, res) => {
   const regenerate = Boolean(req.body?.regenerate);
   let structure = String(req.body?.structure || "").trim() as CvStructure | "";

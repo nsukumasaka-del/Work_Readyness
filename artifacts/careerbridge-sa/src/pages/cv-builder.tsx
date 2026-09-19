@@ -2300,6 +2300,7 @@ export default function CvBuilderPage() {
       const candidateContent: CvContentData = {
         personal: {
   fullName: mergedName,
+  email: mergedEmail,
   professionalTitle:
     manualInput.professionalTitle.trim() || authProfile?.targetRole || "",
   phone: manualInput.phone.trim() || authProfile?.phone || "",

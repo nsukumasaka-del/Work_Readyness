@@ -1920,9 +1920,17 @@ export default function CvBuilderPage() {
       }));
 
       const rawSkills = candidateContent.skills || [];
-      if (rawExperiences.length === 0 && rawEducation.length === 0 && rawSkills.length === 0) {
+      const hasReadableContent = Boolean(
+        candidateContent.personal?.fullName ||
+        candidateContent.personal?.email ||
+        candidateContent.summary ||
+        rawExperiences.length ||
+        rawEducation.length ||
+        rawSkills.length,
+      );
+      if (!hasReadableContent) {
         throw new Error(
-          "We could read contact details, but not Work Experience / Education / Skills. Please use “Paste Raw CV Text Instead”, or re-export as a text-based PDF / Word (.docx).",
+          "The CV was uploaded, but no readable text was found. Please use a text-based PDF, Word (.docx), or paste the CV text instead.",
         );
       }
       const rawProjects = candidateContent.projects || [];

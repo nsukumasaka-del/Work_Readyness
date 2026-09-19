@@ -789,14 +789,80 @@
   box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12);
 }
 
-@media (max-width: 640px) {
+  @media (max-width: 640px) {
   .cv-builder-command-header {
-    background: rgba(255, 255, 255, 0.96) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
   }
-  .dark .cv-builder-command-header {
-    background: rgba(7, 27, 29, 0.96) !important;
+.dark .cv-builder-command-header {
+  background: rgba(7, 27, 29, 0.96) !important;
   }
-}
+  }
+
+  /* Intake modal: make the entry station visually distinct from the generic app shell. */
+  .cv-builder [role="dialog"] {
+    background: radial-gradient(circle at 50% -10%, rgba(20, 184, 166, 0.22), transparent 34rem), rgba(6, 24, 27, 0.9) !important;
+  }
+
+  .cv-builder [role="dialog"] > div {
+    border: 1px solid rgba(45, 212, 191, 0.34) !important;
+    background: #f7fbfa !important;
+    box-shadow: 0 28px 90px rgba(2, 20, 22, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.5) inset !important;
+  }
+
+  .cv-builder [role="dialog"] h2 {
+    color: #102a2a !important;
+    letter-spacing: -0.025em;
+  }
+
+  .cv-builder [role="dialog"] [class*="bg-secondary"] {
+    background: #dff5f1 !important;
+    border: 1px solid rgba(15, 118, 110, 0.18);
+  }
+
+  .cv-builder [role="dialog"] [class*="bg-secondary"] button[class*="bg-card"] {
+    background: #ffffff !important;
+    color: #0f766e !important;
+    box-shadow: 0 5px 16px rgba(15, 118, 110, 0.12) !important;
+    outline: 2px solid rgba(20, 184, 166, 0.28);
+  }
+
+  .cv-builder [role="dialog"] [class*="bg-card"]:not(:first-child) {
+    border-color: rgba(15, 118, 110, 0.2) !important;
+  }
+
+  .cv-builder [role="dialog"] input,
+  .cv-builder [role="dialog"] textarea {
+    border-color: #b8d9d5 !important;
+    background: #ffffff !important;
+  }
+
+  .cv-builder [role="dialog"] input:focus,
+  .cv-builder [role="dialog"] textarea:focus {
+    border-color: #14b8a6 !important;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.14) !important;
+  }
+
+  .dark .cv-builder [role="dialog"] > div {
+    background: #0b2527 !important;
+    border-color: rgba(45, 212, 191, 0.38) !important;
+  }
+
+  .dark .cv-builder [role="dialog"] h2,
+  .dark .cv-builder [role="dialog"] label {
+    color: #e8f6f3 !important;
+  }
+
+  .dark .cv-builder [role="dialog"] input,
+  .dark .cv-builder [role="dialog"] textarea {
+    background: #102f31 !important;
+    border-color: rgba(45, 212, 191, 0.32) !important;
+    color: #e8f6f3 !important;
+  }
+
+  .dark .cv-builder [role="dialog"] [class*="bg-secondary"] {
+    background: #12383a !important;
+  }
+
 
 #bonlist-cv-document textarea,
 #bonlist-cv-document .cv-autogrow-textarea {

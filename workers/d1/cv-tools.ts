@@ -1,5 +1,6 @@
 import { getAuthenticatedUser, type D1Env, type UserRow } from "./auth";
 import {
+  extractCvDataFromText,
   evaluateQualityScore,
   generateRecruiterView,
   analyzeCareerPositioning,
@@ -21,7 +22,7 @@ import {
 const toolPaths = new Set([
   "advisor", "quality-score", "recruiter-view", "positioning", "enhance-bullet",
   "improve", "humanize", "tailor", "match-advanced", "transferable-skills",
-  "achievement-discovery", "achievement-incorporate", "pre-flight-audit", "outcomes",
+  "achievement-discovery", "achievement-incorporate", "pre-flight-audit", "outcomes", "parse-upload",
 ]);
 
 function json(value: unknown, status = 200): Response {
@@ -76,6 +77,22 @@ export async function handleCvTools(request: Request, env: D1Env): Promise<Respo
   if (!user) return json({ error: "Please sign in to continue." }, 401);
   if (tool === "outcomes") return outcomes(request, env, user);
   const input = await request.json().catch(() => ({})) as Record<string, unknown>;
+
+  if (tool === "parse-upload") {
+    const text = str(input.text);
+    const fileName = str(input.fileName) || "uploaded-cv";
+    if (!text) {
+      return json({
+        error: "This Cloudflare deployment needs readable document text. Please re-save the CV as a text-based PDF or DOCX and try again.",
+      }, 415);
+    }
+    if (text.length > 250_000) {
+      return json({ error: "The CV text is too long. Please upload a CV under 20MB." }, 413);
+    }
+    const extracted = extractCvDataFromText(text, fileName);
+    return json(extracted);
+  }
+
   const cv = input.cvDocument as GeneratedCvDocument | undefined;
   const job = str(input.jobDescription);
   if (tool === "humanize") {

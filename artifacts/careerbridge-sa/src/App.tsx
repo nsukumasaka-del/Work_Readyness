@@ -63,6 +63,7 @@ import {
   clearAuthSession,
   dismissSecurityNudgeLocal,
   hasProfile as hasAuthProfile,
+  getSessionToken,
   getAdminToken,
   isAdminUser as isAuthAdminUser,
   persistAdminAccess,
@@ -1575,7 +1576,7 @@ function Home() {
 
   useEffect(() => {
     const sync = () => {
-      const current = readProfile();
+      const current = getSessionToken() ? readProfile() : null;
       setProfile(current);
       setProfileReady(true);
       if (current?.targetRole) setRole((prev) => prev || current.targetRole || '');
@@ -3472,7 +3473,8 @@ function ProtectedApp() {
 
 function Router() {
   const [location] = useLocation();
-  if (PUBLIC_AUTH_PATHS.has(location.split('?')[0])) {
+  const pathname = location.split('?')[0];
+  if (PUBLIC_AUTH_PATHS.has(pathname)) {
     return (
       <RoutedErrorBoundary>
         <Switch>
@@ -3482,6 +3484,15 @@ function Router() {
           <Route path="/reset-password" component={ResetPasswordPage} />
           <Route path="/auth/callback" component={AuthCallbackPage} />
         </Switch>
+      </RoutedErrorBoundary>
+    );
+  }
+  if (pathname === '/') {
+    return (
+      <RoutedErrorBoundary>
+        <AppShell>
+          <Home />
+        </AppShell>
       </RoutedErrorBoundary>
     );
   }

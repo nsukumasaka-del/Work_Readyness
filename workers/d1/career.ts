@@ -645,34 +645,32 @@ async function handleGenerate(request: Request, env: D1Env, user: UserRow): Prom
   const topLevelContent = rawExtracted as Partial<ExtractedCv> | undefined;
   const hasTopLevelContent = Boolean(
     topLevelContent?.personal ||
-    topLevelContent?.summary ||
-    topLevelContent?.experiences ||
-    topLevelContent?.education ||
-    topLevelContent?.skills,
+    clean(topLevelContent?.summary) ||
+    (topLevelContent?.experiences?.length ?? 0) > 0 ||
+    (topLevelContent?.education?.length ?? 0) > 0 ||
+    (topLevelContent?.skills?.length ?? 0) > 0,
   );
-  const extracted = hasTopLevelContent ? topLevelContent : nestedContent;
-  const hasSourceEvidence = Boolean(
-    clean(extracted?.summary) ||
-    extracted?.experiences?.length ||
-    extracted?.education?.length ||
-    extracted?.skills?.length ||
-    extracted?.projects?.length ||
-    extracted?.certifications?.length,
-  );
-  if (!hasSourceEvidence) {
-    return error(400, "Add employment, education, skills, or a professional summary, or upload your existing CV before generating.");
-  }
-  const serialized = JSON.stringify(extracted);
-  const syntheticMarkers = [
-    /\bEnterprise Services\b/i,
-    /\bRelevant Qualification\b/i,
-    /Delivered high-quality support as a .*resolving customer queries/i,
-    /Tracked service metrics and escalations to improve response times/i,
-    /Collaborated with teammates to maintain accurate records/i,
-  ];
-  if (syntheticMarkers.filter((marker) => marker.test(serialized)).length >= 2) {
-    return error(422, "Unsupported placeholder content was detected. Re-upload the source CV or enter the missing sections manually.");
-  }
+  // Older and newer upload responses use different shapes. Prefer populated
+  // top-level fields, while retaining nested cv_content data for missing sections.
+  const extracted = hasTopLevelContent || nestedContent
+    ? {
+        ...(nestedContent || {}),
+        ...(hasTopLevelContent ? topLevelContent : {}),
+        personal: {
+          ...(nestedContent?.personal || {}),
+          ...(hasTopLevelContent ? topLevelContent?.personal || {} : {}),
+        },
+        experiences: topLevelContent?.experiences?.length
+          ? topLevelContent.experiences
+          : nestedContent?.experiences || [],
+        education: topLevelContent?.education?.length
+          ? topLevelContent.education
+          : nestedContent?.education || [],
+        skills: topLevelContent?.skills?.length
+          ? topLevelContent.skills
+          : nestedContent?.skills || [],
+      }
+    : undefined;
   const document = buildGeneratedDocument(profile, extracted, clean(input.structure) || "professional");
   return json({
     id: Date.now(),

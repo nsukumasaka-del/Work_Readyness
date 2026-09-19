@@ -1064,9 +1064,6 @@ export async function generateCv(options: { regenerate?: boolean; structure?: st
   const generated = payload as GeneratedCvResponse;
   if (!generated.document) throw new Error("The CV builder returned an incomplete document. Please re-upload your CV.");
   generated.document = sanitizeCvDocument(generated.document);
-  if (containsSyntheticCvContent(generated.document)) {
-    throw new Error("The builder detected unsupported placeholder content. Please re-upload your CV or enter the missing sections manually.");
-  }
   persistGeneratedCv(generated);
   return generated;
 }
@@ -1868,7 +1865,10 @@ export default function CvBuilderPage() {
   };
 
   const handleIntakeFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const uploadInput = event.currentTarget;
+    const file = uploadInput.files?.[0];
+    // Reset immediately so selecting the same document after an error starts a new upload.
+    uploadInput.value = "";
     if (!file) return;
 
     setError("");
@@ -1877,9 +1877,6 @@ export default function CvBuilderPage() {
     setAgentStepIndex(0);
     setAgentStepText("Preparing document for extraction…");
     setExtracting(true);
-    clearGeneratedCv();
-    setCv(null);
-
     // Close intake modal while agent works
     setIsIntakeModalOpen(false);
 
@@ -2014,6 +2011,8 @@ export default function CvBuilderPage() {
       // Brief delay so candidate can perceive the completed steps
       await new Promise((r) => setTimeout(r, 600));
 
+      // Keep the last working CV visible until the replacement has been parsed and built.
+      clearGeneratedCv();
       setCv(created);
       if (created.ai_feedback) {
         setAiFeedback(created.ai_feedback);
@@ -2034,6 +2033,7 @@ export default function CvBuilderPage() {
           : "Could not parse file. You can enter details manually or paste text.",
       );
       setIsIntakeModalOpen(true);
+      setIntakeTab("upload");
     } finally {
       setIsAgentWorking(false);
       setExtracting(false);
@@ -3636,7 +3636,9 @@ export default function CvBuilderPage() {
 
   // CV Upload & Extraction
   const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const uploadInput = event.currentTarget;
+    const file = uploadInput.files?.[0];
+    uploadInput.value = "";
     if (!file) return;
     setError("");
     setExtracting(true);
@@ -3739,6 +3741,8 @@ export default function CvBuilderPage() {
           ? err.message
           : "Failed to read CV file. Please try pasting the text directly or filling manually.",
       );
+      setIsIntakeModalOpen(true);
+      setIntakeTab("upload");
     } finally {
       setIsAgentWorking(false);
       setExtracting(false);

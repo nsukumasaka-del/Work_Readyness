@@ -38,6 +38,7 @@ type ExtractedCv = {
     id: string;
     role: string;
     company: string;
+    location?: string;
     startDate: string;
     endDate: string;
     bullets: string[];
@@ -196,89 +197,234 @@ async function saveProfile(
   return json(profileResponse(profile, Number(countRow?.count || 0)), 201);
 }
 
-function sectionText(text: string, names: string[]): string {
-  const escaped = names.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  const next = [
-    "professional summary",
-    "summary",
-    "profile",
-    "work experience",
-    "professional experience",
-    "experience",
-    "employment history",
-    "education",
-    "qualifications",
-    "skills",
-    "technical skills",
-    "core competencies",
-    "certifications",
-    "projects",
-    "languages",
-    "references",
-  ].join("|");
-  const match = new RegExp(`(?:^|\\n)\\s*(?:${escaped})\\s*[:\\-]?\\s*\\n?([\\s\\S]*?)(?=\\n\\s*(?:${next})\\s*[:\\-]?\\s*(?:\\n|$)|$)`, "i").exec(text);
-  return match?.[1]?.trim() || "";
+type CvSectionKey = "summary" | "impact" | "experience" | "education" | "skills" | "systems" | "certifications" | "projects" | "languages" | "references";
+
+type ParsedLine = { text: string; bullet: boolean };
+
+function normalisePdfLine(value: string): string {
+  return value
+    .replace(/\u0000/g, "")
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\s+([,.;:)])/g, "$1")
+    .replace(/([(])\s+/g, "$1")
+    .trim();
 }
 
-function lines(value: string): string[] {
+function parsedLines(value: string): ParsedLine[] {
   return value
     .split(/\r?\n/)
-    .map((line) => line.replace(/^[•▪●◦*-]\s*/, "").trim())
-    .filter(Boolean);
+    .map((raw) => {
+      const trimmed = raw.trim();
+      const bullet = /^[•▪●◦◆◇►▶*\-]|^\uFFFD\s+/.test(trimmed);
+      return {
+        bullet,
+        text: normalisePdfLine(trimmed.replace(/^[•▪●◦◆◇►▶*\-\uFFFD]+\s*/, "")),
+      };
+    })
+    .filter((line) => Boolean(line.text));
 }
 
-function parseCvText(rawText: string, fileName: string): ExtractedCv {
+function sectionKey(line: string): CvSectionKey | null {
+  const heading = normalisePdfLine(line).replace(/[:\-]+$/, "").toLowerCase();
+  if (/^(professional|executive) summary$|^summary$|^profile$|^career objective$/.test(heading)) return "summary";
+  if (/^key (impact|achievements|highlights)(?: at .+)?$|^career highlights$/.test(heading)) return "impact";
+  if (/^(work|professional|relevant) experience$|^employment history$|^career history$|^previous employment$/.test(heading)) return "experience";
+  if (/^education(?: and qualifications)?$|^qualifications$|^academic (history|background)$/.test(heading)) return "education";
+  if (/^(professional|technical|key) skills$|^skills$|^core competencies$/.test(heading)) return "skills";
+  if (/^systems$|^tools(?: and| &) technologies$|^tools(?: and| &) software$/.test(heading)) return "systems";
+  if (/^(professional )?certifications(?: and licences)?$|^licenses and certifications$/.test(heading)) return "certifications";
+  if (/^(key|notable|selected) projects$|^projects$/.test(heading)) return "projects";
+  if (/^languages$|^language skills$/.test(heading)) return "languages";
+  if (/^references$|^referees$/.test(heading)) return "references";
+  return null;
+}
+
+function splitCvSections(text: string): { preamble: string[]; sections: Partial<Record<CvSectionKey, string[]>>; headings: Partial<Record<CvSectionKey, string>> } {
+  const preamble: string[] = [];
+  const sections: Partial<Record<CvSectionKey, string[]>> = {};
+  const headings: Partial<Record<CvSectionKey, string>> = {};
+  let current: CvSectionKey | null = null;
+
+  for (const raw of text.replace(/\r/g, "").split("\n")) {
+    const line = normalisePdfLine(raw);
+    if (!line) continue;
+    const next = sectionKey(line);
+    if (next) {
+      current = next;
+      headings[next] ||= line;
+      sections[next] ||= [];
+      continue;
+    }
+    if (current) sections[current]!.push(raw.trim());
+    else preamble.push(raw.trim());
+  }
+  return { preamble, sections, headings };
+}
+
+const MONTH_DATE_SOURCE = "(?:\\d{1,2}\\s+)?(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\s+(?:19|20)\\d{2}";
+const DATE_TOKEN_RE = new RegExp(`${MONTH_DATE_SOURCE}|(?:19|20)\\d{2}|Present|Current|In progress`, "gi");
+
+function datesIn(line: string): string[] {
+  return Array.from(line.matchAll(new RegExp(DATE_TOKEN_RE.source, "gi")), (match) => normalisePdfLine(match[0]));
+}
+
+function withoutDates(line: string): string {
+  const firstDate = line.search(new RegExp(DATE_TOKEN_RE.source, "i"));
+  return normalisePdfLine((firstDate >= 0 ? line.slice(0, firstDate) : line).replace(/[|·\uFFFD\-\s]+$/, ""));
+}
+
+function joinWrappedLines(value: string): string {
+  return parsedLines(value).map((line) => line.text).join(" ").replace(/\s+/g, " ").trim();
+}
+
+function parseExperience(value: string): ExtractedCv["experiences"] {
+  const source = parsedLines(value);
+  const entries: ExtractedCv["experiences"] = [];
+  let index = 0;
+  while (index < source.length) {
+    const line = source[index];
+    const dates = datesIn(line.text);
+    const role = !line.bullet && dates.length ? withoutDates(line.text) : "";
+    if (!role) {
+      index += 1;
+      continue;
+    }
+
+    index += 1;
+    let company = "";
+    if (index < source.length && !source[index].bullet && datesIn(source[index].text).length === 0) {
+      company = source[index].text;
+      index += 1;
+    }
+    const bullets: string[] = [];
+    while (index < source.length) {
+      const next = source[index];
+      if (!next.bullet && datesIn(next.text).length && withoutDates(next.text)) break;
+      if (next.bullet || bullets.length === 0) bullets.push(next.text);
+      else bullets[bullets.length - 1] = `${bullets[bullets.length - 1]} ${next.text}`.replace(/\s+/g, " ");
+      index += 1;
+    }
+    const companyParts = company.split(/\s+[·•|\uFFFD]\s+/).map(normalisePdfLine).filter(Boolean);
+    entries.push({
+      id: `exp-${entries.length + 1}`,
+      role,
+      company: companyParts[0] || company || "Employer not specified",
+      ...(companyParts.length > 1 ? { location: companyParts.slice(1).join(", ") } : {}),
+      startDate: dates.length > 1 ? dates[0] : "Not specified",
+      endDate: dates.length > 1 ? dates[dates.length - 1] : dates[0] || "Not specified",
+      bullets: bullets.filter(Boolean),
+      classification: "VERIFIED",
+    });
+  }
+  return entries;
+}
+
+function parseEducation(value: string): ExtractedCv["education"] {
+  const source = parsedLines(value);
+  const entries: ExtractedCv["education"] = [];
+  let index = 0;
+  while (index < source.length) {
+    const line = source[index];
+    const dates = datesIn(line.text);
+    const degree = dates.length ? withoutDates(line.text) : "";
+    if (!degree) {
+      index += 1;
+      continue;
+    }
+    const institution = source[index + 1] && datesIn(source[index + 1].text).length === 0
+      ? source[index + 1].text
+      : "Institution not specified";
+    index += institution === "Institution not specified" ? 1 : 2;
+    const details: string[] = [];
+    while (index < source.length && datesIn(source[index].text).length === 0) {
+      details.push(source[index].text);
+      index += 1;
+    }
+    entries.push({
+      id: `edu-${entries.length + 1}`,
+      degree: details.length ? `${degree} (${details.join(" ")})` : degree,
+      institution,
+      graduationYear: dates.join(" - ") || "Not specified",
+      classification: "VERIFIED",
+    });
+  }
+  return entries;
+}
+
+function listItems(value: string): string[] {
+  return parsedLines(value)
+    .flatMap((line) => line.text.split(/\s*[;|]\s*/))
+    .map(normalisePdfLine)
+    .filter((item) => item.length > 1);
+}
+
+function groupedBulletItems(value: string): string[] {
+  const result: string[] = [];
+  for (const line of parsedLines(value)) {
+    if (line.bullet || result.length === 0) result.push(line.text);
+    else result[result.length - 1] = `${result[result.length - 1]} ${line.text}`.replace(/\s+/g, " ");
+  }
+  return result.filter(Boolean);
+}
+
+export function parseCvText(rawText: string, fileName: string): ExtractedCv {
   const text = rawText.replace(/\r/g, "").replace(/[ \t]+/g, " ").trim();
+  const { preamble, sections, headings } = splitCvSections(text);
   const email = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
   const phone = text.match(/(?:\+27|0)\s*(?:\d[\s-]*){9,10}/)?.[0]?.replace(/\s+/g, " ").trim();
   const linkedin = text.match(/https?:\/\/(?:www\.)?linkedin\.com\/[^\s)]+/i)?.[0];
   const url = text.match(/https?:\/\/(?!www\.linkedin\.com)[^\s)]+/i)?.[0];
-  const allLines = lines(text);
-  const fullName =
-    allLines.find((line) => line.length >= 3 && line.length <= 70 && !/[.:@/|]/.test(line) && !/\b(cv|resume|curriculum vitae)\b/i.test(line)) ||
-    fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() ||
-    "Candidate";
-  const title = allLines.find((line) => /\b(manager|developer|designer|analyst|assistant|officer|specialist|consultant|engineer|administrator|customer service)\b/i.test(line) && line !== fullName) || "Professional";
-  const summary = sectionText(text, ["professional summary", "summary", "profile"]);
-  const experienceLines = lines(sectionText(text, ["work experience", "professional experience", "experience", "employment history"]));
-  const educationLines = lines(sectionText(text, ["education", "qualifications"]));
-  const skillLines = lines(sectionText(text, ["skills", "technical skills", "core competencies"]));
-  const skills = skillLines
-    .flatMap((line) => line.split(/[,;|•]/))
-    .map((item) => item.trim())
-    .filter((item) => item.length > 1 && item.length < 60)
-    .slice(0, 40);
-  const experiences = experienceLines.length
-    ? [{
-        id: "exp-1",
-        role: title,
-        company: "Experience from submitted CV",
-        startDate: "Not specified",
-        endDate: "Present",
-        bullets: experienceLines.slice(0, 6),
-        classification: "VERIFIED" as const,
-      }]
-    : [];
-  const education = educationLines.length
-    ? [{
-        id: "edu-1",
-        degree: educationLines[0] || "Qualification",
-        institution: educationLines[1] || "Institution not specified",
-        graduationYear: (educationLines.join(" ").match(/\b(?:19|20)\d{2}\b/) || ["Not specified"])[0],
-        classification: "VERIFIED" as const,
-      }]
-    : [];
-  const certifications = lines(sectionText(text, ["certifications"])).slice(0, 10).map((item, index) => ({
+  const headerLines = preamble.map(normalisePdfLine).filter(Boolean);
+  const filenameName = fileName
+    .replace(/\.[^.]+$/, "")
+    .replace(/\b(?:curriculum vitae|resume|cv|main|updated|latest|copy)\b/gi, " ")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const nameCandidates = headerLines.filter((line) => {
+    const words = line.split(/\s+/);
+    return line.length >= 3 && line.length <= 70 && words.length >= 2 && words.length <= 6 &&
+      !/[.:@/|\d]/.test(line) && !/\b(cv|resume|curriculum vitae)\b/i.test(line) &&
+      !/\b(manager|developer|designer|analyst|assistant|officer|specialist|consultant|engineer|administrator|controller|representative|customer service)\b/i.test(line);
+  });
+  const fullName = nameCandidates.find((line) => line === line.toUpperCase()) || nameCandidates[0] || filenameName || "Candidate";
+  const title = headerLines.find((line) => line !== fullName && /\b(manager|developer|designer|analyst|assistant|officer|specialist|consultant|engineer|administrator|controller|representative|customer service|broker)\b/i.test(line)) || "Professional";
+  const contactLine = headerLines.find((line) => line.includes(email) || (phone && line.includes(phone))) || "";
+  const location = email && contactLine.includes(email)
+    ? normalisePdfLine(contactLine.slice(contactLine.indexOf(email) + email.length).replace(/^[\s|•·\uFFFD-]+/, ""))
+    : "";
+  const summary = joinWrappedLines((sections.summary || []).join("\n"));
+  const experienceText = (sections.experience || []).join("\n");
+  const educationText = (sections.education || []).join("\n");
+  const skills = listItems((sections.skills || []).join("\n")).filter((item) => item.length < 80).slice(0, 50);
+  const toolsAndSoftware = listItems((sections.systems || []).join("\n")).filter((item) => item.length < 80).slice(0, 30);
+  const experiences = parseExperience(experienceText);
+  const education = parseEducation(educationText);
+  const certifications = listItems((sections.certifications || []).join("\n")).slice(0, 20).map((item, index) => ({
     id: `cert-${index + 1}`,
     name: item,
     issuer: "",
   }));
-  const languages = lines(sectionText(text, ["languages"])).slice(0, 10);
-  const references = lines(sectionText(text, ["references"])).slice(0, 10);
+  const languages = parsedLines((sections.languages || []).join("\n")).map((line) => line.text).slice(0, 20);
+  const references = parsedLines((sections.references || []).join("\n")).map((line) => line.text).slice(0, 20);
+  const projects = [
+    ...(sections.impact?.length ? [{
+      id: "project-impact-1",
+      title: headings.impact || "Key Achievements",
+      bullets: groupedBulletItems(sections.impact.join("\n")),
+    }] : []),
+    ...(sections.projects?.length ? [{
+      id: "project-1",
+      title: headings.projects || "Projects",
+      bullets: groupedBulletItems(sections.projects.join("\n")),
+    }] : []),
+  ];
   const personal = {
     fullName,
     email,
     ...(phone ? { phone } : {}),
+    ...(location ? { location } : {}),
     ...(linkedin ? { linkedin } : {}),
     ...(url ? { website: url } : {}),
     professionalTitle: title,
@@ -289,10 +435,10 @@ function parseCvText(rawText: string, fileName: string): ExtractedCv {
     experiences,
     education,
     skills,
-    toolsAndSoftware: [],
+    toolsAndSoftware,
     certifications,
     languages,
-    projects: [],
+    projects,
     references,
     verificationBreakdown: {
       personal: {
@@ -369,6 +515,7 @@ function buildGeneratedDocument(profile: CareerProfileRow, extracted: Partial<Ex
   const experiences = extracted?.experiences || [];
   const education = extracted?.education || [];
   const skills = extracted?.skills || [];
+  const toolsAndSoftware = extracted?.toolsAndSoftware || [];
   const fullName = clean(personal.fullName) || profile.name;
   const headline = clean(personal.professionalTitle) || profile.target_role || "Professional";
   const email = clean(personal.email) || profile.email;
@@ -392,8 +539,12 @@ function buildGeneratedDocument(profile: CareerProfileRow, extracted: Partial<Ex
     summary,
     experiences,
     education,
-    skillGroups: skills.length ? [{ category: "Core Competencies", skills }] : [],
+    skillGroups: [
+      ...(skills.length ? [{ category: "Core Competencies", skills }] : []),
+      ...(toolsAndSoftware.length ? [{ category: "Systems", skills: toolsAndSoftware }] : []),
+    ],
     skills,
+    toolsAndSoftware,
     projects: extracted?.projects || [],
     certifications: extracted?.certifications || [],
     languages: extracted?.languages || [],

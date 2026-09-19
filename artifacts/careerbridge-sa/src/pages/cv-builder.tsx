@@ -74,8 +74,8 @@ const GENERATED_CV_KEY = "bonlist-generated-cv";
 const REPORT_KEY = "bonlist-report";
 const CV_VERSIONS_KEY = "bonlist-cv-versions";
 
-const MAX_BULLETS_PER_ROLE = 4;
-const MAX_BULLET_CHARS = 135;
+const MAX_BULLETS_PER_ROLE = 12;
+const MAX_BULLET_CHARS = 280;
 
 const PDF_JUNK_RE =
   /\b(?:\d+\s+\d+\s+obj|endobj|endstream|stream\b|xref\b|trailer\b|startxref|\/Type\s*\/|\/Filter\s*\/|\/Length\s+\d+|<<|>>)\b/i;
@@ -234,6 +234,7 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     .filter((edu) => edu.degree || edu.institution);
 
   const skills = (doc.skills || []).map((s) => scrubCvText(s)).filter((s) => s.length > 1 && s.length < 60);
+  const toolsAndSoftware = (doc.toolsAndSoftware || []).map((s) => scrubCvText(s)).filter((s) => s.length > 1 && s.length < 80);
 
   const projects = (doc.projects || [])
     .map((proj) => ({
@@ -273,6 +274,7 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     experiences,
     education,
     skills,
+    toolsAndSoftware,
     projects,
     certifications,
     languages,
@@ -363,6 +365,7 @@ export interface GeneratedCvDocument {
   education: CvEducationItem[];
   skillGroups: CvSkillGroup[];
   skills: string[];
+  toolsAndSoftware?: string[];
   projects?: CvProjectItem[];
   certifications?: CvCertificationItem[];
   languages?: string[];
@@ -1616,6 +1619,7 @@ export default function CvBuilderPage() {
     summary: true,
     experience: true,
     skills: true,
+    systems: true,
     education: true,
     projects: true,
     certifications: true,
@@ -3536,6 +3540,14 @@ export default function CvBuilderPage() {
       lines.push("");
     }
 
+    if (doc.toolsAndSoftware && doc.toolsAndSoftware.length > 0) {
+      lines.push("==================================================");
+      lines.push("SYSTEMS & SOFTWARE");
+      lines.push("==================================================");
+      lines.push(doc.toolsAndSoftware.join(" • "));
+      lines.push("");
+    }
+
     if (doc.education && doc.education.length > 0) {
       lines.push("==================================================");
       lines.push("EDUCATION");
@@ -3894,6 +3906,9 @@ export default function CvBuilderPage() {
     if (doc.skills && doc.skills.length > 0) {
       parts.push(`\n[SECTION: SKILLS & COMPETENCIES]\n${doc.skills.join(", ")}`);
     }
+    if (doc.toolsAndSoftware && doc.toolsAndSoftware.length > 0) {
+      parts.push(`\n[SECTION: SYSTEMS & SOFTWARE]\n${doc.toolsAndSoftware.join(", ")}`);
+    }
     if (doc.education && doc.education.length > 0) {
       parts.push(`\n[SECTION: EDUCATION]`);
       doc.education.forEach((edu) => {
@@ -4004,6 +4019,7 @@ export default function CvBuilderPage() {
     cv?.document.summary,
     cv?.document.experiences,
     cv?.document.skills,
+    cv?.document.toolsAndSoftware,
     cv?.document.education,
     cv?.document.languages,
     cv?.document.certifications,
@@ -4713,6 +4729,7 @@ export default function CvBuilderPage() {
                     { key: "summary", label: "Professional Summary" },
                     { key: "experience", label: "Work Experience & Outcomes" },
                     { key: "skills", label: "Skills & Core Competencies" },
+                    { key: "systems", label: "Systems & Software" },
                     { key: "education", label: "Education & Qualifications" },
                     { key: "projects", label: "Key Projects & Portfolios" },
                     { key: "certifications", label: "Certifications & Licenses" },
@@ -5363,7 +5380,7 @@ export default function CvBuilderPage() {
                                     const exps = [...cv.document.experiences];
                                     const bullets = [...exp.bullets];
                                     bullets[bIdx] = polished;
-                                    exps[expIdx] = { ...exp, bullets: selectProfessionalBullets(bullets, 6) };
+                                    exps[expIdx] = { ...exp, bullets: selectProfessionalBullets(bullets) };
                                     updateDocumentField("experiences", exps);
                                   }}
                                   className={`min-w-0 w-full flex-1 resize-none bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm px-0.5 transition ${
@@ -5480,6 +5497,38 @@ export default function CvBuilderPage() {
                       </div>
                     )}
                   </section>
+                  </>
+                );
+
+                const systemsSection = visibleSections.systems && (
+                  <>
+                    <A4PageSpacer id="systems" height={a4Spacers.systems || 0} />
+                    <section data-a4-id="systems" className={`relative group/section cv-a4-keep rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.toolsAndSoftware || []).length === 0 ? "hidden" : ""}`}>
+                      <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 px-2 py-0.5 shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const tool = prompt("Enter a system or software tool:");
+                            if (tool?.trim()) updateDocumentField("toolsAndSoftware", [...(cv.document.toolsAndSoftware || []), tool.trim()]);
+                          }}
+                          className="text-[10px] font-bold text-primary hover:underline"
+                        >
+                          + Add System
+                        </button>
+                      </div>
+                      {renderSectionHeading("Systems & Software")}
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {(cv.document.toolsAndSoftware || []).map((tool, toolIdx) => (
+                          <span
+                            key={toolIdx}
+                            className="cv-skill-chip rounded-lg border px-2.5 py-0.5 text-[11px] font-medium"
+                            style={{ backgroundColor: selectedColor.secondary, borderColor: selectedColor.border, color: selectedColor.primary }}
+                          >
+                            {tool}
+                          </span>
+                        ))}
+                      </div>
+                    </section>
                   </>
                 );
 
@@ -6193,6 +6242,7 @@ export default function CvBuilderPage() {
                         </div>
                         <div className="min-w-0 space-y-5">
                           {skillsSection}
+                          {systemsSection}
                           {educationSection}
                           {certificationsSection}
                           {languagesSection}
@@ -6206,6 +6256,7 @@ export default function CvBuilderPage() {
                         {projectsSection}
                         {educationSection}
                         {skillsSection}
+                        {systemsSection}
                         {certificationsSection}
                         {languagesSection}
                         {referencesSection}
@@ -8190,6 +8241,19 @@ export default function CvBuilderPage() {
                   ))}
                 </div>
               </div>
+
+              {(extractedData.toolsAndSoftware || []).length > 0 && (
+                <div>
+                  <label className="text-[10px] text-muted-foreground font-bold">Systems & Software Extracted ({extractedData.toolsAndSoftware.length})</label>
+                  <div className="flex flex-wrap gap-1 mt-1 max-h-24 overflow-y-auto">
+                    {extractedData.toolsAndSoftware.map((tool, idx) => (
+                      <span key={idx} className="rounded bg-sky-500/10 px-2 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">
+                        {tool}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-border">
@@ -8361,6 +8425,14 @@ function generateSemanticHtml(
     <h2>${isSerifClassic ? "SKILLS" : isCorporateBlue ? "TECHNICAL SKILLS" : isAnalystClean ? "S K I L L S" : "Skills & Competencies"}</h2>
     <div class="skills">
       ${doc.skills.map((s) => `<span class="skill-tag">${s}</span>`).join(" ")}
+    </div>
+  </section>` : ""}
+
+  ${doc.toolsAndSoftware && doc.toolsAndSoftware.length > 0 ? `
+  <section>
+    <h2>${isSerifClassic ? "SYSTEMS" : isAnalystClean ? "S Y S T E M S" : "Systems & Software"}</h2>
+    <div class="skills">
+      ${doc.toolsAndSoftware.map((s) => `<span class="skill-tag">${s}</span>`).join(" ")}
     </div>
   </section>` : ""}
 

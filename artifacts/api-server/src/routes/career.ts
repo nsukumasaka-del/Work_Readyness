@@ -1474,13 +1474,15 @@ router.get("/career/cv/structures", (_req, res) => {
   });
 });
 
-router.post("/career/cv/generate", requireUser, async (req: AuthedUserRequest, res) => {
+router.post("/career/cv/generate", async (req: AuthedUserRequest, res) => {
   const regenerate = Boolean(req.body?.regenerate);
   let structure = String(req.body?.structure || "").trim() as CvStructure | "";
 
-  const profile = req.userProfile;
+  // CV generation supports the intake flow before sign-in. Resolve the submitted
+  // candidate data to a real profile instead of relying on a stale guest id.
+  const profile = req.userProfile || (await resolveOrUpsertCvProfile(req.body));
   if (!profile) {
-    res.status(401).json({ error: "Authentication is required to generate a CV." });
+    res.status(400).json({ error: "Please provide your name and email before generating a CV." });
     return;
   }
   const profileId = profile.id;
@@ -1702,7 +1704,7 @@ router.get("/career/cv/structures", (_req, res) => {
   res.json({ structures });
 });
 
-router.post("/career/cv/parse-upload", requireUser, async (req, res) => {
+router.post("/career/cv/parse-upload", async (req, res) => {
   try {
     const fileName = req.body?.fileName ? String(req.body.fileName) : undefined;
     const fileData = req.body?.fileData ? String(req.body.fileData) : undefined;

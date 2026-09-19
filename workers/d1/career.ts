@@ -11,6 +11,7 @@ import {
   type UserRow,
 } from "./auth";
 import { searchTrustedJobBoards } from "../../artifacts/api-server/src/lib/job-board-search";
+import { buildGeneratedCv, normalizeStructure, type CvStructure } from "../../artifacts/api-server/src/lib/cv-builder";
 
 type CareerProfileRow = {
   id: number;
@@ -561,7 +562,7 @@ async function handleProfile(request: Request, env: D1Env, user: UserRow): Promi
   return saveProfile(request, env, user, await body(request));
 }
 
-async function handleParse(request: Request, env: D1Env, user: UserRow): Promise<Response> {
+async function handleParse(request: Request, env: D1Env, user?: UserRow): Promise<Response> {
   void env;
   void user;
   const input = await body(request);
@@ -625,6 +626,40 @@ async function handleLatest(request: Request, env: D1Env, user: UserRow): Promis
   } catch {
     return error(500, "Saved CV review is invalid.");
   }
+}
+
+async function handleGuestGenerate(request: Request): Promise<Response> {
+  const input = await body(request);
+  const extracted = input.extracted && typeof input.extracted === "object"
+    ? (input.extracted as Parameters<typeof buildGeneratedCv>[0]["extracted"])
+    : undefined;
+  const personal = extracted?.cv_content?.personal || extracted?.personal;
+  const profile = {
+    name: clean(input.name) || personal?.fullName || "Candidate",
+    email: clean(input.email) || personal?.email || "",
+    phone: clean(input.phone) || personal?.phone || "",
+    location: clean(input.location) || personal?.location || "",
+    targetRole: clean(input.targetRole) || personal?.professionalTitle || "",
+  };
+  const structure = normalizeStructure(clean(input.structure)) as CvStructure;
+  const document = buildGeneratedCv({ profile, extracted, structure });
+  return json({
+    id: 0,
+    version: 1,
+    structure: document.structure,
+    title: `${document.fullName} · ${document.headline} CV (${document.structureLabel})`,
+    createdAt: new Date().toISOString(),
+    document,
+    cv_content: extracted || {
+      personal: { fullName: document.fullName, email: document.email },
+      summary: document.summary,
+      experiences: document.experiences,
+      education: document.education,
+      skills: document.skills,
+    },
+    ai_feedback: document.aiFeedback,
+    message: "Preview generated. Sign in to save this CV to BonList.",
+  }, 200);
 }
 
 async function handleGenerate(request: Request, env: D1Env, user: UserRow): Promise<Response> {
@@ -750,6 +785,12 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
     (method === "GET" && (path === "/api/career/diagnostic/latest" || path === "/api/career/cv/latest"));
   if (!nativePath) return null;
   const user = await getAuthenticatedUser(request, env);
+  if (!user && path === "/api/career/cv/parse-upload" && method === "POST") {
+    return handleParse(request, env);
+  }
+  if (!user && path === "/api/career/cv/generate" && method === "POST") {
+    return handleGuestGenerate(request);
+  }
   if (!user) return error(401, "Please sign in to continue.");
   if (path === "/api/career/profile") return handleProfile(request, env, user);
   if (path === "/api/career/cv/parse-upload") return handleParse(request, env, user);

@@ -6,6 +6,7 @@
  * review records instead of depending on the legacy Render API.
  */
 import {
+  ensureD1Schema,
   getAuthenticatedUser,
   type D1Env,
   type UserRow,
@@ -775,6 +776,7 @@ async function handleLatestCv(request: Request, env: D1Env, user: UserRow): Prom
 }
 
 export async function handleD1Career(request: Request, env: D1Env): Promise<Response | null> {
+  await ensureD1Schema(env.DB);
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const method = request.method.toUpperCase();

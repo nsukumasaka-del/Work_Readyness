@@ -1,10 +1,15 @@
 /**
- * Password hashing for Cloudflare Workers (Web Crypto PBKDF2).
- * Format: pbkdf2$sha256$iterations$saltB64$hashB64
+ * Password hashing for Cloudflare Workers.
+ *
+ * Current format: pbkdf2$sha256$iterations$saltB64$hashB64
+ * Legacy format: salt:hash (Node.js scrypt, used by older BonList records)
  */
 
 const ITERATIONS = 100_000;
 const KEY_LENGTH = 32;
+const LEGACY_SCRYPT_KEYLEN = 64;
+
+import { scryptSync, timingSafeEqual } from "node:crypto";
 
 function bytesToB64(bytes: ArrayBuffer | Uint8Array): string {
   const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -44,19 +49,31 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const parts = stored.split("$");
-  if (parts.length !== 5 || parts[0] !== "pbkdf2" || parts[1] !== "sha256") {
-    return false;
+  if (!stored) return false;
+
+  const pbkdf2Parts = stored.split("$");
+  if (pbkdf2Parts.length === 5 && pbkdf2Parts[0] === "pbkdf2" && pbkdf2Parts[1] === "sha256") {
+    const iterations = Number(pbkdf2Parts[2]);
+    if (!Number.isFinite(iterations) || iterations < 10_000) return false;
+    const salt = b64ToBytes(pbkdf2Parts[3]!);
+    const expected = b64ToBytes(pbkdf2Parts[4]!);
+    const actual = new Uint8Array(await deriveKey(password, salt, iterations));
+    if (actual.length !== expected.length) return false;
+    let diff = 0;
+    for (let i = 0; i < actual.length; i++) diff |= actual[i]! ^ expected[i]!;
+    return diff === 0;
   }
-  const iterations = Number(parts[2]);
-  if (!Number.isFinite(iterations) || iterations < 10_000) return false;
-  const salt = b64ToBytes(parts[3]!);
-  const expected = b64ToBytes(parts[4]!);
-  const actual = new Uint8Array(await deriveKey(password, salt, iterations));
-  if (actual.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < actual.length; i++) diff |= actual[i]! ^ expected[i]!;
-  return diff === 0;
+
+  if (stored.includes(":")) {
+    const [salt, hash] = stored.split(":", 2);
+    if (!salt || !hash) return false;
+    const expected = Buffer.from(hash, "hex");
+    const actual = scryptSync(password, salt, LEGACY_SCRYPT_KEYLEN);
+    if (actual.length !== expected.length) return false;
+    return timingSafeEqual(expected, actual);
+  }
+
+  return false;
 }
 
 export async function sha256Hex(value: string): Promise<string> {

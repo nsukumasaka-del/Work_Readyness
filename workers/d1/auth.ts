@@ -724,6 +724,13 @@ export async function handleLogin(request: Request, env: D1Env): Promise<Respons
     return error(403, "Please verify your email before signing in. Complete signup with the code we emailed you.");
   }
 
+  if (!user.password_hash.startsWith("pbkdf2$")) {
+    const upgradedHash = await hashPassword(password);
+    await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+      .bind(upgradedHash, user.id)
+      .run();
+  }
+
   return buildLoginResponse(request, env, user);
 }
 

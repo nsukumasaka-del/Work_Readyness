@@ -3,9 +3,7 @@
   "appName": "BonList",
   "webDir": "www",
   "server": {
-    "androidScheme": "https",
-    "url": "https://www.bonlist.site",
-    "cleartext": false
+    "androidScheme": "https"
   },
   "plugins": {
     "SplashScreen": {

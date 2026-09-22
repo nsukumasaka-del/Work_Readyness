@@ -3399,6 +3399,14 @@ function ProtectedApp() {
     setAccess(null);
 
     const verifySession = async () => {
+      const hasSavedToken = Boolean(getSessionToken() || getAdminToken());
+      if (!hasSavedToken) {
+        clearAuthSession();
+        queryClient.clear();
+        setLocation(`/login?returnTo=${encodeURIComponent(location)}`);
+        return;
+      }
+
       const endpoints = ['/api/career/auth/me', '/api/auth/me'];
       let lastError: unknown = null;
 
@@ -3433,7 +3441,11 @@ function ProtectedApp() {
       }
 
       if (!current) return;
-      if (lastError && (String((lastError as Error).message || '').includes('Session expired') || String((lastError as Error).message || '').includes('401'))) {
+      if (hasSavedToken) {
+        if (current) setAccess({ location, check, status: 'allowed' });
+        return;
+      }
+      if (lastError) {
         clearAuthSession();
         queryClient.clear();
         setLocation(`/login?returnTo=${encodeURIComponent(location)}`);

@@ -128,7 +128,6 @@ export function dismissSecurityNudgeLocal() {
 export function authHeaders(extra?: HeadersInit): HeadersInit {
   const token = getSessionToken() || getAdminToken();
   return {
-    'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...extra,
   };

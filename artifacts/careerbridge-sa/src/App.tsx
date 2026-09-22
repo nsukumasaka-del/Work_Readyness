@@ -723,16 +723,33 @@ function AppShell({ children }: { children: ReactNode }) {
   const handleLogout = async () => {
     setLogoutError('');
     try {
-      const response = await authFetch('/api/career/auth/logout', { method: 'POST', body: '{}' });
-      if (!response.ok) throw new Error('Sign-out failed');
+      const attempts = [
+        authFetch('/api/career/auth/logout', { method: 'POST', body: '{}' }),
+        authFetch('/api/auth/logout', { method: 'POST', body: '{}' }),
+      ];
+
+      for (const request of attempts) {
+        try {
+          const response = await request;
+          if (response.ok || response.status === 401 || response.status === 403 || response.status === 404) {
+            continue;
+          }
+        } catch {
+          // Ignore backend errors; the client session must still be cleared.
+        }
+      }
+    } catch {
+      // Ignore server-side failures and continue with a local logout.
+    } finally {
       clearAuthSession();
+      if (typeof document !== 'undefined') {
+        document.cookie = 'bonlist_session=; Path=/; Max-Age=0; SameSite=Lax';
+      }
       queryClient.clear();
       setProfile(null);
       setIsAdmin(false);
       setMenuOpen(false);
       setLocation('/login');
-    } catch {
-      setLogoutError('Could not sign out. Please try again.');
     }
   };
 

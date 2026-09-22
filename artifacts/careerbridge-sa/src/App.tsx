@@ -1965,7 +1965,7 @@ function Home() {
               Transform your CV into interview Invitations today!
             </h1>
             <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground md:text-lg">
-              Upload your CV now for the perfect accurate review and revamp  then see recommended roles that fit your profile and expertise.
+              Upload your CV now for the perfect accurate review and revamp  then see recommended roles that fit your profile and expertise ASAP.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/signup" className="btn-primary" data-testid="link-start-profile">

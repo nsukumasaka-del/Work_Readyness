@@ -11,7 +11,10 @@ name = "work-readyness"
 main = "workers/gateway.ts"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
-workers_dev = true
+# This Worker is for the custom-domain deployment. Keep workers.dev disabled while the
+# custom route is assigned in Cloudflare so there is no conflict between the main site
+# and the preview workers.dev URL.
+workers_dev = false
 route = "https://www.bonlist.site/*"
 
 # The bonlist.site route is already owned by the existing `bonlist` Worker.

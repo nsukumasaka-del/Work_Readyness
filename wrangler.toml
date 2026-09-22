@@ -12,6 +12,7 @@ main = "workers/gateway.ts"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
+route = "https://www.bonlist.site/*"
 
 # The bonlist.site route is already owned by the existing `bonlist` Worker.
 # Do not declare it here: Cloudflare rejects deployments when two Workers claim
@@ -24,7 +25,7 @@ AUTH_ALLOW_DEV_OTP = "false"
 PRIMARY_ADMIN_EMAIL = "nsukumasaka@gmail.com"
 PRIMARY_ADMIN_NAME = "Ntokozo Sukumasaka"
 # Used for password-reset links + OAuth redirect_uri base.
-APP_BASE_URL = "https://bonlist.nsukumasaka.workers.dev"
+APP_BASE_URL = "https://www.bonlist.site"
 # Legacy proxy for non-auth career APIs (CV diagnostic, jobs) during edge migration.
 # Auth/email/OAuth do NOT use this. Remove when those routes run on Workers.
 API_UPSTREAM_URL = "https://bonlist-api-yj0d.onrender.com"

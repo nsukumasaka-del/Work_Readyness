@@ -10,6 +10,7 @@
 name = "work-readyness"
 main = "workers/gateway.ts"
 compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 # The bonlist.site route is already owned by the existing `bonlist` Worker.

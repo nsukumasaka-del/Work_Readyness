@@ -4,7 +4,7 @@
  * - Other /api/* → optional legacy upstream only if API_UPSTREAM_URL is set
  * - Everything else → static SPA assets
  */
-import { ensureD1Schema, handleD1Auth, type D1Env } from "./d1/auth";
+import { handleD1Auth, type D1Env } from "./d1/auth";
 import { handleD1Career } from "./d1/career";
 import { handleCvTools } from "./d1/cv-tools";
 import { handlePlatformTools } from "./d1/platform-tools";
@@ -62,7 +62,6 @@ export default {
 
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
       if (env.DB) {
-        await ensureD1Schema(env.DB);
         const authResponse = await handleD1Auth(request, env);
         if (authResponse) return authResponse;
         const careerResponse = await handleD1Career(request, env);

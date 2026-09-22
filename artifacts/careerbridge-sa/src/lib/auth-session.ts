@@ -127,9 +127,16 @@ export function dismissSecurityNudgeLocal() {
 
 export function authHeaders(extra?: HeadersInit): HeadersInit {
   const token = getSessionToken() || getAdminToken();
+  const merged = extra instanceof Headers
+    ? Object.fromEntries(extra.entries())
+    : extra && typeof extra === 'object' && !Array.isArray(extra)
+      ? { ...(extra as Record<string, string>) }
+      : {};
+
   return {
+    'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...extra,
+    ...merged,
   };
 }
 

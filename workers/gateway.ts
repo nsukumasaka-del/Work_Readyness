@@ -87,6 +87,24 @@ export default {
       return proxyApi(request, `${upstream}/`);
     }
 
-    return env.ASSETS.fetch(request);
+    const assetResponse = await env.ASSETS.fetch(request);
+    const headers = new Headers(assetResponse.headers);
+    const isHtmlOrScript =
+      request.url.includes(".html") ||
+      request.url.includes(".js") ||
+      request.url.includes(".css") ||
+      request.url.includes(".mjs");
+
+    if (isHtmlOrScript) {
+      headers.set("Cache-Control", "no-store, max-age=0");
+      headers.set("Pragma", "no-cache");
+      headers.set("Expires", "0");
+    }
+
+    return new Response(assetResponse.body, {
+      status: assetResponse.status,
+      statusText: assetResponse.statusText,
+      headers,
+    });
   },
 };

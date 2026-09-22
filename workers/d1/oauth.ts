@@ -435,7 +435,7 @@ export async function handleOAuthCallback(
     const user = await upsertOAuthUser(env.DB, providerRaw, profile);
     const { token, expiresAt } = await createSession(env.DB, user.id);
     const headers = new Headers();
-    headers.append("Set-Cookie", sessionCookie(token, expiresAt, isSecureRequest(request)));
+    headers.append("Set-Cookie", sessionCookie(token, expiresAt, isSecureRequest(request), request));
     headers.set("Location", `${appOrigin(request, env)}${returnTo}`);
     return new Response(null, { status: 302, headers });
   } catch (e) {

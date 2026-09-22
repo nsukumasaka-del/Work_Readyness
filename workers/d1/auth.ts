@@ -110,6 +110,15 @@ export function isSecureRequest(request: Request): boolean {
   return request.headers.get("x-forwarded-proto") === "https";
 }
 
+function cookieDomainForRequest(request: Request): string | null {
+  const hostname = new URL(request.url).hostname.toLowerCase();
+  if (!hostname) return null;
+  if (hostname === "bonlist.site" || hostname.endsWith(".bonlist.site")) {
+    return ".bonlist.site";
+  }
+  return null;
+}
+
 function parseCookies(header: string | null): Record<string, string> {
   const out: Record<string, string> = {};
   if (!header) return out;
@@ -133,7 +142,7 @@ function readSessionToken(request: Request): string | null {
   return readBearer(request) || parseCookies(request.headers.get("cookie"))[SESSION_COOKIE] || null;
 }
 
-export function sessionCookie(token: string, expiresAt: Date, secure: boolean): string {
+export function sessionCookie(token: string, expiresAt: Date, secure: boolean, request?: Request): string {
   const parts = [
     `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
     "Path=/",
@@ -142,11 +151,13 @@ export function sessionCookie(token: string, expiresAt: Date, secure: boolean): 
     `Expires=${expiresAt.toUTCString()}`,
     `Max-Age=${SESSION_DAYS * 24 * 60 * 60}`,
   ];
+  const domain = request ? cookieDomainForRequest(request) : null;
+  if (domain) parts.push(`Domain=${domain}`);
   if (secure) parts.push("Secure");
   return parts.join("; ");
 }
 
-function clearSessionCookie(secure: boolean): string {
+function clearSessionCookie(secure: boolean, request?: Request): string {
   const parts = [
     `${SESSION_COOKIE}=`,
     "Path=/",
@@ -155,6 +166,8 @@ function clearSessionCookie(secure: boolean): string {
     "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
     "Max-Age=0",
   ];
+  const domain = request ? cookieDomainForRequest(request) : null;
+  if (domain) parts.push(`Domain=${domain}`);
   if (secure) parts.push("Secure");
   return parts.join("; ");
 }
@@ -429,7 +442,7 @@ async function buildLoginResponse(
 ): Promise<Response> {
   const { token, expiresAt } = await createSession(env.DB, user.id);
   const headers = new Headers();
-  headers.append("Set-Cookie", sessionCookie(token, expiresAt, isSecureRequest(request)));
+  headers.append("Set-Cookie", sessionCookie(token, expiresAt, isSecureRequest(request), request));
 
   // Admin dashboards use the same D1 session token (no external auth host).
   const adminToken = user.is_admin ? token : undefined;
@@ -756,7 +769,7 @@ export async function handleLogout(request: Request, env: D1Env): Promise<Respon
     await env.DB.prepare("DELETE FROM sessions WHERE token = ?").bind(token).run();
   }
   const headers = new Headers();
-  headers.append("Set-Cookie", clearSessionCookie(isSecureRequest(request)));
+  headers.append("Set-Cookie", clearSessionCookie(isSecureRequest(request), request));
   return json({ ok: true }, 200, headers);
 }
 

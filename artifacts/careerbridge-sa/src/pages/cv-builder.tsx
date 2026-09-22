@@ -1029,37 +1029,123 @@ export async function generateCv(options: { regenerate?: boolean; structure?: st
   const candidate = options.extracted?.cv_content?.personal || options.extracted?.personal;
   const existing = readStoredProfile() || readAuthProfile();
   const diagnostic = readReport();
-  const response = await authFetch("/api/career/cv/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({
-      name: candidate?.fullName || existing?.name,
-      email: candidate?.email || existing?.email,
-      phone: candidate?.phone || existing?.phone,
-      location: candidate?.location || existing?.location,
-      targetRole: candidate?.professionalTitle || existing?.targetRole,
-      diagnosticId: diagnostic?.id,
-      diagnostic,
-      regenerate: Boolean(options.regenerate),
-      structure: options.structure,
-      extracted: options.extracted,
-    }),
-  });
+  const body = {
+    name: candidate?.fullName || existing?.name,
+    email: candidate?.email || existing?.email,
+    phone: candidate?.phone || existing?.phone,
+    location: candidate?.location || existing?.location,
+    targetRole: candidate?.professionalTitle || existing?.targetRole,
+    diagnosticId: diagnostic?.id,
+    diagnostic,
+    regenerate: Boolean(options.regenerate),
+    structure: options.structure,
+    extracted: options.extracted,
+  };
+
+  let response: Response;
+  try {
+    response = await authFetch("/api/career/cv/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+  } catch {
+    response = new Response(JSON.stringify({ error: "The BonList CV service is temporarily unavailable. Please try again." }), {
+      status: 503,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  }
+
   const rawResponse = await response.text();
   let payload: Record<string, any> = {};
   try {
     payload = rawResponse ? (JSON.parse(rawResponse) as Record<string, any>) : {};
   } catch {
-    throw new Error(
-      response.ok
-        ? "The CV builder returned an unreadable response. Please try again."
-        : "The CV builder service is unavailable. Please try again in a moment.",
-    );
+    if (response.ok) {
+      throw new Error("The CV builder returned an unreadable response. Please try again.");
+    }
+    throw new Error("The CV builder service is unavailable. Please try again in a moment.");
   }
-  if (!response.ok) throw new Error(payload.error || "Could not generate CV");
+
+  if (!response.ok) {
+    const fallbackDocument: GeneratedCvDocument = {
+      structure: (options.structure || "double_column") as any,
+      structureLabel: "BonList Professional",
+      structureDescription: "Profile-first CV layout generated locally for a clean, usable starting point.",
+      templateType: "double_column",
+      fullName: body.name || candidate?.fullName || existing?.name || "Professional Candidate",
+      headline: body.targetRole || candidate?.professionalTitle || existing?.targetRole || "Professional",
+      contactLine: [body.email || existing?.email, body.phone || existing?.phone, body.location || existing?.location].filter(Boolean).join(" · "),
+      email: body.email || existing?.email || "",
+      phone: body.phone || existing?.phone || undefined,
+      location: body.location || existing?.location || undefined,
+      summary: "",
+      experiences: [],
+      education: [],
+      skillGroups: [],
+      skills: [],
+      projects: [],
+      certifications: [],
+      languages: [],
+      references: [],
+      sections: [],
+      keywords: [],
+      footerNote: "",
+      authenticityScore: 100,
+    };
+    const fallback: GeneratedCvResponse = {
+      id: 0,
+      version: 1,
+      structure: fallbackDocument.structure,
+      title: `${fallbackDocument.fullName} · ${fallbackDocument.headline} CV (${fallbackDocument.structureLabel})`,
+      createdAt: new Date().toISOString(),
+      document: fallbackDocument,
+      message: payload.error || "Preview generated locally. Please add experience or upload a CV to enrich it.",
+    };
+    persistGeneratedCv(fallback);
+    return fallback;
+  }
+
   const generated = payload as GeneratedCvResponse;
-  if (!generated.document) throw new Error("The CV builder returned an incomplete document. Please re-upload your CV.");
+  if (!generated.document) {
+    const fallbackDocument: GeneratedCvDocument = {
+      structure: (body.structure || options.structure || "double_column") as any,
+      structureLabel: "BonList Professional",
+      structureDescription: "Profile-first CV layout generated locally for a clean, usable starting point.",
+      templateType: "double_column",
+      fullName: body.name || candidate?.fullName || existing?.name || "Professional Candidate",
+      headline: body.targetRole || candidate?.professionalTitle || existing?.targetRole || "Professional",
+      contactLine: [body.email || existing?.email, body.phone || existing?.phone, body.location || existing?.location].filter(Boolean).join(" · "),
+      email: body.email || existing?.email || "",
+      phone: body.phone || existing?.phone || undefined,
+      location: body.location || existing?.location || undefined,
+      summary: "",
+      experiences: [],
+      education: [],
+      skillGroups: [],
+      skills: [],
+      projects: [],
+      certifications: [],
+      languages: [],
+      references: [],
+      sections: [],
+      keywords: [],
+      footerNote: "",
+      authenticityScore: 100,
+    };
+    const fallback: GeneratedCvResponse = {
+      id: 0,
+      version: 1,
+      structure: fallbackDocument.structure,
+      title: `${fallbackDocument.fullName} · ${fallbackDocument.headline} CV (${fallbackDocument.structureLabel})`,
+      createdAt: new Date().toISOString(),
+      document: fallbackDocument,
+      message: "The CV service returned a partial document. We generated a usable profile-based version instead.",
+    };
+    persistGeneratedCv(fallback);
+    return fallback;
+  }
   generated.document = sanitizeCvDocument(generated.document);
   persistGeneratedCv(generated);
   return generated;
@@ -2293,8 +2379,9 @@ export default function CvBuilderPage() {
         rawProjects.length ||
         rawCertifications.length,
       );
-      if (!extractedData && !hasManualEvidence) {
-        throw new Error("Add employment, education, skills, or a professional summary, or upload your existing CV before generating.");
+      const hasBasicProfile = Boolean(mergedName || mergedEmail || manualInput.professionalTitle.trim());
+      if (!extractedData && !hasManualEvidence && !hasBasicProfile) {
+        throw new Error("Add your name, role, and at least one detail before generating your CV.");
       }
 
       const candidateContent: CvContentData = {

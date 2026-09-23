@@ -2753,6 +2753,52 @@ export default function CvBuilderPage() {
     }
   };
 
+  const handleResetCvIntake = () => {
+    selectedFileRef.current = null;
+    lastHandledUploadRef.current = "";
+    lastSelectedUploadFingerprintRef.current = "";
+    if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = "";
+    setSelectedUploadMeta(null);
+    setExtractedData(null);
+    setUploadReadStatus("");
+    setIntakePasteText("");
+    setShowPasteInsideUpload(false);
+    setError("");
+    setCv(null);
+    setAiFeedback(null);
+    setAgentFileName("");
+    setManualInput({
+      fullName: "",
+      professionalTitle: "",
+      email: "",
+      phone: "",
+      location: "",
+      linkedin: "",
+      website: "",
+      summary: "",
+      experiences: [],
+      education: [],
+      skills: "",
+      projects: [],
+      certifications: [],
+      languages: "",
+      references: "",
+    });
+    clearGeneratedCv();
+    hasGeneratedRef.current = false;
+    const resetUrl = new URL(window.location.href);
+    resetUrl.searchParams.set("intake", "1");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${resetUrl.pathname}${resetUrl.search}${resetUrl.hash}`,
+    );
+    setIntakeTab("upload");
+    setIsIntakeModalOpen(true);
+    setMessage("CV Builder reset. Upload a new CV to continue.");
+    window.setTimeout(() => setMessage(""), 5000);
+  };
+
   // Keep a completed upload attached to this browser tab if the page refreshes
   // or profile state causes the builder component to remount.
   useEffect(() => {
@@ -7806,6 +7852,16 @@ export default function CvBuilderPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleResetCvIntake}
+                  disabled={generatingFromIntake || extracting}
+                  className="flex items-center gap-1.5 rounded-xl border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 transition disabled:opacity-50"
+                  title="Clear captured CV details and start a new upload"
+                >
+                  <RefreshCw size={13} />
+                  Reset CV
+                </button>
                 <button
                   type="button"
                   onClick={() => setIsIntakeModalOpen(false)}

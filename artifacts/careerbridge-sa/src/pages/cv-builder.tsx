@@ -859,6 +859,22 @@ function buildLocalCvResponse(
   };
 }
 
+const CV_INTAKE_TAB_KEY = "bonlist-cv-intake-tab";
+const CV_INTAKE_DATA_KEY = "bonlist-cv-intake-data";
+const CV_INTAKE_FILE_KEY = "bonlist-cv-intake-file";
+
+function readIntakeSession<T>(key: string, fallback: T, parse?: (value: unknown) => T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const saved = window.sessionStorage.getItem(key);
+    if (saved == null) return fallback;
+    const value: unknown = key === CV_INTAKE_DATA_KEY ? JSON.parse(saved) : saved;
+    return parse ? parse(value) : value as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export interface TemplateDefinition {
   id: string;
   category: "Modern" | "Traditional" | "Creative" | "ATS-Friendly" | "Executive" | "Minimalist";
@@ -1829,7 +1845,9 @@ export default function CvBuilderPage() {
   // Extraction Review Screen (Import CV)
   const [isExtractModalOpen, setIsExtractModalOpen] = useState(false);
   const [extracting, setExtracting] = useState(false);
-  const [extractedData, setExtractedData] = useState<ExtractedCvData | null>(null);
+  const [extractedData, setExtractedData] = useState<ExtractedCvData | null>(() =>
+    readIntakeSession<ExtractedCvData | null>(CV_INTAKE_DATA_KEY, null, (value) => normalizeExtractedCvData(value)),
+  );
   const [rawUploadText, setRawUploadText] = useState("");
   const [newSkillInput, setNewSkillInput] = useState("");
 
@@ -1903,11 +1921,13 @@ export default function CvBuilderPage() {
 
   // Intake Workstation State (Upload CV or Add Manually before generation)
   const [isIntakeModalOpen, setIsIntakeModalOpen] = useState(false);
-  const [intakeTab, setIntakeTab] = useState<"manual" | "upload">("manual");
+  const [intakeTab, setIntakeTab] = useState<"manual" | "upload">(() =>
+    readIntakeSession<string>(CV_INTAKE_TAB_KEY, "manual") === "upload" ? "upload" : "manual",
+  );
   const [generatingFromIntake, setGeneratingFromIntake] = useState(false);
   const [intakePasteText, setIntakePasteText] = useState("");
   const [showPasteInsideUpload, setShowPasteInsideUpload] = useState(false);
-  const [selectedUploadName, setSelectedUploadName] = useState("");
+  const [selectedUploadName, setSelectedUploadName] = useState(() => readIntakeSession(CV_INTAKE_FILE_KEY, ""));
 
   // Agent Working State: Animated High-Trust Progress Screen
   const [isAgentWorking, setIsAgentWorking] = useState(false);
@@ -2121,6 +2141,7 @@ export default function CvBuilderPage() {
   };
 
   const processIntakeCvFile = async (file: File) => {
+    setIntakeTab("upload");
     setSelectedUploadName(file.name);
     setError("");
     setAgentFileName(file.name);
@@ -2592,11 +2613,63 @@ export default function CvBuilderPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate CV");
       setIsIntakeModalOpen(true);
-    } finally {
+  } finally {
       setIsAgentWorking(false);
       setGeneratingFromIntake(false);
     }
   };
+
+  // Keep a completed upload attached to this browser tab if the page refreshes
+  // or profile state causes the builder component to remount.
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(CV_INTAKE_TAB_KEY, intakeTab);
+      window.sessionStorage.setItem(CV_INTAKE_FILE_KEY, selectedUploadName);
+      if (extractedData) window.sessionStorage.setItem(CV_INTAKE_DATA_KEY, JSON.stringify(extractedData));
+      else window.sessionStorage.removeItem(CV_INTAKE_DATA_KEY);
+    } catch {
+      // The upload still works if the browser blocks session storage.
+    }
+  }, [intakeTab, selectedUploadName, extractedData]);
+
+  // Restore the review form from an upload already parsed in this tab.
+  useEffect(() => {
+    if (!extractedData) return;
+    const imported = normalizeExtractedCvData(extractedData).cv_content!;
+    setManualInput((previous) => ({
+      ...previous,
+      fullName: previous.fullName || imported.personal.fullName,
+      professionalTitle: previous.professionalTitle || imported.personal.professionalTitle || "",
+      email: previous.email || imported.personal.email,
+      phone: previous.phone || imported.personal.phone || "",
+      location: previous.location || imported.personal.location || "",
+      linkedin: previous.linkedin || imported.personal.linkedin || "",
+      website: previous.website || imported.personal.website || "",
+      summary: previous.summary || imported.summary,
+      experiences: previous.experiences.length ? previous.experiences : imported.experiences.map((exp, index) => ({
+        id: exp.id || `restored-exp-${index + 1}`,
+        role: exp.role || "",
+        company: exp.company || "",
+        startDate: exp.startDate || "",
+        endDate: exp.endDate || "",
+        bullets: exp.bullets || [],
+      })),
+      education: previous.education.length ? previous.education : imported.education.map((item, index) => ({
+        id: item.id || `restored-edu-${index + 1}`,
+        degree: item.degree || "",
+        institution: item.institution || "",
+        graduationYear: item.graduationYear || "",
+      })),
+      skills: previous.skills || imported.skills.join(", "),
+      projects: previous.projects.length ? previous.projects : imported.projects || [],
+      certifications: previous.certifications.length ? previous.certifications : imported.certifications || [],
+      languages: previous.languages || (imported.languages || []).join(", "),
+      references: previous.references || (imported.references || []).join("\n"),
+    }));
+  // This hydrates only the upload restored during the first render. Later parser
+  // results populate manualInput directly in processIntakeCvFile.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load existing CV or fallback profile, and check for intake request
   useEffect(() => {

@@ -2150,18 +2150,15 @@ export function verifyExtractedDataAgainstRawText(
     // Verified if company, role, or freelance matches source text
     const isVerifiedExp = hasComp || hasRole || isFreelance || textHasTerm(role, 0.3) || textHasTerm(comp, 0.3);
 
-    if (isVerifiedExp) {
-      const corroboratedBullets = exp.bullets.filter((b) => {
-        if (!b || b.length < 4) return false;
-        const words = b.toLowerCase().split(/[\s,.\-–|/()]+/).filter((w) => w.length >= 4);
-        if (words.length === 0) return true;
-        const matched = words.filter((w) => normalizedRaw.includes(w));
-        return matched.length >= 1;
-      });
+    const hasSourceBackedBullet = exp.bullets.some((bullet) => textHasTerm(bullet, 0.3));
+    if (isVerifiedExp || hasSourceBackedBullet) {
 
       verifiedExperiences.push({
         ...exp,
-        bullets: corroboratedBullets.length > 0 ? corroboratedBullets : exp.bullets,
+        // These bullets are extracted from the source text. Keep the complete
+        // de-duplicated list in source order instead of dropping bullets based
+        // on a one-word match heuristic.
+        bullets: preserveSourceBullets(exp.bullets),
         classification: "VERIFIED",
       });
       verifiedEntities.push(`Experience: ${role} at ${comp}`);
@@ -3263,7 +3260,11 @@ function preserveSourceBullets(bullets: string[]): string[] {
   const seen = new Set<string>();
   const preserved: string[] = [];
   for (const raw of bullets || []) {
-    const bullet = String(raw || "").replace(/^[\s•\-\*▪▫►]+/, "").replace(/\s+/g, " ").trim();
+    const bullet = String(raw || "")
+      .replace(/^[\s•\-\*▪▫►○●]+/, "")
+      .replace(/\s+/g, " ")
+      .replace(/[\s\-–—]+$/, "")
+      .trim();
     if (bullet.length < 4 || isGarbagePersonalToken(bullet)) continue;
     const key = bullet.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     if (seen.has(key)) continue;

@@ -1948,6 +1948,7 @@ export default function CvBuilderPage() {
   const [uploadReadStatus, setUploadReadStatus] = useState("");
   const intakeUploadInputRef = useRef<HTMLInputElement | null>(null);
   const lastHandledUploadRef = useRef("");
+  const lastSelectedUploadFingerprintRef = useRef("");
   // Keep the non-serializable browser File outside React state. React only
   // receives a small, render-safe description of the selected document.
   const selectedFileRef = useRef<File | null>(null);
@@ -2298,13 +2299,32 @@ export default function CvBuilderPage() {
       const selectionKey = `${file.name}:${file.size}:${file.lastModified}`;
       if (lastHandledUploadRef.current === selectionKey) return;
       lastHandledUploadRef.current = selectionKey;
+      const isDifferentDocument = lastSelectedUploadFingerprintRef.current !== selectionKey;
+      if (isDifferentDocument) {
+        lastSelectedUploadFingerprintRef.current = selectionKey;
+        selectedFileRef.current = null;
+        setExtractedData(null);
+        setRawUploadText("");
+        setIntakePasteText("");
+        setManualInput({
+          fullName: "", professionalTitle: "", email: "", phone: "", location: "",
+          linkedin: "", website: "", summary: "", experiences: [], education: [],
+          skills: "", projects: [], certifications: [], languages: "", references: "",
+        });
+        setAiFeedback(null);
+        clearGeneratedCv();
+        setCv(null);
+        try { window.sessionStorage.removeItem(CV_INTAKE_DATA_KEY); } catch { /* storage is optional */ }
+        setMessage(`New CV detected: Updating details from ${file.name}…`);
+        window.setTimeout(() => setMessage(""), 5000);
+      }
       selectedFileRef.current = file;
       setIntakeTab("upload");
       setSelectedUploadMeta({ name: file.name, size: file.size, type: file.type });
       const size = file.size < 1024 * 1024
         ? `${Math.max(1, Math.round(file.size / 1024))} KB`
         : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
-      setUploadReadStatus(`File selected: ${file.name} (${size}). Click Generate Modern ATS CV to read it.`);
+       setUploadReadStatus(`${isDifferentDocument ? "New CV detected" : "File selected"}: ${file.name} (${size}). Click Generate Modern ATS CV to read it.`);
       setError("");
       // Clear the native control after capturing the File so selecting the
       // same document again still emits a change event. The ref retains it.
@@ -6457,7 +6477,7 @@ export default function CvBuilderPage() {
 
                     {/* 2. BODY LAYOUT (TWO-COLUMN OR SINGLE-COLUMN) */}
                     {isDouble ? (
-                      <div className={`grid gap-7 ${isCompact ? "lg:grid-cols-[1.7fr_1fr] gap-5" : "lg:grid-cols-[1.6fr_1fr] gap-8"}`}>
+                      <div className={`grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] items-start ${isCompact ? "gap-5" : "gap-8"}`}>
                         <div className="min-w-0 space-y-5">
                           {summarySection}
                           {experienceSection}
@@ -7612,6 +7632,7 @@ export default function CvBuilderPage() {
                           intakeUploadInputRef.current && (intakeUploadInputRef.current.value = "");
                           selectedFileRef.current = null;
                           lastHandledUploadRef.current = "";
+                          lastSelectedUploadFingerprintRef.current = "";
                           setSelectedUploadMeta(null);
                           setExtractedData(null);
                           setUploadReadStatus("");

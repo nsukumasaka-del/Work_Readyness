@@ -4561,7 +4561,11 @@ export default function CvBuilderPage() {
             {/* Preview Mode Toggle (Enhancv Feature) */}
             <button
               type="button"
-              onClick={() => setIsPreviewMode(!isPreviewMode)}
+              onClick={() => {
+                const enteringPreview = !isPreviewMode;
+                setIsPreviewMode(enteringPreview);
+                if (enteringPreview && activeNavPanel !== "templates") setActiveNavPanel(null);
+              }}
               className={`hidden md:flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold transition ${
                 isPreviewMode
                   ? "border-primary bg-primary text-primary-foreground shadow-xs"
@@ -4659,14 +4663,15 @@ export default function CvBuilderPage() {
         </div>
       </header>
 
-      {!isPreviewMode && (
-        <nav className="no-print flex w-full gap-2 overflow-x-auto border-b border-border bg-card px-3 py-2 md:hidden" aria-label="CV builder tools">
-          {([
+      <nav className="no-print flex w-full gap-2 overflow-x-auto border-b border-border bg-card px-3 py-2 md:hidden" aria-label="CV builder tools">
+          {(isPreviewMode ? ([
+            ["templates", "Templates"],
+          ] as const) : ([
             ["templates", "Templates"],
             ["design", "Design"],
             ["sections", "Sections"],
             ["ai", "AI help"],
-          ] as const).map(([panel, label]) => (
+          ] as const)).map(([panel, label]) => (
             <button
               key={panel}
               type="button"
@@ -4677,10 +4682,9 @@ export default function CvBuilderPage() {
               {label}
             </button>
           ))}
-          <button type="button" onClick={() => { setShowAtsDrawer(true); setShowJobMatchDrawer(false); }} className="shrink-0 rounded-lg bg-secondary px-3 py-2 text-xs font-semibold text-foreground">ATS score</button>
-          <button type="button" onClick={() => { setShowJobMatchDrawer(true); setShowAtsDrawer(false); }} className="shrink-0 rounded-lg bg-secondary px-3 py-2 text-xs font-semibold text-foreground">Job match</button>
-        </nav>
-      )}
+          {!isPreviewMode && <button type="button" onClick={() => { setShowAtsDrawer(true); setShowJobMatchDrawer(false); }} className="shrink-0 rounded-lg bg-secondary px-3 py-2 text-xs font-semibold text-foreground">ATS score</button>}
+          {!isPreviewMode && <button type="button" onClick={() => { setShowJobMatchDrawer(true); setShowAtsDrawer(false); }} className="shrink-0 rounded-lg bg-secondary px-3 py-2 text-xs font-semibold text-foreground">Job match</button>}
+      </nav>
 
       {/* Notifications / Toast */}
       {message ? (
@@ -4697,7 +4701,6 @@ export default function CvBuilderPage() {
       {/* 2. ENHANCV-STYLE WORKSPACE (LEFT ICON RAIL + FLYOUT PANEL + A4 CANVAS + RIGHT DRAWERS) */}
       <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 flex-col overflow-visible md:flex-row md:overflow-hidden">
         {/* LEFT COMPACT ICON RAIL (4 MAIN OPTIONS: Templates, Design, Sections, AI) */}
-        {!isPreviewMode && (
           <nav className="no-print hidden w-16 shrink-0 flex-col items-center justify-between border-r border-border bg-card py-4 md:flex md:z-20">
             {/* Top 4 Primary Workspace Modules */}
             <div className="flex flex-col items-center gap-3">
@@ -4718,6 +4721,7 @@ export default function CvBuilderPage() {
                 </span>
               </button>
 
+              {!isPreviewMode && <>
               {/* 2. Design & Layout */}
               <button
                 type="button"
@@ -4768,10 +4772,11 @@ export default function CvBuilderPage() {
                   AI Assistant & Voice
                 </span>
               </button>
+              </>}
             </div>
 
             {/* Bottom Rail Actions (Setup / Import, Manual Entry) */}
-            <div className="flex flex-col items-center gap-2">
+            {!isPreviewMode && <div className="flex flex-col items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -4802,12 +4807,11 @@ export default function CvBuilderPage() {
                   Add Details Manually
                 </span>
               </button>
-            </div>
+            </div>}
           </nav>
-        )}
 
         {/* LEFT EXPANDABLE DRAWER PANEL (340px) */}
-        {!isPreviewMode && activeNavPanel && (
+        {activeNavPanel && (!isPreviewMode || activeNavPanel === "templates") && (
           <aside className="no-print relative z-20 max-h-[min(65dvh,36rem)] w-full min-w-0 shrink-0 overflow-y-auto border-b border-border bg-card p-4 shadow-lg animate-in slide-in-from-left duration-200 md:inset-auto md:z-10 md:max-h-full md:w-[22rem] md:max-w-[26rem] md:border-b-0 md:border-r">
             <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
               <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">

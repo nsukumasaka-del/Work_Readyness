@@ -11,7 +11,12 @@ import {
   type UserRow,
 } from "./auth";
 import { searchTrustedJobBoards } from "../../artifacts/api-server/src/lib/job-board-search";
-import { buildGeneratedCv, normalizeStructure, type CvStructure } from "../../artifacts/api-server/src/lib/cv-builder";
+import {
+  buildGeneratedCv,
+  normalizeStructure,
+  type CvStructure,
+} from "../../artifacts/api-server/src/lib/cv-builder";
+import { handleCvParseUpload } from "../cv-parse";
 
 type CareerProfileRow = {
   id: number;
@@ -565,14 +570,7 @@ async function handleProfile(request: Request, env: D1Env, user: UserRow): Promi
 async function handleParse(request: Request, env: D1Env, user?: UserRow): Promise<Response> {
   void env;
   void user;
-  const input = await body(request);
-  const text = clean(input.text) || extractSimplePdfText(clean(input.fileData));
-  if (!text) {
-    return error(415, "Cloudflare could not read the file bytes. Re-export the CV as a text-based PDF, or use the paste-text option.");
-  }
-  if (text.length < 10) return error(400, "No readable CV text was found. Please paste the CV text or upload a text-based document.");
-  const data = parseCvText(text, clean(input.fileName) || "CV");
-  return json(cvContent(data));
+  return handleCvParseUpload(request);
 }
 
 async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Promise<Response> {
@@ -706,7 +704,17 @@ async function handleGenerate(request: Request, env: D1Env, user: UserRow): Prom
           : nestedContent?.skills || [],
       }
     : undefined;
-  const document = buildGeneratedDocument(profile, extracted, clean(input.structure) || "professional");
+  const document = buildGeneratedCv({
+    profile: {
+      name: profile.name,
+      email: profile.email,
+      phone: profile.phone,
+      location: profile.location,
+      targetRole: profile.target_role,
+    },
+    extracted: extracted as Parameters<typeof buildGeneratedCv>[0]["extracted"],
+    structure: normalizeStructure(clean(input.structure) || "professional"),
+  });
   return json({
     id: Date.now(),
     version: 1,

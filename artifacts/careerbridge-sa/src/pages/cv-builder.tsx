@@ -38,12 +38,14 @@ import {
   LayoutTemplate,
   ListChecks,
   Lock,
+  Mail,
   Maximize2,
   MessageSquare,
   Minus,
   MoveDown,
   MoveUp,
   Palette,
+  Pencil,
   Plus,
   Printer,
   RefreshCw,
@@ -1765,6 +1767,8 @@ export default function CvBuilderPage() {
   const [a4Spacers, setA4Spacers] = useState<Record<string, number>>({});
   const [canvasFitScale, setCanvasFitScale] = useState(1);
   const [canvasPageWidthPx, setCanvasPageWidthPx] = useState(794);
+  const [currentCanvasPage, setCurrentCanvasPage] = useState(1);
+  const [documentLocale, setDocumentLocale] = useState("en-GB");
 
   const [cv, setCv] = useState<GeneratedCvResponse | null>(null);
   const currentCvRef = useRef<GeneratedCvResponse | null>(null);
@@ -1888,7 +1892,6 @@ export default function CvBuilderPage() {
   const [newVersionNameInput, setNewVersionNameInput] = useState("");
   const [compareSnapshot, setCompareSnapshot] = useState<GeneratedCvDocument | null>(null);
   const [showCompareModal, setShowCompareModal] = useState(false);
-  const [showVersionDropdown, setShowVersionDropdown] = useState(false);
 
   // Pre-Flight CV Quality Control Engine (Section 37)
   const [preFlightReport, setPreFlightReport] = useState<PreFlightAuditReport | null>(null);
@@ -4398,434 +4401,118 @@ export default function CvBuilderPage() {
     return true;
   });
 
-  return (
-    <div className="cv-builder flex h-[calc(100dvh-4rem)] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
-      {/* 1. MINIMALIST TOP COMMAND HEADER (ENHANCV-STYLE) */}
-      {commandHeaderHost ? createPortal(
-        <div className="cv-builder-command-header no-print flex h-full min-w-0 flex-1 items-center justify-between gap-2 overflow-x-auto px-2">
-          {/* Left: Brand + Role Title + Cloud Saved Indicator */}
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="h-6 w-px bg-border" aria-hidden="true" />
+  const scrollToCanvasPage = (requestedPage: number) => {
+    const page = Math.max(1, Math.min(a4PageCount, requestedPage));
+    setCurrentCanvasPage(page);
+    const scale = Math.min(zoomLevel / 100, canvasFitScale);
+    const pageHeight = (canvasPageWidthPx / 210) * 297 * scale;
+    canvasRef.current?.scrollTo({ top: Math.max(0, (page - 1) * pageHeight), behavior: "smooth" });
+  };
 
-            {/* Version / Title Pill */}
-            <div className="relative">
-              <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1">
-                <Layers size={13} className="shrink-0 text-primary" />
+  return (
+    <div className="cv-builder relative flex h-[calc(100dvh-3.5rem)] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+      {commandHeaderHost ? createPortal(
+        <div className="flex h-full min-w-0 flex-1 items-center justify-between gap-3 px-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="hidden min-w-0 sm:block">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Finalize your CV</div>
+              <div className="flex min-w-0 items-center gap-1">
                 <input
                   type="text"
-                  aria-label="CV document title"
+                  aria-label="CV document name"
                   value={currentVersionName}
                   onChange={(event) => setCurrentVersionName(event.target.value)}
                   onBlur={() => { if (!currentVersionName.trim()) setCurrentVersionName("My Master CV"); }}
-                  className="w-[6.5rem] bg-transparent text-xs font-semibold text-foreground outline-none sm:w-32"
+                  className="w-36 max-w-[18vw] truncate rounded px-1 py-0.5 text-sm font-semibold text-slate-800 outline-none hover:bg-slate-50 focus:bg-white focus:ring-1 focus:ring-[#00A884]/40"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowVersionDropdown(!showVersionDropdown)}
-                  className="rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  aria-label="Switch CV version"
-                  aria-expanded={showVersionDropdown}
-                >
-                  <ChevronDown size={12} />
-                </button>
+                <Pencil size={12} className="shrink-0 text-slate-400" aria-hidden="true" />
               </div>
-
-              {showVersionDropdown && (
-                <div className="absolute left-0 mt-2 z-50 w-64 rounded-2xl border border-border bg-card p-2 shadow-xl animate-in fade-in zoom-in-95">
-                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Targeted CV Versions
-                  </div>
-                  <div className="space-y-1 mt-1">
-                    {savedCvVersions.map((v) => (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onClick={() => {
-                          handleSwitchVersion(v);
-                          setShowVersionDropdown(false);
-                        }}
-                        className={`flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-xs transition ${
-                          v.name === currentVersionName
-                            ? "bg-primary text-primary-foreground font-semibold"
-                            : "text-foreground hover:bg-secondary"
-                        }`}
-                      >
-                        <span className="truncate">{v.name}</span>
-                        {v.name === currentVersionName && <Check size={13} />}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="mt-2 border-t border-border pt-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowVersionDropdown(false);
-                        setIsNewVersionModalOpen(true);
-                      }}
-                      className="flex w-full items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10"
-                    >
-                      <Plus size={13} />
-                      <span>Create Targeted Version…</span>
-                    </button>
-                  </div>
-                </div>
-              )}
+              <div className="truncate text-[9px] text-slate-500">CV of {cv?.document.fullName || profile?.name || "Candidate"}</div>
             </div>
-
-            {/* Cloud Sync Status */}
-            <span className="hidden lg:flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 size={13} />
-              <span>Saved</span>
-            </span>
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Saved</span>
           </div>
 
-          {/* Center: Quick Document Actions (Undo, Reset, Pre-Flight Status) */}
-          <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5 overflow-x-auto">
-            <button
-              type="button"
-              disabled={changeHistory.length === 0}
-              onClick={handleUndo}
-              title={changeHistory.length > 0 ? `Undo: ${changeHistory[0]?.action}` : "No edits to undo"}
-              className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground hover:bg-secondary disabled:opacity-40 transition"
-            >
-              <Undo2 size={13} />
-              <span className="hidden sm:inline">Undo</span>
+          <div className="flex min-w-0 items-center justify-end gap-1.5">
+            <button type="button" disabled={!cv} onClick={() => window.print()} className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40" title="Print CV">
+              <Printer size={15} /><span className="hidden lg:inline">Print</span>
             </button>
-
-            {/* Upload or Manual Info Intake Button */}
             <button
               type="button"
-              onClick={() => setIsIntakeModalOpen(true)}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary shadow-xs transition hover:bg-primary/20"
-              title="Upload existing CV or add information manually"
-            >
-              <FileUp size={13} />
-               <span className="hidden sm:inline">Upload / Manual Setup</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={openImproveCvModal}
-              disabled={!cv && !loading}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-700 shadow-xs transition hover:bg-emerald-500/20 disabled:opacity-40 dark:text-emerald-300"
-              title="Improve wording without inventing experience"
-            >
-              <Wand2 size={13} />
-               <span className="hidden sm:inline">Improve CV</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => void handleStartAchievementDiscovery()}
-              className="hidden xl:flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 transition"
-              title="Targeted questions to draw out verified metrics"
-            >
-              <Award size={13} />
-              <span>Achievement Discovery</span>
-            </button>
-          </div>
-
-          {/* Right: Live ATS Score Badge + Job Match + Export + Save */}
-          <div className="flex shrink-0 items-center justify-end gap-1.5">
-            {/* ATS Live Score Slide-Out Button */}
-            <button
-              type="button"
+              disabled={!cv}
               onClick={() => {
-                setShowAtsDrawer(!showAtsDrawer);
-                if (showJobMatchDrawer) setShowJobMatchDrawer(false);
+                const candidate = cv?.document.fullName || currentVersionName || "Candidate";
+                const subject = encodeURIComponent("CV - " + candidate);
+                const body = encodeURIComponent("My CV is ready. Download the PDF from the CV Builder and attach it to this email.");
+                window.location.href = "mailto:?subject=" + subject + "&body=" + body;
               }}
-              className={`hidden items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold transition sm:flex ${
-                showAtsDrawer
-                  ? "border-primary bg-primary text-primary-foreground shadow-xs"
-                  : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20"
-              }`}
-              title="Open Real-Time ATS Compatibility & Workday Parser Simulation"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+              title="Compose an email about your CV"
             >
-              <ShieldCheck size={14} className={showAtsDrawer ? "text-primary-foreground" : "text-emerald-500"} />
-              <span>ATS Score: {qualityReport?.overallScore || 94}%</span>
+              <Mail size={15} /><span className="hidden lg:inline">Email</span>
             </button>
-
-            {/* Job Match & Keyword Optimization Drawer Button */}
+            <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40" title="Download CV as PDF">
+              <Download size={15} /><span className="hidden lg:inline">Download</span>
+            </button>
             <button
               type="button"
-              onClick={() => {
-                setShowJobMatchDrawer(!showJobMatchDrawer);
-                if (showAtsDrawer) setShowAtsDrawer(false);
-              }}
-              className={`hidden sm:flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold transition ${
-                showJobMatchDrawer
-                  ? "border-primary bg-primary text-primary-foreground shadow-xs"
-                  : "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300 hover:bg-sky-500/20"
-              }`}
-              title="Paste Job Description to analyze match and highlight keywords"
+              disabled={!cv || saving}
+              onClick={() => { void handleSaveCv(currentVersionName.trim() || "My Master CV").then(() => canvasRef.current?.focus()); }}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#00A884] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#008f70] disabled:cursor-not-allowed disabled:opacity-50"
+              title="Save your CV and continue"
             >
-              <Target size={14} className={showJobMatchDrawer ? "text-primary-foreground" : "text-sky-500"} />
-              <span>{advancedMatchReport ? `${advancedMatchReport.overallFitPercentage}% Match` : "Job Match"}</span>
+              <Save size={14} /><span className="hidden sm:inline">{saving ? "Saving…" : "Save & Next"}</span>
             </button>
-
-            {/* Preview Mode Toggle (Enhancv Feature) */}
-            <button
-              type="button"
-              onClick={() => {
-                const enteringPreview = !isPreviewMode;
-                setIsPreviewMode(enteringPreview);
-                if (enteringPreview && activeNavPanel !== "templates") setActiveNavPanel(null);
-              }}
-              className={`hidden md:flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold transition ${
-                isPreviewMode
-                  ? "border-primary bg-primary text-primary-foreground shadow-xs"
-                  : "border-border bg-card text-foreground hover:bg-secondary"
-              }`}
-              title={isPreviewMode ? "Exit Preview" : "Preview Mode (Distraction-Free)"}
-            >
-              {isPreviewMode ? <EyeOff size={13} /> : <Eye size={13} />}
-              <span>{isPreviewMode ? "Exit Preview" : "Preview"}</span>
-            </button>
-
-            {/* Download / Export Dropdown */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowExportDropdown(!showExportDropdown)}
-                disabled={!cv}
-                className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1 text-xs font-bold text-primary-foreground shadow-xs hover:brightness-105 transition disabled:opacity-50"
-                title={cv ? "Download your CV" : "Generate a CV first"}
-                data-export-menu
-              >
-                <Download size={14} />
-              <span className="hidden sm:inline">Download</span>
-                <ChevronDown size={12} />
-              </button>
-
-              {showExportDropdown && (
-                  <div className="absolute right-0 mt-2 z-50 w-56 rounded-2xl border border-border bg-card p-2 shadow-xl animate-in fade-in zoom-in-95" data-export-menu>
-                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Download final CV
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDirectDownload("print")}
-                    className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-xs font-semibold text-foreground hover:bg-secondary transition"
-                  >
-                    <Printer size={14} className="text-primary" />
-                    <div>
-                      <div>PDF Document</div>
-                      <div className="text-[10px] font-normal text-muted-foreground">Save as PDF via print dialog</div>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleDirectDownload("doc")}
-                    className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-xs font-semibold text-foreground hover:bg-secondary transition"
-                  >
-                    <FileDown size={14} className="text-sky-500" />
-                    <div>
-                      <div>Word Document (.doc)</div>
-                      <div className="text-[10px] font-normal text-muted-foreground">Editable Microsoft Word format</div>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleDirectDownload("txt")}
-                    className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-xs font-semibold text-foreground hover:bg-secondary transition"
-                  >
-                    <FileText size={14} className="text-emerald-500" />
-                    <div>
-                      <div>Plain Text (.txt)</div>
-                      <div className="text-[10px] font-normal text-muted-foreground">Universal ATS direct-upload</div>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleDirectDownload("html")}
-                    className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-xs font-semibold text-foreground hover:bg-secondary transition"
-                  >
-                    <FileCode size={14} className="text-purple-500" />
-                    <div>
-                      <div>Semantic HTML</div>
-                      <div className="text-[10px] font-normal text-muted-foreground">Stand-alone web standard</div>
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Quick Save */}
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => void handleSaveCv(currentVersionName.trim() || "My Master CV")}
-              className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-secondary disabled:opacity-50 transition"
-              title="Save snapshot to cloud"
-            >
-              <Save size={13} />
-              <span>{saving ? "Saving…" : "Save"}</span>
-            </button>
+            <label className="hidden items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5 text-[11px] text-slate-600 sm:flex" title="Document locale">
+              <span className="sr-only">Language and locale</span>
+              <select value={documentLocale} onChange={(event) => setDocumentLocale(event.target.value)} className="max-w-24 bg-transparent text-xs outline-none">
+                <option value="en-GB">English (UK)</option>
+                <option value="en-ZA">English (SA)</option>
+                <option value="en-US">English (US)</option>
+              </select>
+            </label>
           </div>
         </div>,
         commandHeaderHost,
       ) : null}
-
-      <nav className="no-print flex w-full gap-2 overflow-x-auto border-b border-border bg-card px-3 py-2 md:hidden" aria-label="CV builder tools">
-          {(isPreviewMode ? ([
-            ["templates", "Templates"],
-          ] as const) : ([
-            ["templates", "Templates"],
-            ["design", "Design"],
-            ["sections", "Sections"],
-            ["ai", "AI help"],
-          ] as const)).map(([panel, label]) => (
-            <button
-              key={panel}
-              type="button"
-              onClick={() => setActiveNavPanel(activeNavPanel === panel ? null : panel)}
-              aria-expanded={activeNavPanel === panel}
-              className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold ${activeNavPanel === panel ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"}`}
-            >
-              {label}
-            </button>
-          ))}
-          {!isPreviewMode && <button type="button" onClick={() => { setShowAtsDrawer(true); setShowJobMatchDrawer(false); }} className="shrink-0 rounded-lg bg-secondary px-3 py-2 text-xs font-semibold text-foreground">ATS score</button>}
-          {!isPreviewMode && <button type="button" onClick={() => { setShowJobMatchDrawer(true); setShowAtsDrawer(false); }} className="shrink-0 rounded-lg bg-secondary px-3 py-2 text-xs font-semibold text-foreground">Job match</button>}
-      </nav>
-
       {/* Notifications / Toast */}
       {message ? (
-        <div className="no-print border-b border-emerald-500/20 bg-emerald-500/10 px-4 py-1.5 text-center text-xs font-medium text-emerald-800 dark:text-emerald-200">
+        <div className="no-print pointer-events-none absolute right-4 top-2 z-50 rounded-lg border border-emerald-500/20 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-800 shadow-md">
           ✓ {message}
         </div>
       ) : null}
       {error ? (
-        <div className="no-print border-b border-destructive/20 bg-destructive/10 px-4 py-1.5 text-center text-xs font-medium text-destructive">
+        <div className="no-print pointer-events-none absolute right-4 top-2 z-50 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs font-medium text-red-700 shadow-md">
           ⚠ {error}
         </div>
       ) : null}
 
       {/* 2. ENHANCV-STYLE WORKSPACE (LEFT ICON RAIL + FLYOUT PANEL + A4 CANVAS + RIGHT DRAWERS) */}
-      <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:flex-row">
-        {/* LEFT COMPACT ICON RAIL (4 MAIN OPTIONS: Templates, Design, Sections, AI) */}
-          <nav className="no-print hidden h-full w-16 shrink-0 flex-col items-center justify-between border-r border-border bg-white py-4 md:flex md:z-20" aria-label="CV workspace tools">
-            {/* Top 4 Primary Workspace Modules */}
-            <div className="flex flex-col items-center gap-5">
-              {/* 1. Templates */}
-              <button
-                type="button"
-                onClick={() => setActiveNavPanel(activeNavPanel === "templates" ? null : "templates")}
-                className={`group relative flex w-16 flex-col items-center gap-1 px-1 py-1.5 text-[10px] font-medium transition ${
-                  activeNavPanel === "templates"
-                    ? "text-[#008f70]"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-                title="Templates & Layouts"
-                aria-expanded={activeNavPanel === "templates"}
-              >
-                <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "templates" ? "bg-[#e7f8f4]" : "hover:bg-slate-100"}`}>
-                  <LayoutTemplate size={18} />
-                </span>
-                <span>Templates</span>
-                <span className="absolute left-14 z-50 hidden rounded-md bg-foreground px-2 py-1 text-[10px] font-semibold text-background shadow-md group-hover:block whitespace-nowrap">
-                  Templates & Layouts
-                </span>
-              </button>
-
-              {!isPreviewMode && <>
-              {/* 2. Design & Layout */}
-              <button
-                type="button"
-                onClick={() => setActiveNavPanel(activeNavPanel === "design" ? null : "design")}
-                className={`group relative flex w-16 flex-col items-center gap-1 px-1 py-1.5 text-[10px] font-medium transition ${
-                  activeNavPanel === "design"
-                    ? "text-[#008f70]"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-                title="Design, Typography & Colors"
-              >
-                <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "design" ? "bg-[#e7f8f4]" : "hover:bg-slate-100"}`}><Palette size={18} /></span>
-                <span>Editor</span>
-                <span className="absolute left-14 z-50 hidden rounded-md bg-foreground px-2 py-1 text-[10px] font-semibold text-background shadow-md group-hover:block whitespace-nowrap">
-                  Design & Layout
-                </span>
-              </button>
-
-              {/* 3. Content & Sections */}
-              <button
-                type="button"
-                onClick={() => setActiveNavPanel(activeNavPanel === "sections" ? null : "sections")}
-                className={`group relative flex w-16 flex-col items-center gap-1 px-1 py-1.5 text-[10px] font-medium transition ${
-                  activeNavPanel === "sections"
-                    ? "text-[#008f70]"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-                title="Content Sections & Ordering"
-              >
-                <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "sections" ? "bg-[#e7f8f4]" : "hover:bg-slate-100"}`}><ListChecks size={18} /></span>
-                <span>Sections</span>
-                <span className="absolute left-14 z-50 hidden rounded-md bg-foreground px-2 py-1 text-[10px] font-semibold text-background shadow-md group-hover:block whitespace-nowrap">
-                  Content & Sections
-                </span>
-              </button>
-
-              {/* 4. AI Assistant */}
-              <button
-                type="button"
-                onClick={() => setActiveNavPanel(activeNavPanel === "ai" ? null : "ai")}
-                className={`group relative flex w-16 flex-col items-center gap-1 px-1 py-1.5 text-[10px] font-medium transition ${
-                  activeNavPanel === "ai"
-                    ? "text-[#008f70]"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-                title="AI Assistant & Career Positioning"
-              >
-                <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "ai" ? "bg-[#e7f8f4]" : "hover:bg-slate-100"}`}><Sparkles size={18} /></span>
-                <span>AI Tools</span>
-                <span className="absolute left-14 z-50 hidden rounded-md bg-foreground px-2 py-1 text-[10px] font-semibold text-background shadow-md group-hover:block whitespace-nowrap">
-                  AI Assistant & Voice
-                </span>
-              </button>
-              </>}
-            </div>
-
-            {/* Bottom Rail Actions (Setup / Import, Manual Entry) */}
-            {!isPreviewMode && <div className="flex flex-col items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIntakeTab("upload");
-                  setShowPasteInsideUpload(false);
-                  setIsIntakeModalOpen(true);
-                }}
-                className="group relative flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition"
-                title="Upload Existing CV"
-              >
-                <Upload size={16} />
-                <span className="absolute left-14 z-50 hidden rounded-md bg-foreground px-2 py-1 text-[10px] font-semibold text-background shadow-md group-hover:block whitespace-nowrap">
-                  Upload CV (PDF/Word/TXT)
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIntakeTab("manual");
-                  setIsIntakeModalOpen(true);
-                }}
-                className="group relative flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition"
-                title="Add Details Manually"
-              >
-                <FileText size={16} />
-                <span className="absolute left-14 z-50 hidden rounded-md bg-foreground px-2 py-1 text-[10px] font-semibold text-background shadow-md group-hover:block whitespace-nowrap">
-                  Add Details Manually
-                </span>
-              </button>
-            </div>}
-          </nav>
-
+      <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
+        {/* DARK STUDIO TOOL DOCK */}
+        <nav className="no-print z-30 flex h-full w-[65px] shrink-0 flex-col items-center justify-between border-r border-[#252b45] bg-[#1a1f36] py-3 text-white" aria-label="CV studio tools">
+          <div className="flex w-full flex-col items-center gap-5">
+            <Link href="/" aria-label="BonList dashboard" title="BonList dashboard" className="grid h-10 w-10 place-items-center rounded-xl text-slate-300 transition hover:bg-white/10 hover:text-white">
+              <LayoutGrid size={18} />
+            </Link>
+            <div className="h-px w-8 bg-white/10" />
+            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "templates" ? null : "templates")} aria-expanded={activeNavPanel === "templates"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "templates" ? "text-[#38d9b3]" : "text-slate-400 hover:text-white"}`}>
+              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "templates" ? "bg-[#00A884]/20" : "hover:bg-white/10"}`}><LayoutTemplate size={18} /></span>
+              <span>Templates</span>
+            </button>
+            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "design" ? null : "design")} aria-expanded={activeNavPanel === "design"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "design" ? "text-[#38d9b3]" : "text-slate-400 hover:text-white"}`}>
+              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "design" ? "bg-[#00A884]/20" : "hover:bg-white/10"}`}><Type size={18} /></span>
+              <span>Formatting</span>
+            </button>
+            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "sections" ? null : "sections")} aria-expanded={activeNavPanel === "sections"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "sections" ? "text-[#38d9b3]" : "text-slate-400 hover:text-white"}`}>
+              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "sections" ? "bg-[#00A884]/20" : "hover:bg-white/10"}`}><ListChecks size={18} /></span>
+              <span>Content</span>
+            </button>
+          </div>
+          <div className="text-[8px] font-semibold tracking-widest text-slate-500 [writing-mode:vertical-rl]">BONLIST STUDIO</div>
+        </nav>
         {/* LEFT EXPANDABLE DRAWER PANEL (340px) */}
-        {activeNavPanel && (!isPreviewMode || activeNavPanel === "templates") && (
-          <aside className="no-print relative z-20 max-h-[min(65dvh,36rem)] w-full min-w-0 shrink-0 overflow-y-auto border-b border-border bg-white p-5 shadow-sm animate-in slide-in-from-left duration-200 md:inset-auto md:z-10 md:h-full md:max-h-full md:w-[22.5rem] md:border-b-0 md:border-r">
+        {activeNavPanel && (
+          <aside className="no-print absolute bottom-0 left-[65px] top-0 z-20 w-[min(20rem,calc(100vw-65px))] min-w-0 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-5 shadow-lg animate-in slide-in-from-left duration-200 md:relative md:left-auto md:z-10 md:h-full md:w-80 md:shrink-0">
             <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
               <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 {activeNavPanel === "templates" && "Layout & Templates"}
@@ -5084,6 +4771,43 @@ export default function CvBuilderPage() {
             {/* PANEL 3: CONTENT & SECTIONS */}
             {activeNavPanel === "sections" && (
               <div className="space-y-4 text-xs">
+                <div className="grid grid-cols-2 gap-2 border-b border-border pb-4">
+                  <button type="button" onClick={() => { setIntakeTab("upload"); setShowPasteInsideUpload(false); setIsIntakeModalOpen(true); }} className="rounded-lg bg-primary px-2.5 py-2 font-semibold text-primary-foreground hover:opacity-90">
+                    Upload / Replace CV
+                  </button>
+                  <button type="button" onClick={() => { setIntakeTab("manual"); setIsIntakeModalOpen(true); }} className="rounded-lg border border-border px-2.5 py-2 font-semibold text-foreground hover:bg-secondary">
+                    Manual Setup
+                  </button>
+                  <button type="button" onClick={openImproveCvModal} className="rounded-lg border border-border px-2.5 py-2 font-semibold text-foreground hover:bg-secondary">
+                    Improve CV
+                  </button>
+                  <button type="button" onClick={() => void handleStartAchievementDiscovery()} disabled={!cv || discoveryLoading} className="rounded-lg border border-border px-2.5 py-2 font-semibold text-foreground hover:bg-secondary disabled:opacity-50">
+                    {discoveryLoading ? "Finding achievements…" : "Achievement Discovery"}
+                  </button>
+                  <button type="button" onClick={() => setShowAtsDrawer(true)} className="rounded-lg border border-border px-2.5 py-2 font-semibold text-foreground hover:bg-secondary">
+                    ATS Score & Preview
+                  </button>
+                  <button type="button" onClick={() => setShowJobMatchDrawer(true)} className="rounded-lg border border-border px-2.5 py-2 font-semibold text-foreground hover:bg-secondary">
+                    Job Match
+                  </button>
+                  <button type="button" onClick={() => setActiveNavPanel("ai")} className="col-span-2 rounded-lg border border-border px-2.5 py-2 font-semibold text-foreground hover:bg-secondary">
+                    AI Tools & Career Advisor
+                  </button>
+                </div>
+
+                <div className="space-y-2 border-b border-border pb-4">
+                  <label htmlFor="saved-cv-version" className="font-semibold text-foreground">Saved CV versions</label>
+                  <select id="saved-cv-version" value={currentVersionName} onChange={(event) => {
+                    const version = savedCvVersions.find((item) => item.name === event.target.value);
+                    if (version) handleSwitchVersion(version);
+                  }} disabled={!savedCvVersions.length} className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-foreground disabled:opacity-60">
+                    <option value={currentVersionName}>{savedCvVersions.length ? "Choose a saved version…" : "No saved versions yet"}</option>
+                    {savedCvVersions.map((version) => <option key={version.id} value={version.name}>{version.name}</option>)}
+                  </select>
+                  <button type="button" disabled={!cv} onClick={() => { setNewVersionNameInput(""); setIsNewVersionModalOpen(true); }} className="w-full rounded-lg border border-border px-2.5 py-2 font-semibold text-foreground hover:bg-secondary disabled:opacity-50">
+                    Create CV version
+                  </button>
+                </div>
                 <p className="text-muted-foreground text-xs leading-relaxed">
                   Toggle and organize sections. Standard ATS headings ensure Workday and Taleo parse your achievements seamlessly.
                 </p>
@@ -5327,101 +5051,15 @@ export default function CvBuilderPage() {
         )}
 
         {/* CENTER CANVAS: LIGHT NEUTRAL BACKGROUND (#F4F5F7) + REALISTIC A4 PAGE */}
-        <main ref={canvasRef} tabIndex={-1} className="min-h-0 min-w-0 flex h-full flex-1 flex-col items-center overflow-y-auto bg-slate-100 p-4 sm:p-8">
-          {/* Preview Banner Pill */}
-          {isPreviewMode && (
-            <div className="no-print sticky top-2 z-40 mx-auto mb-4 flex items-center gap-3 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur-md animate-in fade-in slide-in-from-top-2">
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                <Eye size={13} className="text-primary" />
-                <span>Preview Mode — Distraction-Free Layout View</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsPreviewMode(false)}
-                className="flex items-center gap-1 rounded-full bg-primary px-3 py-0.5 text-xs font-bold text-primary-foreground shadow-xs hover:brightness-105"
-              >
-                <EyeOff size={11} />
-                <span>Exit Preview</span>
-              </button>
-            </div>
-          )}
-
-          {/* Quick Floating Format & Zoom Bar */}
-          <div className="no-print mb-3 flex w-full max-w-[210mm] flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-card/90 px-3 py-2 text-xs shadow-xs backdrop-blur-md sm:mb-4 sm:gap-3 sm:px-4">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-muted-foreground sm:gap-2">
-              <span className="font-semibold text-foreground">Layout: {meta.name}</span>
-              <span>·</span>
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">{meta.structuralTag}</span>
-              <span>·</span>
-              <span className="text-[11px]">{meta.columns === "double" ? "2-Column" : meta.templateType === "timeline" ? "Timeline" : "Single-Column"}</span>
-              {cv && (
-                <>
-                  <span>·</span>
-                  <span className="cv-page-badge" title="Live A4 page count matches download">
-                    {a4PageCount} A4 page{a4PageCount === 1 ? "" : "s"}
-                  </span>
-                </>
-              )}
-            </div>
-
-            <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
-              {/* Highlight Keywords Toggle */}
-              {advancedMatchReport && (
-                <button
-                  type="button"
-                  onClick={() => setHighlightJobKeywords(!highlightJobKeywords)}
-                  className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition ${
-                    highlightJobKeywords
-                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/30"
-                      : "text-muted-foreground hover:bg-secondary"
-                  }`}
-                  title="Toggle highlight on CV words matching target job description"
-                >
-                  <Eye size={12} />
-                  <span>Highlight Matches</span>
-                </button>
-              )}
-
-              {/* Preview Toggle */}
-              <button
-                type="button"
-                onClick={() => setIsPreviewMode(!isPreviewMode)}
-                className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
-                  isPreviewMode
-                    ? "border-primary bg-primary text-primary-foreground shadow-xs"
-                    : "border-border bg-background text-foreground hover:bg-secondary"
-                }`}
-                title={isPreviewMode ? "Exit Preview" : "Preview Full Document"}
-              >
-                {isPreviewMode ? <EyeOff size={12} /> : <Eye size={12} />}
-                <span>{isPreviewMode ? "Exit Preview" : "Preview"}</span>
-              </button>
-
-              {/* Zoom Stepper */}
-              <div className="flex items-center border border-border rounded-lg bg-background overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setZoomLevel((z) => Math.max(70, z - 10))}
-                  className="px-2 py-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  title="Zoom Out"
-                >
-                  <ZoomOut size={12} />
-                </button>
-                <span className="px-2 py-0.5 text-[10px] font-bold text-foreground">
-                  {zoomLevel}%
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setZoomLevel((z) => Math.min(130, z + 10))}
-                  className="px-2 py-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  title="Zoom In"
-                >
-                  <ZoomIn size={12} />
-                </button>
-              </div>
-            </div>
-          </div>
-
+        <main
+          ref={canvasRef}
+          tabIndex={-1}
+          onScroll={(event) => {
+            const pageHeight = (canvasPageWidthPx / 210) * 297 * Math.min(zoomLevel / 100, canvasFitScale);
+            if (pageHeight > 0) setCurrentCanvasPage(Math.min(a4PageCount, Math.max(1, Math.floor((event.currentTarget.scrollTop + 16) / pageHeight) + 1)));
+          }}
+          className="relative min-h-0 min-w-0 flex h-full flex-1 flex-col items-center overflow-y-auto bg-[#f0f2f5] p-4 sm:p-8"
+        >
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
             <div className="cv-a4-viewport">
@@ -6736,6 +6374,20 @@ export default function CvBuilderPage() {
                 </button>
               </div>
             </div>
+          )}
+          {cv && (
+            <>
+              <div className="no-print absolute bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-xs text-slate-600 shadow-md backdrop-blur">
+                <button type="button" onClick={() => scrollToCanvasPage(currentCanvasPage - 1)} disabled={currentCanvasPage <= 1} className="px-1 font-semibold hover:text-slate-950 disabled:opacity-30" aria-label="Previous page">‹</button>
+                <span className="min-w-12 text-center font-medium">{currentCanvasPage} / {a4PageCount}</span>
+                <button type="button" onClick={() => scrollToCanvasPage(currentCanvasPage + 1)} disabled={currentCanvasPage >= a4PageCount} className="px-1 font-semibold hover:text-slate-950 disabled:opacity-30" aria-label="Next page">›</button>
+              </div>
+              <div className="no-print absolute bottom-4 right-4 z-40 flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 p-1 text-slate-600 shadow-md backdrop-blur">
+                <button type="button" onClick={() => setZoomLevel((value) => Math.max(70, value - 10))} className="grid h-7 w-7 place-items-center rounded-full hover:bg-slate-100" title="Zoom out"><ZoomOut size={14} /></button>
+                <span className="min-w-9 text-center text-[10px] font-semibold">{zoomLevel}%</span>
+                <button type="button" onClick={() => setZoomLevel((value) => Math.min(130, value + 10))} className="grid h-7 w-7 place-items-center rounded-full hover:bg-slate-100" title="Zoom in"><ZoomIn size={14} /></button>
+              </div>
+            </>
           )}
         </main>
 

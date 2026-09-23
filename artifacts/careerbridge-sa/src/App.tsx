@@ -762,7 +762,7 @@ function AppShell({ children }: { children: ReactNode }) {
   const inNativeApp = isNativeApp();
 
   return (
-    <div className={`min-h-[100dvh] bg-background text-foreground ${isCvBuilder ? 'flex flex-col' : ''}`}>
+    <div className={`min-h-[100dvh] bg-background text-foreground ${isCvBuilder ? 'flex h-[100dvh] min-h-0 flex-col overflow-hidden' : ''}`}>
       {logoutError ? <p role="alert" className="bg-destructive px-5 py-2 text-center text-sm text-destructive-foreground">{logoutError}</p> : null}
       {showNudge ? (
         <SecurityNudgeBanner
@@ -780,7 +780,7 @@ function AppShell({ children }: { children: ReactNode }) {
         />
       ) : null}
       <header className="app-safe-header sticky top-0 z-40 border-b border-border/70 bg-background/90 backdrop-blur-xl">
-        <div className={`mx-auto flex ${isCvBuilder ? 'h-16 w-full max-w-full gap-3 px-3 sm:px-5' : 'h-14 max-w-6xl gap-3 px-4 sm:h-16 sm:px-5 md:px-8'} items-center justify-between`}>
+        <div className={`mx-auto flex ${isCvBuilder ? 'h-14 w-full max-w-full gap-3 px-3 sm:px-5' : 'h-14 max-w-6xl gap-3 px-4 sm:h-16 sm:px-5 md:px-8'} items-center justify-between`}>
           <div className="min-w-0 shrink-0">
             <LogoMark />
           </div>

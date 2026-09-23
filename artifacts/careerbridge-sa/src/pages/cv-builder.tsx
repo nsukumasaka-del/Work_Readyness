@@ -7465,17 +7465,14 @@ export default function CvBuilderPage() {
                   <p className="text-xs text-muted-foreground mt-1 max-w-sm">
                     Supports <strong>PDF, Word (.docx), or Text (.txt)</strong>. We will extract your verified history into structured ATS fields.
                   </p>
-                  <label className={`relative mt-4 inline-flex cursor-pointer items-center justify-center rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow-xs transition hover:brightness-105 focus-within:outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 ${extracting ? "cursor-wait opacity-60" : ""}`}>
-                    <span className="pointer-events-none">{extracting ? "Extracting CV Data…" : "Browse File on Device"}</span>
-                    <input
-                      type="file"
-                      accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-wait"
-                      onChange={handleIntakeFileUpload}
-                      disabled={extracting}
-                      aria-label="Choose a CV file to upload"
-                    />
-                  </label>
+                  <input
+                    type="file"
+                    accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                    className="mt-4 block w-full max-w-[380px] cursor-pointer rounded-xl border border-primary/30 bg-background text-xs text-foreground file:mr-3 file:cursor-pointer file:rounded-l-xl file:border-0 file:bg-primary file:px-4 file:py-2.5 file:text-xs file:font-bold file:text-primary-foreground hover:file:brightness-105 disabled:cursor-wait disabled:opacity-60"
+                    onChange={handleIntakeFileUpload}
+                    disabled={extracting}
+                    aria-label="Choose a CV file to upload"
+                  />
                   {selectedUploadName && (
                     <p className="mt-3 max-w-full truncate text-[11px] font-medium text-muted-foreground" aria-live="polite">
                       Selected file: <span className="text-foreground">{selectedUploadName}</span>

@@ -1,6 +1,7 @@
 import {
   type ChangeEvent,
   type DragEvent,
+  type FormEvent,
   type TextareaHTMLAttributes,
   Fragment,
   useEffect,
@@ -2242,13 +2243,25 @@ export default function CvBuilderPage() {
     }
   };
 
-  const handleIntakeFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0];
+  const handleIntakeFileUpload = (event: ChangeEvent<HTMLInputElement> | FormEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
     if (!file) return;
     const selectionKey = `${file.name}:${file.size}:${file.lastModified}`;
     if (lastHandledUploadRef.current === selectionKey) return;
     lastHandledUploadRef.current = selectionKey;
-    void processIntakeCvFile(file);
+    // Confirm the selection immediately, but defer processing until the native
+    // picker has finished dispatching its input/change events. Starting the
+    // progress state inside the first event can unmount the portal before the
+    // browser emits the completion event on some browsers.
+    setIntakeTab("upload");
+    setSelectedUploadName(file.name);
+    setUploadReadStatus("File selected. Starting document reader…");
+    setError("");
+    window.setTimeout(() => {
+      input.value = "";
+      void processIntakeCvFile(file);
+    }, 0);
   };
 
   const handleIntakeFileDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -7495,11 +7508,8 @@ export default function CvBuilderPage() {
                     type="file"
                     accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                     className="mt-4 block w-full max-w-[380px] cursor-pointer rounded-xl border border-primary/30 bg-background text-xs text-foreground file:mr-3 file:cursor-pointer file:rounded-l-xl file:border-0 file:bg-primary file:px-4 file:py-2.5 file:text-xs file:font-bold file:text-primary-foreground hover:file:brightness-105 disabled:cursor-wait disabled:opacity-60"
+                    onInput={handleIntakeFileUpload}
                     onChange={handleIntakeFileUpload}
-                    onClick={(event) => {
-                      // Let the same CV be selected again after a failed read.
-                      event.currentTarget.value = "";
-                    }}
                     disabled={extracting}
                     aria-label="Choose a CV file to upload"
                   />

@@ -1,7 +1,6 @@
 import {
   type ChangeEvent,
   type DragEvent,
-  type FormEvent,
   type TextareaHTMLAttributes,
   Fragment,
   useEffect,
@@ -2243,7 +2242,7 @@ export default function CvBuilderPage() {
     }
   };
 
-  const handleIntakeFileUpload = (event: ChangeEvent<HTMLInputElement> | FormEvent<HTMLInputElement>) => {
+  const handleIntakeFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
     const selectionKey = `${file.name}:${file.size}:${file.lastModified}`;
@@ -7496,7 +7495,6 @@ export default function CvBuilderPage() {
                     type="file"
                     accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                     className="mt-4 block w-full max-w-[380px] cursor-pointer rounded-xl border border-primary/30 bg-background text-xs text-foreground file:mr-3 file:cursor-pointer file:rounded-l-xl file:border-0 file:bg-primary file:px-4 file:py-2.5 file:text-xs file:font-bold file:text-primary-foreground hover:file:brightness-105 disabled:cursor-wait disabled:opacity-60"
-                    onInput={handleIntakeFileUpload}
                     onChange={handleIntakeFileUpload}
                     onClick={(event) => {
                       // Let the same CV be selected again after a failed read.

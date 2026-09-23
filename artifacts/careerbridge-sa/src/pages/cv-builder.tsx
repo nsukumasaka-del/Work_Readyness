@@ -689,6 +689,67 @@ export interface ExtractedCvData {
   };
 }
 
+/** Normalize parser envelopes without discarding populated flat fields. */
+function normalizeExtractedCvData(value: unknown): ExtractedCvData {
+  const raw = (value && typeof value === "object" ? value : {}) as Partial<ExtractedCvData>;
+  const nested = (raw.cv_content && typeof raw.cv_content === "object" ? raw.cv_content : {}) as Partial<CvContentData>;
+  const topPersonal: NonNullable<Partial<ExtractedCvData>["personal"]> = raw.personal || {
+    fullName: "Candidate",
+    email: "",
+  };
+  const nestedPersonal: CvContentData["personal"] = nested.personal || {
+    fullName: "Candidate",
+    email: "",
+  };
+  const personal = {
+    ...topPersonal,
+    ...nestedPersonal,
+    fullName: nestedPersonal.fullName || topPersonal.fullName || "Candidate",
+    email: nestedPersonal.email || topPersonal.email || "",
+    phone: nestedPersonal.phone || topPersonal.phone,
+    location: nestedPersonal.location || topPersonal.location,
+    linkedin: nestedPersonal.linkedin || topPersonal.linkedin,
+    website: nestedPersonal.website || topPersonal.website,
+    professionalTitle: nestedPersonal.professionalTitle || topPersonal.professionalTitle,
+  };
+  const chooseArray = <T,>(inner?: T[] | null, outer?: T[] | null): T[] =>
+    (inner?.length || 0) >= (outer?.length || 0) ? inner || outer || [] : outer || inner || [];
+  const summary = [nested.summary, raw.summary].filter((part): part is string => typeof part === "string")
+    .sort((a, b) => b.length - a.length)[0] || "";
+  const content: CvContentData = {
+    personal,
+    summary,
+    experiences: chooseArray(nested.experiences, raw.experiences),
+    education: chooseArray(nested.education, raw.education),
+    skills: chooseArray(nested.skills, raw.skills),
+    toolsAndSoftware: chooseArray(nested.toolsAndSoftware, raw.toolsAndSoftware),
+    certifications: chooseArray(nested.certifications, raw.certifications),
+    languages: chooseArray(nested.languages, raw.languages),
+    projects: chooseArray(nested.projects, raw.projects),
+    references: chooseArray(nested.references, raw.references),
+  };
+  return {
+    ...raw,
+    cv_content: content,
+    personal,
+    summary,
+    experiences: content.experiences,
+    education: content.education,
+    skills: content.skills,
+    toolsAndSoftware: content.toolsAndSoftware || [],
+    certifications: content.certifications || [],
+    languages: content.languages || [],
+    projects: content.projects || [],
+    references: content.references || [],
+    verificationBreakdown: raw.verificationBreakdown || {
+      personal: { verified: Boolean(personal.fullName && (personal.email || personal.phone)), missingFields: [] },
+      experience: { count: content.experiences.length, verifiedDates: false, verifiedCompanies: content.experiences.length > 0 },
+      education: { count: content.education.length, verified: content.education.length > 0 },
+      skills: { count: content.skills.length },
+    },
+  } as ExtractedCvData;
+}
+
 /**
  * Keep CV intake usable if the edge parser route is temporarily unavailable.
  * The browser already has readable text for PDF, DOCX and TXT uploads, so use
@@ -697,7 +758,7 @@ export interface ExtractedCvData {
 async function parseCvUpload(file: File, onProgress?: (message: string) => void): Promise<ExtractedCvData> {
   const parseBody = await buildParseUploadBody(file, onProgress);
   const localData = parseBody.text?.trim()
-    ? extractCvDataFromText(parseBody.text, file.name) as ExtractedCvData
+    ? normalizeExtractedCvData(extractCvDataFromText(parseBody.text, file.name))
     : null;
   try {
     const response = await authFetch("/api/career/cv/parse-upload", {
@@ -706,10 +767,10 @@ async function parseCvUpload(file: File, onProgress?: (message: string) => void)
       body: JSON.stringify(parseBody),
     });
     if (response.ok) {
-      const remoteData = (await response.json()) as ExtractedCvData;
+      const remoteData = normalizeExtractedCvData(await response.json());
       if (!localData) return remoteData;
-      const remoteContent = remoteData.cv_content || remoteData;
-      const localContent = localData.cv_content || localData;
+      const remoteContent = remoteData.cv_content!;
+      const localContent = localData.cv_content!;
       const richness = (data: typeof remoteContent) =>
         (data.experiences?.length || 0) * 5 +
         (data.education?.length || 0) * 4 +
@@ -739,7 +800,7 @@ async function parseCvUpload(file: File, onProgress?: (message: string) => void)
 /** A profile header alone is not enough to call a CV successfully built. */
 function hasUsableCvBody(data?: ExtractedCvData | null): boolean {
   if (!data) return false;
-  const content = data.cv_content || data;
+  const content = normalizeExtractedCvData(data).cv_content!;
   const summary = String(content.summary || "").trim();
   const usableSummary = summary.length >= 24 && !/synthesize your background|add (?:a|your) (?:professional )?summary|write (?:a|your) summary/i.test(summary);
   return Boolean(
@@ -759,11 +820,11 @@ async function parseCvText(text: string, fileName = "Pasted CV"): Promise<Extrac
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, fileName }),
     });
-    if (response.ok) return (await response.json()) as ExtractedCvData;
+    if (response.ok) return normalizeExtractedCvData(await response.json());
   } catch {
     // The same parser runs locally below when the edge route is unavailable.
   }
-  return extractCvDataFromText(text, fileName) as ExtractedCvData;
+  return normalizeExtractedCvData(extractCvDataFromText(text, fileName));
 }
 
 function buildLocalCvResponse(
@@ -2085,7 +2146,7 @@ export default function CvBuilderPage() {
       setAgentStepIndex(2);
       setAgentStepText("Structuring candidate achievements, education & ATS keyword tags…");
       setExtractedData(data);
-      const candidateContent = data.cv_content || data;
+      const candidateContent = data.cv_content!;
 
       const rawExperiences = (candidateContent.experiences || []).map((exp, idx) => ({
         id: exp.id || `exp-${idx + 1}`,
@@ -2239,7 +2300,7 @@ export default function CvBuilderPage() {
       setAgentStepText("Structuring ATS competencies & bullet points…");
 
       setExtractedData(data);
-      const candidateContent = data.cv_content || data;
+      const candidateContent = data.cv_content!;
 
       const rawExperiences = (candidateContent.experiences || []).map((exp, idx) => ({
         id: exp.id || `exp-${idx + 1}`,
@@ -3819,7 +3880,7 @@ export default function CvBuilderPage() {
       setAgentStepIndex(1);
       setAgentStepText("Structuring verified employment history…");
       setExtractedData(data);
-        const candidateContent = data.cv_content || data;
+        const candidateContent = data.cv_content!;
 
         const rawExperiences = (candidateContent.experiences || []).map((exp, idx) => ({
           id: exp.id || `exp-${idx + 1}`,

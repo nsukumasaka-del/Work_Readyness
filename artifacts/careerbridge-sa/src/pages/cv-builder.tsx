@@ -1,6 +1,7 @@
 import {
   type ChangeEvent,
   type DragEvent,
+  type FormEvent,
   type TextareaHTMLAttributes,
   Fragment,
   useEffect,
@@ -1930,6 +1931,7 @@ export default function CvBuilderPage() {
   const [selectedUploadName, setSelectedUploadName] = useState(() => readIntakeSession(CV_INTAKE_FILE_KEY, ""));
   const [uploadReadStatus, setUploadReadStatus] = useState("");
   const intakeUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const lastHandledUploadRef = useRef("");
 
   // Agent Working State: Animated High-Trust Progress Screen
   const [isAgentWorking, setIsAgentWorking] = useState(false);
@@ -2237,13 +2239,17 @@ export default function CvBuilderPage() {
     } finally {
       setIsAgentWorking(false);
       setExtracting(false);
+      lastHandledUploadRef.current = "";
     }
   };
 
-  const handleIntakeFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const input = event.currentTarget;
-    const file = input.files?.[0];
-    if (file) void processIntakeCvFile(file);
+  const handleIntakeFileUpload = (event: ChangeEvent<HTMLInputElement> | FormEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    const selectionKey = `${file.name}:${file.size}:${file.lastModified}`;
+    if (lastHandledUploadRef.current === selectionKey) return;
+    lastHandledUploadRef.current = selectionKey;
+    void processIntakeCvFile(file);
   };
 
   const handleIntakeFileDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -2400,12 +2406,20 @@ export default function CvBuilderPage() {
     setGeneratingFromIntake(true);
     setError("");
 
+    const pendingFile = intakeUploadInputRef.current?.files?.[0];
+    if (intakeTab === "upload" && !extractedData && !intakePasteText.trim() && pendingFile) {
+      setGeneratingFromIntake(false);
+      void processIntakeCvFile(pendingFile);
+      return;
+    }
+
     const authProfile = readStoredProfile() || readAuthProfile();
-    const mergedName = manualInput.fullName.trim() || authProfile?.name?.trim() || "";
-    const mergedEmail = manualInput.email.trim() || authProfile?.email?.trim() || "";
+    const importedPersonal = extractedData?.cv_content?.personal || extractedData?.personal;
+    const mergedName = manualInput.fullName.trim() || importedPersonal?.fullName?.trim() || authProfile?.name?.trim() || "";
+    const mergedEmail = manualInput.email.trim() || importedPersonal?.email?.trim() || authProfile?.email?.trim() || "";
 
     if (intakeTab === "upload" && !extractedData && !intakePasteText.trim()) {
-      setError("Upload a CV file (or paste CV text), or switch to Enter Information Manually before generating.");
+      setError("No CV file has reached the reader yet. Choose the document, confirm with Open in the file picker, and wait for the detected sections before generating.");
       setGeneratingFromIntake(false);
       return;
     }
@@ -7482,6 +7496,7 @@ export default function CvBuilderPage() {
                     type="file"
                     accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                     className="mt-4 block w-full max-w-[380px] cursor-pointer rounded-xl border border-primary/30 bg-background text-xs text-foreground file:mr-3 file:cursor-pointer file:rounded-l-xl file:border-0 file:bg-primary file:px-4 file:py-2.5 file:text-xs file:font-bold file:text-primary-foreground hover:file:brightness-105 disabled:cursor-wait disabled:opacity-60"
+                    onInput={handleIntakeFileUpload}
                     onChange={handleIntakeFileUpload}
                     onClick={(event) => {
                       // Let the same CV be selected again after a failed read.

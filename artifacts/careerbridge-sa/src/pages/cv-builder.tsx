@@ -34,7 +34,6 @@ import {
   History,
   Info,
   Layers,
-  LayoutGrid,
   LayoutTemplate,
   ListChecks,
   Lock,
@@ -1771,12 +1770,20 @@ export default function CvBuilderPage() {
   const [documentLocale, setDocumentLocale] = useState("en-GB");
 
   const [cv, setCv] = useState<GeneratedCvResponse | null>(null);
+  const [documentTitle, setDocumentTitle] = useState(`CV of ${profile?.name || "NSUKU CLIFORD MASAKA"}`);
+  const documentTitleEditedRef = useRef(false);
+  const documentTitleInputRef = useRef<HTMLInputElement>(null);
   const currentCvRef = useRef<GeneratedCvResponse | null>(null);
   currentCvRef.current = cv;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const candidateName = cv?.document.fullName || profile?.name;
+    if (candidateName && !documentTitleEditedRef.current) setDocumentTitle(`CV of ${candidateName}`);
+  }, [cv?.document.fullName, profile?.name]);
 
   // Styling & Customization (Enhancv Clone Architecture with Custom Brand Colors)
   const [selectedTemplate, setSelectedTemplate] = useState<string>("double_column");
@@ -3974,6 +3981,16 @@ export default function CvBuilderPage() {
       persistGeneratedCv(updated);
     }
     const previousZoom = zoomLevel;
+    const previousDocumentTitle = document.title;
+    const safePdfName = (documentTitle.trim() || `CV of ${cleaned.fullName || "Candidate"}`)
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
+      .replace(/\s+/g, "_");
+    document.title = `${safePdfName}.pdf`;
+    const restoreDocumentTitle = () => {
+      document.title = previousDocumentTitle;
+      window.removeEventListener("afterprint", restoreDocumentTitle);
+    };
+    window.addEventListener("afterprint", restoreDocumentTitle, { once: true });
     setZoomLevel(100);
     const runPrint = () => {
       try {
@@ -3987,6 +4004,7 @@ export default function CvBuilderPage() {
         setTimeout(() => setMessage(""), 5000);
         options?.onReady?.();
       } catch {
+        restoreDocumentTitle();
         setError("Could not open the print dialog. Allow printing for this site and try again.");
         options?.onReady?.();
       } finally {
@@ -4414,26 +4432,23 @@ export default function CvBuilderPage() {
       {commandHeaderHost ? createPortal(
         <div className="flex h-full min-w-0 flex-1 items-center justify-between gap-3 px-3">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="hidden min-w-0 sm:block">
-              <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Finalize your CV</div>
-              <div className="flex min-w-0 items-center gap-1">
-                <input
-                  type="text"
-                  aria-label="CV document name"
-                  value={currentVersionName}
-                  onChange={(event) => setCurrentVersionName(event.target.value)}
-                  onBlur={() => { if (!currentVersionName.trim()) setCurrentVersionName("My Master CV"); }}
-                  className="w-36 max-w-[18vw] truncate rounded px-1 py-0.5 text-sm font-semibold text-slate-800 outline-none hover:bg-slate-50 focus:bg-white focus:ring-1 focus:ring-[#00A884]/40"
-                />
-                <Pencil size={12} className="shrink-0 text-slate-400" aria-hidden="true" />
-              </div>
-              <div className="truncate text-[9px] text-slate-500">CV of {cv?.document.fullName || profile?.name || "Candidate"}</div>
-            </div>
+            <input
+              ref={documentTitleInputRef}
+              type="text"
+              aria-label="CV document name"
+              value={documentTitle}
+              onChange={(event) => { documentTitleEditedRef.current = true; setDocumentTitle(event.target.value); }}
+              onBlur={() => { if (!documentTitle.trim()) setDocumentTitle(`CV of ${cv?.document.fullName || profile?.name || "Candidate"}`); }}
+              className="w-56 max-w-[28vw] truncate rounded px-2 py-1 text-sm font-semibold text-slate-800 outline-none transition-all hover:bg-gray-100 focus:bg-white focus:ring-1 focus:ring-blue-500"
+            />
+            <button type="button" onClick={() => documentTitleInputRef.current?.focus()} className="shrink-0 text-gray-400 hover:text-gray-600" aria-label="Edit CV title">
+              <Pencil size={14} />
+            </button>
             <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Saved</span>
           </div>
 
           <div className="flex min-w-0 items-center justify-end gap-1.5">
-            <button type="button" disabled={!cv} onClick={() => window.print()} className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40" title="Print CV">
+            <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40" title="Print CV">
               <Printer size={15} /><span className="hidden lg:inline">Print</span>
             </button>
             <button
@@ -4456,7 +4471,7 @@ export default function CvBuilderPage() {
             <button
               type="button"
               disabled={!cv || saving}
-              onClick={() => { void handleSaveCv(currentVersionName.trim() || "My Master CV").then(() => canvasRef.current?.focus()); }}
+              onClick={() => { void handleSaveCv(documentTitle.trim() || `CV of ${cv?.document.fullName || "Candidate"}`).then(() => canvasRef.current?.focus()); }}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#00A884] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#008f70] disabled:cursor-not-allowed disabled:opacity-50"
               title="Save your CV and continue"
             >
@@ -4488,23 +4503,19 @@ export default function CvBuilderPage() {
 
       {/* 2. ENHANCV-STYLE WORKSPACE (LEFT ICON RAIL + FLYOUT PANEL + A4 CANVAS + RIGHT DRAWERS) */}
       <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
-        {/* DARK STUDIO TOOL DOCK */}
-        <nav className="no-print z-30 flex h-full w-[65px] shrink-0 flex-col items-center justify-between border-r border-[#252b45] bg-[#1a1f36] py-3 text-white" aria-label="CV studio tools">
+        {/* BLUE STUDIO TOOL DOCK */}
+        <nav className="no-print z-30 flex h-full w-[65px] shrink-0 flex-col items-center justify-start border-r border-blue-700 bg-blue-600 py-3 text-white" aria-label="CV studio tools">
           <div className="flex w-full flex-col items-center gap-5">
-            <Link href="/" aria-label="BonList dashboard" title="BonList dashboard" className="grid h-10 w-10 place-items-center rounded-xl text-slate-300 transition hover:bg-white/10 hover:text-white">
-              <LayoutGrid size={18} />
-            </Link>
-            <div className="h-px w-8 bg-white/10" />
-            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "templates" ? null : "templates")} aria-expanded={activeNavPanel === "templates"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "templates" ? "text-[#38d9b3]" : "text-slate-400 hover:text-white"}`}>
-              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "templates" ? "bg-[#00A884]/20" : "hover:bg-white/10"}`}><LayoutTemplate size={18} /></span>
+            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "templates" ? null : "templates")} aria-expanded={activeNavPanel === "templates"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "templates" ? "text-white" : "text-blue-100 hover:text-white"}`}>
+              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "templates" ? "bg-blue-800" : "hover:bg-white/10"}`}><LayoutTemplate size={18} /></span>
               <span>Templates</span>
             </button>
-            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "design" ? null : "design")} aria-expanded={activeNavPanel === "design"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "design" ? "text-[#38d9b3]" : "text-slate-400 hover:text-white"}`}>
-              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "design" ? "bg-[#00A884]/20" : "hover:bg-white/10"}`}><Type size={18} /></span>
+            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "design" ? null : "design")} aria-expanded={activeNavPanel === "design"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "design" ? "text-white" : "text-blue-100 hover:text-white"}`}>
+              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "design" ? "bg-blue-800" : "hover:bg-white/10"}`}><Type size={18} /></span>
               <span>Formatting</span>
             </button>
-            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "sections" ? null : "sections")} aria-expanded={activeNavPanel === "sections"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "sections" ? "text-[#38d9b3]" : "text-slate-400 hover:text-white"}`}>
-              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "sections" ? "bg-[#00A884]/20" : "hover:bg-white/10"}`}><ListChecks size={18} /></span>
+            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "sections" ? null : "sections")} aria-expanded={activeNavPanel === "sections"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "sections" ? "text-white" : "text-blue-100 hover:text-white"}`}>
+              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "sections" ? "bg-blue-800" : "hover:bg-white/10"}`}><ListChecks size={18} /></span>
               <span>Content</span>
             </button>
           </div>

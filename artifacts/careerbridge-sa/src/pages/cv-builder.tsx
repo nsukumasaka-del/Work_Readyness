@@ -69,6 +69,11 @@ import { readStoredProfile } from "@/lib/entitlements";
 import { authFetch, readProfile as readAuthProfile } from "@/lib/auth-session";
 import { ensureCvProfile } from "@/lib/cv-profile";
 import { buildParseUploadBody, parseUploadErrorMessage } from "@/lib/cv-parse-upload";
+import {
+  buildGeneratedCv as buildGeneratedCvLocally,
+  extractCvDataFromText,
+  normalizeStructure,
+} from "../../../api-server/src/lib/cv-builder";
 
 const GENERATED_CV_KEY = "bonlist-generated-cv";
 const REPORT_KEY = "bonlist-report";
@@ -684,6 +689,98 @@ export interface ExtractedCvData {
   };
 }
 
+/**
+ * Keep CV intake usable if the edge parser route is temporarily unavailable.
+ * The browser already has readable text for PDF, DOCX and TXT uploads, so use
+ * the same parser as the Worker as a local fallback instead of losing intake.
+ */
+async function parseCvUpload(file: File, onProgress?: (message: string) => void): Promise<ExtractedCvData> {
+  const parseBody = await buildParseUploadBody(file, onProgress);
+  const localData = parseBody.text?.trim()
+    ? extractCvDataFromText(parseBody.text, file.name) as ExtractedCvData
+    : null;
+  try {
+    const response = await authFetch("/api/career/cv/parse-upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(parseBody),
+    });
+    if (response.ok) {
+      const remoteData = (await response.json()) as ExtractedCvData;
+      if (!localData) return remoteData;
+      const remoteContent = remoteData.cv_content || remoteData;
+      const localContent = localData.cv_content || localData;
+      const richness = (data: typeof remoteContent) =>
+        (data.experiences?.length || 0) * 5 +
+        (data.education?.length || 0) * 4 +
+        (data.skills?.length || 0) * 2 +
+        (data.projects?.length || 0) * 2 +
+        (data.summary?.length || 0) +
+        (data.personal?.email ? 1 : 0) +
+        (data.personal?.fullName ? 1 : 0);
+      return richness(localContent) > richness(remoteContent) ? localData : remoteData;
+    }
+
+    const errBody = (await response.json().catch(() => null)) as { error?: string } | null;
+    if (localData) {
+      onProgress?.("Using the local CV reader…");
+      return localData;
+    }
+    throw new Error(parseUploadErrorMessage(response.status, errBody));
+  } catch (error) {
+    if (localData) {
+      onProgress?.("Using the local CV reader…");
+      return localData;
+    }
+    throw error;
+  }
+}
+
+async function parseCvText(text: string, fileName = "Pasted CV"): Promise<ExtractedCvData> {
+  try {
+    const response = await authFetch("/api/career/cv/parse-upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, fileName }),
+    });
+    if (response.ok) return (await response.json()) as ExtractedCvData;
+  } catch {
+    // The same parser runs locally below when the edge route is unavailable.
+  }
+  return extractCvDataFromText(text, fileName) as ExtractedCvData;
+}
+
+function buildLocalCvResponse(
+  options: { structure?: string; extracted?: ExtractedCvData },
+  profile: { name?: string; email?: string; phone?: string; location?: string; targetRole?: string },
+  message: string,
+): GeneratedCvResponse {
+  const structure = normalizeStructure(options.structure || "double_column");
+  const document = buildGeneratedCvLocally({
+    profile: {
+      name: profile.name || options.extracted?.personal?.fullName || "Candidate",
+      email: profile.email || options.extracted?.personal?.email || "",
+      phone: profile.phone || options.extracted?.personal?.phone,
+      location: profile.location || options.extracted?.personal?.location,
+      targetRole: profile.targetRole || options.extracted?.personal?.professionalTitle,
+    },
+    extracted: options.extracted as unknown as Parameters<typeof buildGeneratedCvLocally>[0]["extracted"],
+    structure,
+  });
+  const localDocument = document as unknown as GeneratedCvDocument;
+  return {
+    id: 0,
+    version: 1,
+    structure: localDocument.structure,
+    title: `${localDocument.fullName} · ${localDocument.headline} CV (${localDocument.structureLabel})`,
+    createdAt: new Date().toISOString(),
+    document: localDocument,
+    cv_content: options.extracted?.cv_content,
+    ai_feedback: localDocument.aiFeedback,
+    message,
+  };
+}
+
 export interface TemplateDefinition {
   id: string;
   category: "Modern" | "Traditional" | "Creative" | "ATS-Friendly" | "Executive" | "Minimalist";
@@ -1062,91 +1159,85 @@ export async function generateCv(options: { regenerate?: boolean; structure?: st
   try {
     payload = rawResponse ? (JSON.parse(rawResponse) as Record<string, any>) : {};
   } catch {
-    if (response.ok) {
-      throw new Error("The CV builder returned an unreadable response. Please try again.");
-    }
-    throw new Error("The CV builder service is unavailable. Please try again in a moment.");
+    const fallback = buildLocalCvResponse(
+      options,
+      {
+        name: body.name || candidate?.fullName || existing?.name,
+        email: body.email || existing?.email,
+        phone: body.phone || existing?.phone,
+        location: body.location || existing?.location,
+        targetRole: body.targetRole || candidate?.professionalTitle || existing?.targetRole,
+      },
+      "Built locally from your uploaded CV because the CV service could not be reached.",
+    );
+    persistGeneratedCv(fallback);
+    return fallback;
   }
 
   if (!response.ok) {
-    const fallbackDocument: GeneratedCvDocument = {
-      structure: (options.structure || "double_column") as any,
-      structureLabel: "BonList Professional",
-      structureDescription: "Profile-first CV layout generated locally for a clean, usable starting point.",
-      templateType: "double_column",
-      fullName: body.name || candidate?.fullName || existing?.name || "Professional Candidate",
-      headline: body.targetRole || candidate?.professionalTitle || existing?.targetRole || "Professional",
-      contactLine: [body.email || existing?.email, body.phone || existing?.phone, body.location || existing?.location].filter(Boolean).join(" · "),
-      email: body.email || existing?.email || "",
-      phone: body.phone || existing?.phone || undefined,
-      location: body.location || existing?.location || undefined,
-      summary: "",
-      experiences: [],
-      education: [],
-      skillGroups: [],
-      skills: [],
-      projects: [],
-      certifications: [],
-      languages: [],
-      references: [],
-      sections: [],
-      keywords: [],
-      footerNote: "",
-      authenticityScore: 100,
-    };
-    const fallback: GeneratedCvResponse = {
-      id: 0,
-      version: 1,
-      structure: fallbackDocument.structure,
-      title: `${fallbackDocument.fullName} · ${fallbackDocument.headline} CV (${fallbackDocument.structureLabel})`,
-      createdAt: new Date().toISOString(),
-      document: fallbackDocument,
-      message: payload.error || "Preview generated locally. Please add experience or upload a CV to enrich it.",
-    };
+    const fallback = buildLocalCvResponse(
+      options,
+      {
+        name: body.name || candidate?.fullName || existing?.name,
+        email: body.email || existing?.email,
+        phone: body.phone || existing?.phone,
+        location: body.location || existing?.location,
+        targetRole: body.targetRole || candidate?.professionalTitle || existing?.targetRole,
+      },
+      payload.error || "Built locally from your uploaded CV because the CV service is temporarily unavailable.",
+    );
     persistGeneratedCv(fallback);
     return fallback;
   }
 
   const generated = payload as GeneratedCvResponse;
   if (!generated.document) {
-    const fallbackDocument: GeneratedCvDocument = {
-      structure: (body.structure || options.structure || "double_column") as any,
-      structureLabel: "BonList Professional",
-      structureDescription: "Profile-first CV layout generated locally for a clean, usable starting point.",
-      templateType: "double_column",
-      fullName: body.name || candidate?.fullName || existing?.name || "Professional Candidate",
-      headline: body.targetRole || candidate?.professionalTitle || existing?.targetRole || "Professional",
-      contactLine: [body.email || existing?.email, body.phone || existing?.phone, body.location || existing?.location].filter(Boolean).join(" · "),
-      email: body.email || existing?.email || "",
-      phone: body.phone || existing?.phone || undefined,
-      location: body.location || existing?.location || undefined,
-      summary: "",
-      experiences: [],
-      education: [],
-      skillGroups: [],
-      skills: [],
-      projects: [],
-      certifications: [],
-      languages: [],
-      references: [],
-      sections: [],
-      keywords: [],
-      footerNote: "",
-      authenticityScore: 100,
-    };
-    const fallback: GeneratedCvResponse = {
-      id: 0,
-      version: 1,
-      structure: fallbackDocument.structure,
-      title: `${fallbackDocument.fullName} · ${fallbackDocument.headline} CV (${fallbackDocument.structureLabel})`,
-      createdAt: new Date().toISOString(),
-      document: fallbackDocument,
-      message: "The CV service returned a partial document. We generated a usable profile-based version instead.",
-    };
+    const fallback = buildLocalCvResponse(options, {
+      name: body.name || candidate?.fullName || existing?.name,
+      email: body.email || existing?.email,
+      phone: body.phone || existing?.phone,
+      location: body.location || existing?.location,
+      targetRole: body.targetRole || candidate?.professionalTitle || existing?.targetRole,
+    }, "The CV service returned no document, so this CV was built locally from your uploaded information.");
     persistGeneratedCv(fallback);
     return fallback;
   }
-  generated.document = sanitizeCvDocument(generated.document);
+
+  // Preserve extracted sections if an older edge deployment returns a partial
+  // CV document, and honor the template selected in the builder.
+  const localDocument = buildLocalCvResponse(options, {
+    name: body.name || candidate?.fullName || existing?.name,
+    email: body.email || existing?.email,
+    phone: body.phone || existing?.phone,
+    location: body.location || existing?.location,
+    targetRole: body.targetRole || candidate?.professionalTitle || existing?.targetRole,
+  }, "").document;
+  generated.document = sanitizeCvDocument({
+    ...localDocument,
+    ...generated.document,
+    structure: localDocument.structure,
+    structureLabel: localDocument.structureLabel,
+    structureDescription: localDocument.structureDescription,
+    templateType: localDocument.templateType,
+    fullName: generated.document.fullName || localDocument.fullName,
+    headline: generated.document.headline || localDocument.headline,
+    contactLine: generated.document.contactLine || localDocument.contactLine,
+    email: generated.document.email || localDocument.email,
+    phone: generated.document.phone || localDocument.phone,
+    location: generated.document.location || localDocument.location,
+    summary: generated.document.summary || localDocument.summary,
+    experiences: generated.document.experiences?.length ? generated.document.experiences : localDocument.experiences,
+    education: generated.document.education?.length ? generated.document.education : localDocument.education,
+    skills: generated.document.skills?.length ? generated.document.skills : localDocument.skills,
+    skillGroups: generated.document.skillGroups?.length ? generated.document.skillGroups : localDocument.skillGroups,
+    sections: generated.document.sections?.length ? generated.document.sections : localDocument.sections,
+    projects: generated.document.projects?.length ? generated.document.projects : localDocument.projects,
+    certifications: generated.document.certifications?.length ? generated.document.certifications : localDocument.certifications,
+    languages: generated.document.languages?.length ? generated.document.languages : localDocument.languages,
+    references: generated.document.references?.length ? generated.document.references : localDocument.references,
+  });
+  generated.structure = generated.document.structure;
+  generated.title = `${generated.document.fullName} · ${generated.document.headline} CV (${generated.document.structureLabel})`;
   persistGeneratedCv(generated);
   return generated;
 }
@@ -1961,7 +2052,7 @@ export default function CvBuilderPage() {
     setIsIntakeModalOpen(false);
 
     try {
-      const parseBody = await buildParseUploadBody(file, (message) => {
+      const data = await parseCvUpload(file, (message) => {
         setAgentStepText(message);
       });
 
@@ -1969,21 +2060,8 @@ export default function CvBuilderPage() {
       setAgentStepIndex(1);
       setAgentStepText("Structuring verified employment history…");
 
-      const res = await authFetch("/api/career/cv/parse-upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parseBody),
-      });
-
-      if (!res.ok) {
-        const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(parseUploadErrorMessage(res.status, errBody));
-      }
-
       setAgentStepIndex(2);
       setAgentStepText("Structuring candidate achievements, education & ATS keyword tags…");
-
-      const data = (await res.json()) as ExtractedCvData;
       setExtractedData(data);
       const candidateContent = data.cv_content || data;
 
@@ -2133,20 +2211,11 @@ export default function CvBuilderPage() {
       setAgentStepIndex(1);
       setAgentStepText("Extracting career progression & contact details…");
 
-      const res = await authFetch("/api/career/cv/parse-upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: intakePasteText, fileName: "Pasted CV" }),
-      });
-       if (!res.ok) {
-         const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
-         throw new Error(parseUploadErrorMessage(res.status, errBody));
-       }
+      const data = await parseCvText(intakePasteText, "Pasted CV");
 
       setAgentStepIndex(2);
       setAgentStepText("Structuring ATS competencies & bullet points…");
 
-      const data = (await res.json()) as ExtractedCvData;
       setExtractedData(data);
       const candidateContent = data.cv_content || data;
 
@@ -2736,17 +2805,10 @@ export default function CvBuilderPage() {
     if (!pasteInputText.trim()) return;
     setExtracting(true);
     try {
-      const res = await authFetch("/api/career/cv/parse-upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: pasteInputText, fileName: "Pasted CV" }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as ExtractedCvData;
-        setExtractedData(data);
-        setIsPasteModalOpen(false);
-        setIsExtractModalOpen(true);
-      }
+      const data = await parseCvText(pasteInputText, "Pasted CV");
+      setExtractedData(data);
+      setIsPasteModalOpen(false);
+      setIsExtractModalOpen(true);
     } catch {
       setError("Failed to parse CV text. Please verify formatting.");
     } finally {
@@ -3721,24 +3783,12 @@ export default function CvBuilderPage() {
     setAgentStepIndex(0);
     setAgentStepText("Preparing document for extraction…");
     try {
-      const parseBody = await buildParseUploadBody(file, (message) => {
+      const data = await parseCvUpload(file, (message) => {
         setAgentStepText(message);
       });
       setAgentStepIndex(1);
       setAgentStepText("Structuring verified employment history…");
-
-      const res = await authFetch("/api/career/cv/parse-upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parseBody),
-      });
-      if (!res.ok) {
-        const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(parseUploadErrorMessage(res.status, errBody));
-      }
-      if (res.ok) {
-        const data = (await res.json()) as ExtractedCvData;
-        setExtractedData(data);
+      setExtractedData(data);
         const candidateContent = data.cv_content || data;
 
         const rawExperiences = (candidateContent.experiences || []).map((exp, idx) => ({
@@ -3807,8 +3857,7 @@ export default function CvBuilderPage() {
         showTemplatesAfterGeneration();
         setMessage("Your CV has been built and verified! Use Templates to test different layouts.");
         setTimeout(() => setMessage(""), 5000);
-        void runQualityEvaluation(created.document, jobDescription);
-      }
+      void runQualityEvaluation(created.document, jobDescription);
     } catch (err) {
       setError(
         err instanceof Error

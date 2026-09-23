@@ -1767,6 +1767,8 @@ export default function CvBuilderPage() {
   const [canvasPageWidthPx, setCanvasPageWidthPx] = useState(794);
 
   const [cv, setCv] = useState<GeneratedCvResponse | null>(null);
+  const currentCvRef = useRef<GeneratedCvResponse | null>(null);
+  currentCvRef.current = cv;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -2711,21 +2713,9 @@ export default function CvBuilderPage() {
       setAgentStepText("Finalizing CV canvas…");
       await new Promise((r) => setTimeout(r, 500));
 
-      setCv(created);
-      if (created.ai_feedback) {
-        setAiFeedback(created.ai_feedback);
-      } else if (created.document.aiFeedback) {
-        setAiFeedback(created.document.aiFeedback);
-      }
+      // Persist first so a remount/rehydration immediately sees the completed CV.
       persistGeneratedCv(created);
       hasGeneratedRef.current = true;
-      setIsIntakeModalOpen(false);
-      selectedFileRef.current = null;
-      setSelectedUploadMeta(null);
-      setUploadReadStatus("");
-      setIntakePasteText("");
-      setShowPasteInsideUpload(false);
-      if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = "";
       const currentUrl = new URL(window.location.href);
       currentUrl.searchParams.delete("intake");
       window.history.replaceState(
@@ -2733,6 +2723,19 @@ export default function CvBuilderPage() {
         "",
         `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`,
       );
+      setCv(created);
+      if (created.ai_feedback) {
+        setAiFeedback(created.ai_feedback);
+      } else if (created.document.aiFeedback) {
+        setAiFeedback(created.document.aiFeedback);
+      }
+      setIsIntakeModalOpen(false);
+      selectedFileRef.current = null;
+      setSelectedUploadMeta(null);
+      setUploadReadStatus("");
+      setIntakePasteText("");
+      setShowPasteInsideUpload(false);
+      if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = "";
       showTemplatesAfterGeneration();
       setMessage("Your modern ATS CV is ready! Use Templates to test layouts.");
       setTimeout(() => setMessage(""), 5000);
@@ -2834,13 +2837,22 @@ export default function CvBuilderPage() {
 
     const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     const isIntakeRequested = searchParams?.get("intake") === "1";
+    if (hasGeneratedRef.current) {
+      setIsIntakeModalOpen(false);
+      if (isIntakeRequested) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("intake");
+        window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+      }
+      return;
+    }
     const panelParam = searchParams?.get("panel");
     if (panelParam === "templates" || panelParam === "design" || panelParam === "sections" || panelParam === "ai") {
       setActiveNavPanel(panelParam);
     }
 
-    const existing = readGeneratedCv();
-    if (existing) {
+    const existing = readGeneratedCv() || currentCvRef.current;
+    if (existing?.document && Object.keys(existing).length > 0) {
       const condensed = {
         ...existing,
         document: sanitizeCvDocument(existing.document),
@@ -2858,20 +2870,26 @@ export default function CvBuilderPage() {
         setCv(null);
         setMessage("Your previous CV was incomplete. Please re-upload your PDF/DOCX so we can rebuild all sections.");
         setTimeout(() => setMessage(""), 8000);
-        setIsIntakeModalOpen(true);
+        setIsIntakeModalOpen(isIntakeRequested);
         showTemplatesAfterGeneration();
         return;
       }
       setCv(condensed);
       persistGeneratedCv(condensed);
+      hasGeneratedRef.current = true;
+      setIsIntakeModalOpen(false);
       setSelectedTemplate(existing.structure || "professional");
       void runQualityEvaluation(condensed.document);
-      if (isIntakeRequested && !hasGeneratedRef.current) setIsIntakeModalOpen(true);
+      if (isIntakeRequested) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("intake");
+        window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+      }
       return;
     }
 
-    // No existing CV — land on the setup flow immediately
-    setIsIntakeModalOpen(true);
+    // Only show intake automatically when the route explicitly requests it.
+    setIsIntakeModalOpen(isIntakeRequested);
     showTemplatesAfterGeneration();
   }, [profile?.id, setLocation]);
 

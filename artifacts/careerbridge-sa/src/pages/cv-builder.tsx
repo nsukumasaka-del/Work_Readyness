@@ -4503,19 +4503,19 @@ export default function CvBuilderPage() {
 
       {/* 2. ENHANCV-STYLE WORKSPACE (LEFT ICON RAIL + FLYOUT PANEL + A4 CANVAS + RIGHT DRAWERS) */}
       <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
-        {/* BLUE STUDIO TOOL DOCK */}
-        <nav className="no-print z-30 flex h-full w-[65px] shrink-0 flex-col items-center justify-start border-r border-blue-700 bg-blue-600 py-3 text-white" aria-label="CV studio tools">
+        {/* DARK STUDIO TOOL DOCK */}
+        <nav className="no-print z-30 flex h-full w-[65px] shrink-0 flex-col items-center justify-start border-r border-slate-800 bg-[#121629] py-3 text-white" aria-label="CV studio tools">
           <div className="flex w-full flex-col items-center gap-5">
-            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "templates" ? null : "templates")} aria-expanded={activeNavPanel === "templates"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "templates" ? "text-white" : "text-blue-100 hover:text-white"}`}>
-              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "templates" ? "bg-blue-800" : "hover:bg-white/10"}`}><LayoutTemplate size={18} /></span>
+            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "templates" ? null : "templates")} aria-expanded={activeNavPanel === "templates"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "templates" ? "text-white" : "text-slate-300 hover:text-white"}`}>
+              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "templates" ? "bg-blue-600" : "hover:bg-white/10"}`}><LayoutTemplate size={18} /></span>
               <span>Templates</span>
             </button>
-            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "design" ? null : "design")} aria-expanded={activeNavPanel === "design"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "design" ? "text-white" : "text-blue-100 hover:text-white"}`}>
-              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "design" ? "bg-blue-800" : "hover:bg-white/10"}`}><Type size={18} /></span>
+            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "design" ? null : "design")} aria-expanded={activeNavPanel === "design"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "design" ? "text-white" : "text-slate-300 hover:text-white"}`}>
+              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "design" ? "bg-blue-600" : "hover:bg-white/10"}`}><Type size={18} /></span>
               <span>Formatting</span>
             </button>
-            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "sections" ? null : "sections")} aria-expanded={activeNavPanel === "sections"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "sections" ? "text-white" : "text-blue-100 hover:text-white"}`}>
-              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "sections" ? "bg-blue-800" : "hover:bg-white/10"}`}><ListChecks size={18} /></span>
+            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "sections" ? null : "sections")} aria-expanded={activeNavPanel === "sections"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "sections" ? "text-white" : "text-slate-300 hover:text-white"}`}>
+              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "sections" ? "bg-blue-600" : "hover:bg-white/10"}`}><ListChecks size={18} /></span>
               <span>Content</span>
             </button>
           </div>
@@ -4543,33 +4543,7 @@ export default function CvBuilderPage() {
 
             {/* PANEL 1: TEMPLATES & VISUAL THUMBNAILS */}
             {activeNavPanel === "templates" && (
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {TEMPLATE_CATALOG.length} modern templates — including Serif Classic, Corporate Blue, Editorial Gold, and Analyst Clean — with ATS-safe formatting.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="workspace-template-switcher" className="text-[11px] font-semibold text-foreground">
-                    Switch CV template
-                  </label>
-                  <select
-                    id="workspace-template-switcher"
-                    value={selectedTemplate}
-                    onChange={(event) => handleTemplateChange(event.target.value)}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground shadow-xs outline-none focus:ring-2 focus:ring-primary/30"
-                    aria-label="Switch the current CV to another template"
-                  >
-                    {TEMPLATE_CATALOG.map((tpl) => (
-                      <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
-                    ))}
-                  </select>
-                  <p className="text-[10px] text-muted-foreground">
-                    Your CV details stay in place while the preview changes.
-                  </p>
-                </div>
-
+              <div className="space-y-3">
                 {/* Filter Pills */}
                 <div className="flex flex-wrap gap-1.5 border-b border-border pb-3">
                   {[
@@ -4596,7 +4570,7 @@ export default function CvBuilderPage() {
                 </div>
 
                 {/* Templates Grid — visible mini A4 thumbnails */}
-                <div className="grid grid-cols-2 gap-2.5 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
+                <div className="grid grid-cols-2 gap-2.5 max-h-[calc(100vh-150px)] overflow-y-auto pr-1">
                   {filteredTemplates.map((tpl) => (
                     <TemplateThumbnail
                       key={tpl.id}
@@ -4607,12 +4581,6 @@ export default function CvBuilderPage() {
                     />
                   ))}
                 </div>
-                <p className="text-[10px] text-muted-foreground text-center pt-1">
-                  Tip: try <span className="font-semibold text-foreground">Serif Classic</span>,{" "}
-                  <span className="font-semibold text-foreground">Corporate Blue</span>,{" "}
-                  <span className="font-semibold text-foreground">Editorial Gold</span>, or{" "}
-                  <span className="font-semibold text-foreground">Analyst Clean</span>, then Download PDF.
-                </p>
               </div>
             )}
 

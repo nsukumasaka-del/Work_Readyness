@@ -1928,6 +1928,8 @@ export default function CvBuilderPage() {
   const [intakePasteText, setIntakePasteText] = useState("");
   const [showPasteInsideUpload, setShowPasteInsideUpload] = useState(false);
   const [selectedUploadName, setSelectedUploadName] = useState(() => readIntakeSession(CV_INTAKE_FILE_KEY, ""));
+  const [uploadReadStatus, setUploadReadStatus] = useState("");
+  const intakeUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   // Agent Working State: Animated High-Trust Progress Screen
   const [isAgentWorking, setIsAgentWorking] = useState(false);
@@ -2143,6 +2145,7 @@ export default function CvBuilderPage() {
   const processIntakeCvFile = async (file: File) => {
     setIntakeTab("upload");
     setSelectedUploadName(file.name);
+    setUploadReadStatus("File selected. Reading document…");
     setError("");
     setAgentFileName(file.name);
     setIsAgentWorking(true);
@@ -2218,16 +2221,17 @@ export default function CvBuilderPage() {
 
       setAgentStepIndex(3);
       setAgentStepText("CV details captured. Review them below, then generate your CV.");
+      setUploadReadStatus("Document read. Review the detected sections below.");
       setIntakeTab("upload");
       setIsIntakeModalOpen(true);
       setMessage(`CV details extracted from ${file.name}. Review the detected information, then select Generate Modern ATS CV.`);
       setTimeout(() => setMessage(""), 7000);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not parse file. You can enter details manually or paste text.",
-      );
+      const message = err instanceof Error
+        ? err.message
+        : "Could not parse file. You can enter details manually or paste text.";
+      setError(message);
+      setUploadReadStatus(`Could not read ${file.name}. ${message}`);
       setIntakeTab("upload");
       setIsIntakeModalOpen(true);
     } finally {
@@ -2239,8 +2243,6 @@ export default function CvBuilderPage() {
   const handleIntakeFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
-    // Clear the input so selecting the same file again always triggers onChange.
-    input.value = "";
     if (file) void processIntakeCvFile(file);
   };
 
@@ -7476,13 +7478,23 @@ export default function CvBuilderPage() {
                     Supports <strong>PDF, Word (.docx), or Text (.txt)</strong>. We will extract your verified history into structured ATS fields.
                   </p>
                   <input
+                    ref={intakeUploadInputRef}
                     type="file"
                     accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                     className="mt-4 block w-full max-w-[380px] cursor-pointer rounded-xl border border-primary/30 bg-background text-xs text-foreground file:mr-3 file:cursor-pointer file:rounded-l-xl file:border-0 file:bg-primary file:px-4 file:py-2.5 file:text-xs file:font-bold file:text-primary-foreground hover:file:brightness-105 disabled:cursor-wait disabled:opacity-60"
                     onChange={handleIntakeFileUpload}
+                    onClick={(event) => {
+                      // Let the same CV be selected again after a failed read.
+                      event.currentTarget.value = "";
+                    }}
                     disabled={extracting}
                     aria-label="Choose a CV file to upload"
                   />
+                  {uploadReadStatus && (
+                    <p className={`mt-3 max-w-full text-[11px] font-medium ${error ? "text-destructive" : "text-primary"}`} role="status" aria-live="polite">
+                      {uploadReadStatus}
+                    </p>
+                  )}
                   {selectedUploadName && (
                     <p className="mt-3 max-w-full truncate text-[11px] font-medium text-muted-foreground" aria-live="polite">
                       Selected file: <span className="text-foreground">{selectedUploadName}</span>

@@ -736,6 +736,22 @@ async function parseCvUpload(file: File, onProgress?: (message: string) => void)
   }
 }
 
+/** A profile header alone is not enough to call a CV successfully built. */
+function hasUsableCvBody(data?: ExtractedCvData | null): boolean {
+  if (!data) return false;
+  const content = data.cv_content || data;
+  const summary = String(content.summary || "").trim();
+  const usableSummary = summary.length >= 24 && !/synthesize your background|add (?:a|your) (?:professional )?summary|write (?:a|your) summary/i.test(summary);
+  return Boolean(
+    usableSummary ||
+    content.experiences?.some((item) => Boolean(item.role?.trim() || item.company?.trim() || item.bullets?.some((bullet) => bullet.trim()))) ||
+    content.education?.some((item) => Boolean(item.degree?.trim() || item.institution?.trim())) ||
+    content.skills?.some((skill) => String(skill).trim()) ||
+    content.projects?.some((project) => Boolean(project.title?.trim() || project.bullets?.some((bullet) => bullet.trim()))) ||
+    content.certifications?.some((certification) => Boolean(certification.name?.trim()))
+  );
+}
+
 async function parseCvText(text: string, fileName = "Pasted CV"): Promise<ExtractedCvData> {
   try {
     const response = await authFetch("/api/career/cv/parse-upload", {
@@ -1139,6 +1155,10 @@ export async function generateCv(options: { regenerate?: boolean; structure?: st
     extracted: options.extracted,
   };
 
+  if (!hasUsableCvBody(options.extracted)) {
+    throw new Error("The uploaded information did not include a readable summary, work history, education, skills, project, or certification. Please retry the upload or paste the CV text so it can be captured before building.");
+  }
+
   let response: Response;
   try {
     response = await authFetch("/api/career/cv/generate", {
@@ -1225,7 +1245,9 @@ export async function generateCv(options: { regenerate?: boolean; structure?: st
     email: generated.document.email || localDocument.email,
     phone: generated.document.phone || localDocument.phone,
     location: generated.document.location || localDocument.location,
-    summary: generated.document.summary || localDocument.summary,
+    summary: generated.document.summary && !/synthesize your background|add (?:a|your) (?:professional )?summary|write (?:a|your) summary/i.test(generated.document.summary)
+      ? generated.document.summary
+      : localDocument.summary,
     experiences: generated.document.experiences?.length ? generated.document.experiences : localDocument.experiences,
     education: generated.document.education?.length ? generated.document.education : localDocument.education,
     skills: generated.document.skills?.length ? generated.document.skills : localDocument.skills,
@@ -2084,9 +2106,9 @@ export default function CvBuilderPage() {
       }));
 
       const rawSkills = candidateContent.skills || [];
-      if (rawExperiences.length === 0 && rawEducation.length === 0 && rawSkills.length === 0) {
+      if (!hasUsableCvBody(data)) {
         throw new Error(
-          "We could read contact details, but not Work Experience / Education / Skills. Please use “Paste Raw CV Text Instead”, or re-export as a text-based PDF / Word (.docx).",
+          "We could read contact details, but not a professional summary, work history, education, skills, projects, or certifications. Please paste the CV text or re-export as a text-based PDF / Word (.docx).",
         );
       }
       const rawProjects = candidateContent.projects || [];
@@ -2446,11 +2468,12 @@ export default function CvBuilderPage() {
         rawEducation.length ||
         rawSkills.length ||
         rawProjects.length ||
-        rawCertifications.length,
+        rawCertifications.length ||
+        rawLanguages.length ||
+        rawReferences.length,
       );
-      const hasBasicProfile = Boolean(mergedName || mergedEmail || manualInput.professionalTitle.trim());
-      if (!extractedData && !hasManualEvidence && !hasBasicProfile) {
-        throw new Error("Add your name, role, and at least one detail before generating your CV.");
+      if (!hasManualEvidence && !hasUsableCvBody(extractedData)) {
+        throw new Error("Add a professional summary, work history, education, skills, project, or certification before generating. A name and contact details alone are not enough to build a CV.");
       }
 
       const candidateContent: CvContentData = {
@@ -2524,8 +2547,12 @@ export default function CvBuilderPage() {
               },
               education: { count: rawEducation.length, verified: rawEducation.length > 0 },
               skills: { count: rawSkills.length },
-            },
-          };
+          },
+        };
+
+      if (!hasUsableCvBody(extractedPayload)) {
+        throw new Error("The uploaded CV content is still missing. Please re-upload the original document or paste its text before generating.");
+      }
 
       setAgentStepIndex(2);
       setAgentStepText("Formatting semantic ATS hierarchy and layout…");
@@ -3786,6 +3813,9 @@ export default function CvBuilderPage() {
       const data = await parseCvUpload(file, (message) => {
         setAgentStepText(message);
       });
+      if (!hasUsableCvBody(data)) {
+        throw new Error("The document was opened, but its CV sections could not be read. Please try a text-based PDF/Word file or paste the CV text.");
+      }
       setAgentStepIndex(1);
       setAgentStepText("Structuring verified employment history…");
       setExtractedData(data);

@@ -1908,7 +1908,6 @@ export default function CvBuilderPage() {
   const [intakePasteText, setIntakePasteText] = useState("");
   const [showPasteInsideUpload, setShowPasteInsideUpload] = useState(false);
   const [selectedUploadName, setSelectedUploadName] = useState("");
-  const intakeUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   // Agent Working State: Animated High-Trust Progress Screen
   const [isAgentWorking, setIsAgentWorking] = useState(false);
@@ -7466,24 +7465,17 @@ export default function CvBuilderPage() {
                   <p className="text-xs text-muted-foreground mt-1 max-w-sm">
                     Supports <strong>PDF, Word (.docx), or Text (.txt)</strong>. We will extract your verified history into structured ATS fields.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => intakeUploadInputRef.current?.click()}
-                    disabled={extracting}
-                    className="mt-4 cursor-pointer rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:brightness-105 transition shadow-xs disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {extracting ? "Extracting CV Data…" : "Browse File on Device"}
-                  </button>
-                  <input
-                    ref={intakeUploadInputRef}
-                    type="file"
-                    accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-                    className="sr-only"
-                    onChange={handleIntakeFileUpload}
-                    disabled={extracting}
-                    tabIndex={-1}
-                    aria-label="Choose a CV file to upload"
-                  />
+                  <label className={`relative mt-4 inline-flex cursor-pointer items-center justify-center rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow-xs transition hover:brightness-105 focus-within:outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 ${extracting ? "cursor-wait opacity-60" : ""}`}>
+                    <span className="pointer-events-none">{extracting ? "Extracting CV Data…" : "Browse File on Device"}</span>
+                    <input
+                      type="file"
+                      accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-wait"
+                      onChange={handleIntakeFileUpload}
+                      disabled={extracting}
+                      aria-label="Choose a CV file to upload"
+                    />
+                  </label>
                   {selectedUploadName && (
                     <p className="mt-3 max-w-full truncate text-[11px] font-medium text-muted-foreground" aria-live="polite">
                       Selected file: <span className="text-foreground">{selectedUploadName}</span>

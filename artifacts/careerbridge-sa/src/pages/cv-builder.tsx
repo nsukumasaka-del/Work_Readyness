@@ -6963,6 +6963,12 @@ export default function CvBuilderPage() {
               >
                 <Upload size={15} className={intakeTab === "upload" ? "text-primary" : ""} />
                 <span>Option 2: Upload CV</span>
+                <span
+                  data-testid="cv-upload-build-indicator"
+                  className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[9px] font-bold tracking-wide text-sky-700 dark:text-sky-300"
+                >
+                  Upload v3 · PDF / DOCX
+                </span>
               </button>
             </div>
 

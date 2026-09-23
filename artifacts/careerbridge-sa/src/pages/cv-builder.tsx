@@ -2128,8 +2128,6 @@ export default function CvBuilderPage() {
     setAgentStepIndex(0);
     setAgentStepText("Preparing document for extraction…");
     setExtracting(true);
-    // Close intake modal while agent works
-    setIsIntakeModalOpen(false);
 
     try {
       const data = await parseCvUpload(file, (message) => {
@@ -2198,80 +2196,19 @@ export default function CvBuilderPage() {
       }
 
       setAgentStepIndex(3);
-      setAgentStepText("Compiling modern ATS-compliant layout with verified evidence…");
-
-      // Build generated CV directly from extracted data
-      const extractedPayload: ExtractedCvData = {
-        cv_content: {
-          personal: candidateContent.personal,
-          summary: candidateContent.summary,
-          experiences: rawExperiences,
-          education: rawEducation,
-          skills: rawSkills,
-          toolsAndSoftware: candidateContent.toolsAndSoftware || [],
-          certifications: rawCertifications,
-          languages: rawLanguages,
-          projects: rawProjects,
-          references: rawReferences,
-        },
-        ai_feedback: data.ai_feedback || {
-          internalTips: [],
-          missingKeywords: [],
-          jobBoardAdvice: [],
-          flaggedPhrases: [],
-          strengths: [],
-          improvements: [],
-        },
-        personal: candidateContent.personal,
-        summary: candidateContent.summary,
-        experiences: rawExperiences,
-        education: rawEducation,
-        skills: rawSkills,
-        toolsAndSoftware: candidateContent.toolsAndSoftware || [],
-        certifications: rawCertifications,
-        languages: rawLanguages,
-        projects: rawProjects,
-        references: rawReferences,
-        verificationBreakdown: data.verificationBreakdown || {
-          personal: { verified: Boolean(candidateContent.personal?.fullName && (candidateContent.personal?.email || candidateContent.personal?.phone)), missingFields: [] },
-          experience: { count: rawExperiences.length, verifiedDates: true, verifiedCompanies: rawExperiences.length > 0 },
-          education: { count: rawEducation.length, verified: rawEducation.length > 0 },
-          skills: { count: rawSkills.length },
-        },
-      };
-
-      const created = await generateCv({
-        structure: selectedTemplate,
-        extracted: extractedPayload,
-        regenerate: true,
-      });
-
-      // Brief delay so candidate can perceive the completed steps
-      await new Promise((r) => setTimeout(r, 600));
-
-      // Keep the last working CV visible until the replacement has been parsed and built.
-      clearGeneratedCv();
-      setCv(created);
-      if (created.ai_feedback) {
-        setAiFeedback(created.ai_feedback);
-      } else if (created.document.aiFeedback) {
-        setAiFeedback(created.document.aiFeedback);
-      }
-      persistGeneratedCv(created);
-
-      // Automatically open the templates panel on the left rail for instant template switching
-      showTemplatesAfterGeneration();
-      setMessage(`CV built successfully from ${file.name}! Use Templates to try another layout.`);
-      setTimeout(() => setMessage(""), 6000);
-      void runQualityEvaluation(created.document, jobDescription);
+      setAgentStepText("CV details captured. Review them below, then generate your CV.");
+      setIntakeTab("upload");
+      setIsIntakeModalOpen(true);
+      setMessage(`CV details extracted from ${file.name}. Review the detected information, then select Generate Modern ATS CV.`);
+      setTimeout(() => setMessage(""), 7000);
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
           : "Could not parse file. You can enter details manually or paste text.",
       );
-      setIsIntakeModalOpen(true);
       setIntakeTab("upload");
+      setIsIntakeModalOpen(true);
     } finally {
       setIsAgentWorking(false);
       setExtracting(false);

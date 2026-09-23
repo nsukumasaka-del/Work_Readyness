@@ -123,9 +123,8 @@ function collapseLetterSpacedLocal(text: string): string {
 }
 
 export async function extractPdfTextFromFile(file: File): Promise<string> {
-  ensurePdfWorker();
-
   try {
+    ensurePdfWorker();
     const data = new Uint8Array(await file.arrayBuffer());
     const loadingTask = getDocument({
       data,

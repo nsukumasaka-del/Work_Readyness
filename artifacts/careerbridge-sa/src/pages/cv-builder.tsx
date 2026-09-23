@@ -714,8 +714,11 @@ function normalizeExtractedCvData(value: unknown): ExtractedCvData {
     website: nestedPersonal.website || topPersonal.website,
     professionalTitle: nestedPersonal.professionalTitle || topPersonal.professionalTitle,
   };
-  const chooseArray = <T,>(inner?: T[] | null, outer?: T[] | null): T[] =>
-    (inner?.length || 0) >= (outer?.length || 0) ? inner || outer || [] : outer || inner || [];
+  const chooseArray = <T,>(inner?: T[] | null, outer?: T[] | null): T[] => {
+    const safeInner = Array.isArray(inner) ? inner : [];
+    const safeOuter = Array.isArray(outer) ? outer : [];
+    return safeInner.length >= safeOuter.length ? safeInner : safeOuter;
+  };
   const summary = [nested.summary, raw.summary].filter((part): part is string => typeof part === "string")
     .sort((a, b) => b.length - a.length)[0] || "";
   const content: CvContentData = {
@@ -1948,8 +1951,14 @@ export default function CvBuilderPage() {
     intakeUploadInputRef.current = input;
     if (!input) return;
     const listener = () => {
-      const file = input.files?.[0];
-      if (file) intakeFileSelectionHandlerRef.current(input, file);
+      try {
+        const file = input.files?.item(0) || null;
+        if (file) intakeFileSelectionHandlerRef.current(input, file);
+      } catch (err) {
+        console.error("CV Upload/Parsing Error:", err);
+        setError(err instanceof Error ? err.message : "Could not read the selected file.");
+        setUploadReadStatus("The file could not be selected. Please try again or enter your details manually.");
+      }
     };
     input.addEventListener("input", listener);
     input.addEventListener("change", listener);
@@ -2167,19 +2176,37 @@ export default function CvBuilderPage() {
     setTimeout(() => setMessage(""), 3500);
   };
 
-  const processIntakeCvFile = async (file: File) => {
+  const reportIntakeUploadError = (err: unknown, file?: File) => {
+    console.error("CV Upload/Parsing Error:", err);
+    const message = err instanceof Error ? err.message : "The CV file could not be read. Please try again.";
+    if (file) {
+      setSelectedUploadFile(file);
+      setSelectedUploadName(file.name);
+      pendingIntakeFileRef.current = file;
+    }
+    setError(message);
+    setUploadReadStatus(file
+      ? `Could not read ${file.name}. The selected file is still available to retry.`
+      : "The file could not be selected. Please try again or enter your details manually.");
     setIntakeTab("upload");
-    setSelectedUploadName(file.name);
-    setSelectedUploadFile(file);
-    setUploadReadStatus(`Reading ${file.name}…`);
-    setError("");
-    setAgentFileName(file.name);
-    setIsAgentWorking(true);
-    setAgentStepIndex(0);
-    setAgentStepText("Preparing document for extraction…");
-    setExtracting(true);
+    setIsAgentWorking(false);
+    setExtracting(false);
+    setIsIntakeModalOpen(true);
+  };
 
+  const processIntakeCvFile = async (file: File) => {
     try {
+      setIntakeTab("upload");
+      setSelectedUploadName(file.name);
+      setSelectedUploadFile(file);
+      setUploadReadStatus(`Reading ${file.name}…`);
+      setError("");
+      setAgentFileName(file.name);
+      setIsAgentWorking(true);
+      setAgentStepIndex(0);
+      setAgentStepText("Preparing document for extraction…");
+      setExtracting(true);
+
       const data = await parseCvUpload(file, (message) => {
         setAgentStepText(message);
         setUploadReadStatus(message);
@@ -2191,8 +2218,6 @@ export default function CvBuilderPage() {
 
       setAgentStepIndex(2);
       setAgentStepText("Structuring candidate achievements, education & ATS keyword tags…");
-      setExtractedData(data);
-      pendingIntakeFileRef.current = null;
       const candidateContent = data.cv_content!;
 
       const rawExperiences = (candidateContent.experiences || []).map((exp, idx) => ({
@@ -2247,6 +2272,8 @@ export default function CvBuilderPage() {
         setAiFeedback(data.ai_feedback);
       }
 
+      setExtractedData(data);
+      pendingIntakeFileRef.current = null;
       setAgentStepIndex(3);
       setAgentStepText("CV details captured. Review them below, then generate your CV.");
       setUploadReadStatus("Document read. Review the detected sections below.");
@@ -2255,13 +2282,7 @@ export default function CvBuilderPage() {
       setMessage(`CV details extracted from ${file.name}. Review the detected information, then select Generate Modern ATS CV.`);
       setTimeout(() => setMessage(""), 7000);
     } catch (err) {
-      const message = err instanceof Error
-        ? err.message
-        : "Could not parse file. You can enter details manually or paste text.";
-      setError(message);
-      setUploadReadStatus(`Could not read ${file.name}. ${message}`);
-      setIntakeTab("upload");
-      setIsIntakeModalOpen(true);
+      reportIntakeUploadError(err, file);
     } finally {
       setIsAgentWorking(false);
       setExtracting(false);
@@ -2270,50 +2291,71 @@ export default function CvBuilderPage() {
   };
 
   const handleIntakeFileUpload = (input: HTMLInputElement | null, file: File) => {
-    const extension = file.name.split(".").pop()?.toLowerCase();
-    if (!extension || !["pdf", "docx", "txt"].includes(extension)) {
-      if (input) input.value = "";
-      pendingIntakeFileRef.current = null;
-      setSelectedUploadFile(null);
-      setSelectedUploadName("");
-      setUploadReadStatus("Unsupported file type. Choose a PDF, Word (.docx), or text (.txt) CV.");
-      setError("Unsupported file type. Choose a PDF, Word (.docx), or text (.txt) CV.");
-      return;
+    try {
+      if (!file) return;
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      if (!extension || !["pdf", "docx", "txt"].includes(extension)) {
+        if (input) input.value = "";
+        pendingIntakeFileRef.current = null;
+        setSelectedUploadFile(null);
+        setSelectedUploadName("");
+        setUploadReadStatus("Unsupported file type. Choose a PDF, Word (.docx), or text (.txt) CV.");
+        setError("Unsupported file type. Choose a PDF, Word (.docx), or text (.txt) CV.");
+        return;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        if (input) input.value = "";
+        pendingIntakeFileRef.current = null;
+        setSelectedUploadFile(null);
+        setSelectedUploadName("");
+        setUploadReadStatus("This file is over the 20 MB limit. Choose a smaller CV.");
+        setError("This file is over the 20 MB limit. Choose a smaller CV.");
+        return;
+      }
+      const selectionKey = `${file.name}:${file.size}:${file.lastModified}`;
+      if (lastHandledUploadRef.current === selectionKey) return;
+      lastHandledUploadRef.current = selectionKey;
+      pendingIntakeFileRef.current = file;
+      setIntakeTab("upload");
+      setSelectedUploadFile(file);
+      setSelectedUploadName(file.name);
+      const size = file.size < 1024 * 1024
+        ? `${Math.max(1, Math.round(file.size / 1024))} KB`
+        : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+      setUploadReadStatus(`File selected: ${file.name} (${size}). Starting document reader…`);
+      setError("");
+      window.setTimeout(() => {
+        try {
+          if (input) input.value = "";
+          processIntakeFileRef.current(file);
+        } catch (err) {
+          reportIntakeUploadError(err, file);
+        }
+      }, 0);
+    } catch (err) {
+      reportIntakeUploadError(err, file);
     }
-    if (file.size > 20 * 1024 * 1024) {
-      if (input) input.value = "";
-      pendingIntakeFileRef.current = null;
-      setSelectedUploadFile(null);
-      setSelectedUploadName("");
-      setUploadReadStatus("This file is over the 20 MB limit. Choose a smaller CV.");
-      setError("This file is over the 20 MB limit. Choose a smaller CV.");
-      return;
-    }
-    const selectionKey = `${file.name}:${file.size}:${file.lastModified}`;
-    if (lastHandledUploadRef.current === selectionKey) return;
-    lastHandledUploadRef.current = selectionKey;
-    pendingIntakeFileRef.current = file;
-    setIntakeTab("upload");
-    setSelectedUploadFile(file);
-    setSelectedUploadName(file.name);
-    const size = file.size < 1024 * 1024
-      ? `${Math.max(1, Math.round(file.size / 1024))} KB`
-      : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
-    setUploadReadStatus(`File selected: ${file.name} (${size}). Starting document reader…`);
-    setError("");
-    window.setTimeout(() => {
-      if (input) input.value = "";
-      processIntakeFileRef.current(file);
-    }, 0);
   };
   intakeFileSelectionHandlerRef.current = handleIntakeFileUpload;
-  processIntakeFileRef.current = (file) => { void processIntakeCvFile(file); };
+  processIntakeFileRef.current = (file) => {
+    try {
+      void processIntakeCvFile(file).catch((err) => {
+        reportIntakeUploadError(err, file);
+      });
+    } catch (err) {
+      reportIntakeUploadError(err, file);
+    }
+  };
 
   const handleIntakeFileDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsUploadDropActive(false);
-    const file = event.dataTransfer.files?.[0];
-    if (file) handleIntakeFileUpload(null, file);
+    try {
+      event.preventDefault();
+      setIsUploadDropActive(false);
+      const file = event.dataTransfer?.files?.item(0) || null;
+      if (file) handleIntakeFileUpload(null, file);
+    } catch (err) {
+      reportIntakeUploadError(err);
+    }
   };
 
   const handleIntakePasteExtract = async () => {

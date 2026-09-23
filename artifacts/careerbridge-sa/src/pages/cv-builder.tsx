@@ -1,5 +1,6 @@
 import {
   type ChangeEvent,
+  type DragEvent,
   type TextareaHTMLAttributes,
   Fragment,
   useEffect,
@@ -1906,6 +1907,8 @@ export default function CvBuilderPage() {
   const [generatingFromIntake, setGeneratingFromIntake] = useState(false);
   const [intakePasteText, setIntakePasteText] = useState("");
   const [showPasteInsideUpload, setShowPasteInsideUpload] = useState(false);
+  const [selectedUploadName, setSelectedUploadName] = useState("");
+  const intakeUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   // Agent Working State: Animated High-Trust Progress Screen
   const [isAgentWorking, setIsAgentWorking] = useState(false);
@@ -2118,13 +2121,8 @@ export default function CvBuilderPage() {
     setTimeout(() => setMessage(""), 3500);
   };
 
-  const handleIntakeFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const uploadInput = event.currentTarget;
-    const file = uploadInput.files?.[0];
-    // Reset immediately so selecting the same document after an error starts a new upload.
-    uploadInput.value = "";
-    if (!file) return;
-
+  const processIntakeCvFile = async (file: File) => {
+    setSelectedUploadName(file.name);
     setError("");
     setAgentFileName(file.name);
     setIsAgentWorking(true);
@@ -2279,6 +2277,20 @@ export default function CvBuilderPage() {
       setIsAgentWorking(false);
       setExtracting(false);
     }
+  };
+
+  const handleIntakeFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    // Clear the input so selecting the same file again always triggers onChange.
+    input.value = "";
+    if (file) void processIntakeCvFile(file);
+  };
+
+  const handleIntakeFileDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files?.[0];
+    if (file) void processIntakeCvFile(file);
   };
 
   const handleIntakePasteExtract = async () => {
@@ -7442,7 +7454,11 @@ export default function CvBuilderPage() {
                 )}
 
                 {/* Upload Drag & Drop Area */}
-                <div className="relative flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-secondary/20 p-8 text-center transition hover:border-primary/50 hover:bg-primary/5">
+                <div
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={handleIntakeFileDrop}
+                  className="relative flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-secondary/20 p-8 text-center transition hover:border-primary/50 hover:bg-primary/5"
+                >
                   <div className="grid h-12 w-12 place-items-center rounded-2xl bg-card border border-border text-primary shadow-xs mb-3">
                     <Upload size={22} />
                   </div>
@@ -7450,16 +7466,30 @@ export default function CvBuilderPage() {
                   <p className="text-xs text-muted-foreground mt-1 max-w-sm">
                     Supports <strong>PDF, Word (.docx), or Text (.txt)</strong>. We will extract your verified history into structured ATS fields.
                   </p>
-                  <label className="mt-4 cursor-pointer rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:brightness-105 transition shadow-xs">
-                    <span>{extracting ? "Extracting CV Data…" : "Browse File on Device"}</span>
-                    <input
-                      type="file"
-                      accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-                      className="hidden"
-                      onChange={handleIntakeFileUpload}
-                      disabled={extracting}
-                    />
-                  </label>
+                  <button
+                    type="button"
+                    onClick={() => intakeUploadInputRef.current?.click()}
+                    disabled={extracting}
+                    className="mt-4 cursor-pointer rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:brightness-105 transition shadow-xs disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {extracting ? "Extracting CV Data…" : "Browse File on Device"}
+                  </button>
+                  <input
+                    ref={intakeUploadInputRef}
+                    type="file"
+                    accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                    className="sr-only"
+                    onChange={handleIntakeFileUpload}
+                    disabled={extracting}
+                    tabIndex={-1}
+                    aria-label="Choose a CV file to upload"
+                  />
+                  {selectedUploadName && (
+                    <p className="mt-3 max-w-full truncate text-[11px] font-medium text-muted-foreground" aria-live="polite">
+                      Selected file: <span className="text-foreground">{selectedUploadName}</span>
+                    </p>
+                  )}
+                  <p className="mt-2 text-[10px] text-muted-foreground">You can also drag a PDF, DOCX, or TXT file into this area.</p>
                 </div>
 
                 {/* Extracted preview card if available */}

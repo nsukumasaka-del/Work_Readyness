@@ -5607,8 +5607,9 @@ export default function CvBuilderPage() {
                     <div className={isTimeline ? "relative pl-6 border-l-2 ml-2 space-y-6 my-2" : "space-y-4"} style={isTimeline ? { borderColor: selectedColor.border } : {}}>
                       {cv.document.experiences.map((exp, expIdx) => (
                         <Fragment key={exp.id || expIdx}>
-                        <A4PageSpacer id={`exp-${expIdx}`} height={a4Spacers[`exp-${expIdx}`] || 0} />
-                        <div data-a4-id={`exp-${expIdx}`} className="group/role cv-a4-keep relative space-y-1.5">
+                        <A4PageSpacer id={`exp-${expIdx}-header`} height={a4Spacers[`exp-${expIdx}-header`] || 0} />
+                        <div className="group/role relative space-y-1.5">
+                          <div data-a4-id={`exp-${expIdx}-header`} className="cv-a4-keep relative space-y-1.5">
                           {expIdx === 0 && renderSectionHeading(
                             isSerifClassic
                               ? "Experience"
@@ -5682,12 +5683,19 @@ export default function CvBuilderPage() {
                               />
                             </div>
                           </div>
+                          </div>
 
                           {/* Bullets with Inline Micro-Actions */}
-                          <ul className="min-w-0 space-y-1 pl-0.5">
+                          <div role="list" className="min-w-0 space-y-1 pl-0.5">
                             {exp.bullets.map((b, bIdx) => (
-                              <li
-                                key={bIdx}
+                              <Fragment key={bIdx}>
+                              <A4PageSpacer
+                                id={`exp-${expIdx}-bullet-${bIdx}`}
+                                height={a4Spacers[`exp-${expIdx}-bullet-${bIdx}`] || 0}
+                              />
+                              <div
+                                role="listitem"
+                                data-a4-id={`exp-${expIdx}-bullet-${bIdx}`}
                                 className="group/bullet relative flex min-w-0 items-start gap-2 text-xs leading-snug text-slate-700"
                               >
                                 <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
@@ -5752,9 +5760,10 @@ export default function CvBuilderPage() {
                                     <Trash2 size={12} />
                                   </button>
                                 </div>
-                              </li>
+                              </div>
+                              </Fragment>
                             ))}
-                          </ul>
+                          </div>
 
                           {/* Add Bullet Button for this role */}
                           <div className="no-print pl-4 pt-0.5 opacity-0 group-hover/role:opacity-100 transition-opacity">

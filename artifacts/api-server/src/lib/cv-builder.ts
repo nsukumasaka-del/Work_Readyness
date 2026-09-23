@@ -2513,9 +2513,11 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   let currentSection = "header";
   const summaryLines: string[] = [];
   const impactLines: string[] = [];
+  let impactCompanyName = "";
   const experienceLines: string[] = [];
   const educationLines: string[] = [];
   const skillsLines: string[] = [];
+  const systemsLines: string[] = [];
   const projectLines: string[] = [];
   const certLines: string[] = [];
   const languageLines: string[] = [];
@@ -2563,6 +2565,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       looksLikeSectionTitle(line) &&
       /^(?:key impact(?:\s+at\s+.+)?|key achievements|selected achievements|career highlights|highlights)\s*:?\s*$/i.test(lower)
     ) {
+      impactCompanyName = lower.match(/^key impact\s+at\s+(.+?)\s*:?$/i)?.[1]?.trim() || "";
       currentSection = "impact";
       continue;
     } else if (
@@ -2585,7 +2588,9 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
         lower,
       )
     ) {
-      currentSection = "skills";
+      currentSection = /^(?:systems|systems\s+(?:and|&)\s+software|software(?:\s+(?:and|&)\s+tools)?|tools(?:\s+(?:and|&)\s+(?:software|technologies))?|technologies|platforms)\s*:?$/i.test(lower)
+        ? "systems"
+        : "skills";
       continue;
     } else if (
       looksLikeSectionTitle(line) &&
@@ -2619,6 +2624,8 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       educationLines.push(line);
     } else if (currentSection === "skills") {
       skillsLines.push(line);
+    } else if (currentSection === "systems") {
+      systemsLines.push(line);
     } else if (currentSection === "projects") {
       projectLines.push(line);
     } else if (currentSection === "certifications") {
@@ -2814,11 +2821,33 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       }
     }
     const impactBullets = preserveSourceBullets(joinedImpact);
-    if (impactBullets.length > 0) {
-      const target = experiences[0]!;
-      const existing = new Set(target.bullets.map((b) => b.toLowerCase()));
-      for (const b of impactBullets) {
-        if (!existing.has(b.toLowerCase())) target.bullets.push(b);
+    const normalizeCompany = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    const impactCompanyKey = normalizeCompany(impactCompanyName);
+    const target = impactCompanyKey
+      ? experiences.find((experience) => normalizeCompany(experience.company).includes(impactCompanyKey))
+      : experiences[0];
+    if (impactBullets.length > 0 && target) {
+      const duplicateTopics: Array<{ action: RegExp; subject: RegExp }> = [
+        { action: /\bcoordinat\w*\b/i, subject: /\b(?:freight|shipments?|imports?)\b/i },
+        { action: /\bnegotiat\w*\b/i, subject: /\b(?:carriers?|rates?|terms?)\b/i },
+        { action: /\b(?:resolv\w*|monitor\w*)\b/i, subject: /\b(?:routes?|delays?|borders?|issues?)\b/i },
+        { action: /\b(?:maintain\w*|prepar\w*)\b/i, subject: /\b(?:records?|invoices?|reports?|confirmations?)\b/i },
+      ];
+      for (const impactBullet of impactBullets) {
+        const duplicateIndex = target.bullets.findIndex((existingBullet) =>
+          duplicateTopics.some(({ action, subject }) =>
+            action.test(existingBullet) && action.test(impactBullet) &&
+            subject.test(existingBullet) && subject.test(impactBullet),
+          ),
+        );
+        if (duplicateIndex >= 0) {
+          // Keep the source achievement when it adds concrete scope or an outcome.
+          if (bulletQualityScore(impactBullet) > bulletQualityScore(target.bullets[duplicateIndex]!)) {
+            target.bullets[duplicateIndex] = impactBullet;
+          }
+        } else {
+          target.bullets.push(impactBullet);
+        }
       }
       target.bullets = preserveSourceBullets(target.bullets);
     }
@@ -2912,13 +2941,16 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   }
 
   // Parse Skills (bullet list, category labels, or comma-separated)
-  const skills = skillsLines
+  const parseCompetencyLines = (sourceLines: string[]) => sourceLines
     .flatMap((line) => {
+      const isBullet = /^[\s•\-\*▪▫►]/.test(line);
       let clean = line.replace(/^[\s•\-\*▪▫►]+/, "").trim();
       if (!clean || /^(skills|technologies|tools|competencies|systems|professional skills|technical skills)$/i.test(clean)) return [];
       // "Languages: TypeScript, JavaScript" → strip category label
       clean = clean.replace(/^(?:languages|frameworks(?:\s*&\s*libraries)?|cloud(?:\s*&\s*devops)?|databases|practices|tools|libraries)\s*:\s*/i, "");
-      if (clean.includes(",") || clean.includes(";") || clean.includes("|")) {
+      // Bullet items are already structured values. Keep internal commas intact
+      // (e.g. "Documentation, Compliance & Accuracy") instead of fragmenting them.
+      if (!isBullet && (clean.includes(",") || clean.includes(";") || clean.includes("|"))) {
         return clean.split(/[,;|]+/).map((s) => s.trim());
       }
       return [clean];
@@ -2932,10 +2964,13 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       !isPageMarker(s) &&
       !isGarbagePersonalToken(s),
     );
-
-  const finalSkills = Array.from(new Map(skills.map((skill) => [skill.toLocaleLowerCase(), skill])).values()).slice(0, 40);
-  const isStandaloneTool = (skill: string) => /^(?:(?:microsoft|ms|google|oracle|salesforce)\s+)?(?:excel|word|outlook|powerpoint|power bi|office(?: 365)?|teams|sharepoint|sap|crm|tms|navis|radix(?: go)?|ft|tp portal|spotlight tracking|sql|python|jira|react)(?:\s+(?:365|online|desktop))?$/i.test(skill.trim());
-  const toolsAndSoftware = finalSkills.filter(isStandaloneTool);
+  const uniqueValues = (values: string[]) => Array.from(new Map(values.map((value) => [value.toLocaleLowerCase(), value])).values());
+  const finalSkills = uniqueValues(parseCompetencyLines(skillsLines)).slice(0, 40);
+  const isStandaloneTool = (skill: string) => /^(?:(?:microsoft|ms|google|oracle|salesforce)\s+)?(?:excel|word|outlook|powerpoint|power bi|office(?: 365)?|teams|sharepoint|sap|crm|tms|navis|radix(?: go)?|vft|ft|tp portal|spotlight tracking|sql|python|jira|react)$/i.test(skill.trim());
+  const toolsAndSoftware = uniqueValues([
+    ...parseCompetencyLines(systemsLines),
+    ...finalSkills.filter(isStandaloneTool),
+  ]).slice(0, 40);
   const coreSkills = finalSkills.filter((skill) => !isStandaloneTool(skill));
 
   // Parse Certifications

@@ -1929,6 +1929,8 @@ export default function CvBuilderPage() {
   const [intakePasteText, setIntakePasteText] = useState("");
   const [showPasteInsideUpload, setShowPasteInsideUpload] = useState(false);
   const [selectedUploadName, setSelectedUploadName] = useState(() => readIntakeSession(CV_INTAKE_FILE_KEY, ""));
+  const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
+  const [isUploadDropActive, setIsUploadDropActive] = useState(false);
   const [uploadReadStatus, setUploadReadStatus] = useState("");
   const intakeUploadInputRef = useRef<HTMLInputElement | null>(null);
   const lastHandledUploadRef = useRef("");
@@ -2168,7 +2170,8 @@ export default function CvBuilderPage() {
   const processIntakeCvFile = async (file: File) => {
     setIntakeTab("upload");
     setSelectedUploadName(file.name);
-    setUploadReadStatus("File selected. Reading document…");
+    setSelectedUploadFile(file);
+    setUploadReadStatus(`Reading ${file.name}…`);
     setError("");
     setAgentFileName(file.name);
     setIsAgentWorking(true);
@@ -2179,6 +2182,7 @@ export default function CvBuilderPage() {
     try {
       const data = await parseCvUpload(file, (message) => {
         setAgentStepText(message);
+        setUploadReadStatus(message);
       });
 
       // Update animated agent steps
@@ -2265,21 +2269,40 @@ export default function CvBuilderPage() {
     }
   };
 
-  const handleIntakeFileUpload = (input: HTMLInputElement, file: File) => {
+  const handleIntakeFileUpload = (input: HTMLInputElement | null, file: File) => {
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (!extension || !["pdf", "docx", "txt"].includes(extension)) {
+      if (input) input.value = "";
+      pendingIntakeFileRef.current = null;
+      setSelectedUploadFile(null);
+      setSelectedUploadName("");
+      setUploadReadStatus("Unsupported file type. Choose a PDF, Word (.docx), or text (.txt) CV.");
+      setError("Unsupported file type. Choose a PDF, Word (.docx), or text (.txt) CV.");
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      if (input) input.value = "";
+      pendingIntakeFileRef.current = null;
+      setSelectedUploadFile(null);
+      setSelectedUploadName("");
+      setUploadReadStatus("This file is over the 20 MB limit. Choose a smaller CV.");
+      setError("This file is over the 20 MB limit. Choose a smaller CV.");
+      return;
+    }
     const selectionKey = `${file.name}:${file.size}:${file.lastModified}`;
     if (lastHandledUploadRef.current === selectionKey) return;
     lastHandledUploadRef.current = selectionKey;
     pendingIntakeFileRef.current = file;
-    // Confirm the selection immediately, but defer processing until the native
-    // picker has finished dispatching its input/change events. Starting the
-    // progress state inside the first event can unmount the portal before the
-    // browser emits the completion event on some browsers.
     setIntakeTab("upload");
+    setSelectedUploadFile(file);
     setSelectedUploadName(file.name);
-    setUploadReadStatus("File selected. Starting document reader…");
+    const size = file.size < 1024 * 1024
+      ? `${Math.max(1, Math.round(file.size / 1024))} KB`
+      : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+    setUploadReadStatus(`File selected: ${file.name} (${size}). Starting document reader…`);
     setError("");
     window.setTimeout(() => {
-      input.value = "";
+      if (input) input.value = "";
       processIntakeFileRef.current(file);
     }, 0);
   };
@@ -2288,8 +2311,9 @@ export default function CvBuilderPage() {
 
   const handleIntakeFileDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
+    setIsUploadDropActive(false);
     const file = event.dataTransfer.files?.[0];
-    if (file) void processIntakeCvFile(file);
+    if (file) handleIntakeFileUpload(null, file);
   };
 
   const handleIntakePasteExtract = async () => {
@@ -7514,9 +7538,13 @@ export default function CvBuilderPage() {
 
                 {/* Upload Drag & Drop Area */}
                 <div
-                  onDragOver={(event) => event.preventDefault()}
+                  onDragEnter={(event) => { event.preventDefault(); setIsUploadDropActive(true); }}
+                  onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setIsUploadDropActive(true); }}
+                  onDragLeave={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsUploadDropActive(false);
+                  }}
                   onDrop={handleIntakeFileDrop}
-                  className="relative flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-secondary/20 p-8 text-center transition hover:border-primary/50 hover:bg-primary/5"
+                  className={`relative flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-8 text-center transition ${isUploadDropActive ? "border-primary bg-primary/10 ring-2 ring-primary/20" : "border-border bg-secondary/20 hover:border-primary/50 hover:bg-primary/5"}`}
                 >
                   <div className="grid h-12 w-12 place-items-center rounded-2xl bg-card border border-border text-primary shadow-xs mb-3">
                     <Upload size={22} />
@@ -7525,22 +7553,73 @@ export default function CvBuilderPage() {
                   <p className="text-xs text-muted-foreground mt-1 max-w-sm">
                     Supports <strong>PDF, Word (.docx), or Text (.txt)</strong>. We will extract your verified history into structured ATS fields.
                   </p>
+                  <div className="mt-4 flex w-full max-w-[460px] items-center overflow-hidden rounded-xl border border-primary/30 bg-background text-left">
+                    <button
+                      type="button"
+                      onClick={() => intakeUploadInputRef.current?.click()}
+                      disabled={extracting}
+                      className="shrink-0 bg-primary px-4 py-3 text-xs font-bold text-primary-foreground hover:brightness-105 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      Choose file
+                    </button>
+                    <div className="min-w-0 flex-1 px-3 py-2 text-xs" aria-live="polite">
+                      {selectedUploadFile ? (
+                        <div className="flex min-w-0 items-center gap-2">
+                          <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+                          <span className="truncate font-medium text-foreground" title={selectedUploadFile.name}>{selectedUploadFile.name}</span>
+                          <span className="shrink-0 text-muted-foreground">
+                            ({selectedUploadFile.size < 1024 * 1024
+                              ? `${Math.max(1, Math.round(selectedUploadFile.size / 1024))} KB`
+                              : `${(selectedUploadFile.size / (1024 * 1024)).toFixed(1)} MB`})
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">No file chosen</span>
+                      )}
+                    </div>
+                    {selectedUploadFile && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (extracting) return;
+                          intakeUploadInputRef.current && (intakeUploadInputRef.current.value = "");
+                          pendingIntakeFileRef.current = null;
+                          lastHandledUploadRef.current = "";
+                          setSelectedUploadFile(null);
+                          setSelectedUploadName("");
+                          setExtractedData(null);
+                          setUploadReadStatus("");
+                          setError("");
+                        }}
+                        disabled={extracting}
+                        className="mr-2 rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+                        aria-label="Remove selected CV"
+                        title="Remove file"
+                      >
+                        <X size={15} />
+                      </button>
+                    )}
+                  </div>
                   <input
                     ref={attachIntakeUploadInput}
                     type="file"
-                    accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-                    className="mt-4 block w-full max-w-[380px] cursor-pointer rounded-xl border border-primary/30 bg-background text-xs text-foreground file:mr-3 file:cursor-pointer file:rounded-l-xl file:border-0 file:bg-primary file:px-4 file:py-2.5 file:text-xs file:font-bold file:text-primary-foreground hover:file:brightness-105 disabled:cursor-wait disabled:opacity-60"
+                    accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                    className="sr-only"
+                    onInput={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      if (file) handleIntakeFileUpload(event.currentTarget, file);
+                    }}
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      if (file) handleIntakeFileUpload(event.currentTarget, file);
+                    }}
                     disabled={extracting}
-                    aria-label="Choose a CV file to upload"
+                    aria-label="Choose a PDF, Word DOCX, or TXT CV file"
                   />
                   {uploadReadStatus && (
-                    <p className={`mt-3 max-w-full text-[11px] font-medium ${error ? "text-destructive" : "text-primary"}`} role="status" aria-live="polite">
-                      {uploadReadStatus}
-                    </p>
-                  )}
-                  {selectedUploadName && (
-                    <p className="mt-3 max-w-full truncate text-[11px] font-medium text-muted-foreground" aria-live="polite">
-                      Selected file: <span className="text-foreground">{selectedUploadName}</span>
+                    <p className={`mt-3 flex max-w-full items-center justify-center gap-1.5 text-[11px] font-medium ${error ? "text-destructive" : extractedData ? "text-emerald-700 dark:text-emerald-300" : "text-primary"}`} role="status" aria-live="polite">
+                      {extracting ? <RefreshCw size={12} className="animate-spin" /> : extractedData ? <CheckCircle2 size={13} /> : null}
+                      <span>{uploadReadStatus}</span>
                     </p>
                   )}
                   <p className="mt-2 text-[10px] text-muted-foreground">You can also drag a PDF, DOCX, or TXT file into this area.</p>

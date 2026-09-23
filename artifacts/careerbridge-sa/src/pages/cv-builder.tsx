@@ -4399,7 +4399,7 @@ export default function CvBuilderPage() {
   });
 
   return (
-    <div className="cv-builder flex h-[calc(100dvh-4rem)] min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-[#F4F5F7] font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="cv-builder flex h-[calc(100dvh-4rem)] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
       {/* 1. MINIMALIST TOP COMMAND HEADER (ENHANCV-STYLE) */}
       {commandHeaderHost ? createPortal(
         <div className="cv-builder-command-header no-print flex h-full min-w-0 flex-1 items-center justify-between gap-2 overflow-x-auto px-2">
@@ -4705,23 +4705,27 @@ export default function CvBuilderPage() {
       ) : null}
 
       {/* 2. ENHANCV-STYLE WORKSPACE (LEFT ICON RAIL + FLYOUT PANEL + A4 CANVAS + RIGHT DRAWERS) */}
-      <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 flex-col overflow-visible md:flex-row md:overflow-hidden">
+      <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* LEFT COMPACT ICON RAIL (4 MAIN OPTIONS: Templates, Design, Sections, AI) */}
-          <nav className="no-print hidden w-16 shrink-0 flex-col items-center justify-between border-r border-border bg-card py-4 md:flex md:z-20">
+          <nav className="no-print hidden h-full w-16 shrink-0 flex-col items-center justify-between border-r border-border bg-white py-4 md:flex md:z-20" aria-label="CV workspace tools">
             {/* Top 4 Primary Workspace Modules */}
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center gap-5">
               {/* 1. Templates */}
               <button
                 type="button"
                 onClick={() => setActiveNavPanel(activeNavPanel === "templates" ? null : "templates")}
-                className={`group relative flex h-10 w-10 items-center justify-center rounded-xl transition ${
+                className={`group relative flex w-16 flex-col items-center gap-1 px-1 py-1.5 text-[10px] font-medium transition ${
                   activeNavPanel === "templates"
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    ? "text-[#008f70]"
+                    : "text-slate-500 hover:text-slate-800"
                 }`}
                 title="Templates & Layouts"
+                aria-expanded={activeNavPanel === "templates"}
               >
-                <LayoutTemplate size={18} />
+                <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "templates" ? "bg-[#e7f8f4]" : "hover:bg-slate-100"}`}>
+                  <LayoutTemplate size={18} />
+                </span>
+                <span>Templates</span>
                 <span className="absolute left-14 z-50 hidden rounded-md bg-foreground px-2 py-1 text-[10px] font-semibold text-background shadow-md group-hover:block whitespace-nowrap">
                   Templates & Layouts
                 </span>
@@ -4732,14 +4736,15 @@ export default function CvBuilderPage() {
               <button
                 type="button"
                 onClick={() => setActiveNavPanel(activeNavPanel === "design" ? null : "design")}
-                className={`group relative flex h-10 w-10 items-center justify-center rounded-xl transition ${
+                className={`group relative flex w-16 flex-col items-center gap-1 px-1 py-1.5 text-[10px] font-medium transition ${
                   activeNavPanel === "design"
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    ? "text-[#008f70]"
+                    : "text-slate-500 hover:text-slate-800"
                 }`}
                 title="Design, Typography & Colors"
               >
-                <Palette size={18} />
+                <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "design" ? "bg-[#e7f8f4]" : "hover:bg-slate-100"}`}><Palette size={18} /></span>
+                <span>Editor</span>
                 <span className="absolute left-14 z-50 hidden rounded-md bg-foreground px-2 py-1 text-[10px] font-semibold text-background shadow-md group-hover:block whitespace-nowrap">
                   Design & Layout
                 </span>
@@ -4749,14 +4754,15 @@ export default function CvBuilderPage() {
               <button
                 type="button"
                 onClick={() => setActiveNavPanel(activeNavPanel === "sections" ? null : "sections")}
-                className={`group relative flex h-10 w-10 items-center justify-center rounded-xl transition ${
+                className={`group relative flex w-16 flex-col items-center gap-1 px-1 py-1.5 text-[10px] font-medium transition ${
                   activeNavPanel === "sections"
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    ? "text-[#008f70]"
+                    : "text-slate-500 hover:text-slate-800"
                 }`}
                 title="Content Sections & Ordering"
               >
-                <ListChecks size={18} />
+                <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "sections" ? "bg-[#e7f8f4]" : "hover:bg-slate-100"}`}><ListChecks size={18} /></span>
+                <span>Sections</span>
                 <span className="absolute left-14 z-50 hidden rounded-md bg-foreground px-2 py-1 text-[10px] font-semibold text-background shadow-md group-hover:block whitespace-nowrap">
                   Content & Sections
                 </span>
@@ -4766,14 +4772,15 @@ export default function CvBuilderPage() {
               <button
                 type="button"
                 onClick={() => setActiveNavPanel(activeNavPanel === "ai" ? null : "ai")}
-                className={`group relative flex h-10 w-10 items-center justify-center rounded-xl transition ${
+                className={`group relative flex w-16 flex-col items-center gap-1 px-1 py-1.5 text-[10px] font-medium transition ${
                   activeNavPanel === "ai"
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    ? "text-[#008f70]"
+                    : "text-slate-500 hover:text-slate-800"
                 }`}
                 title="AI Assistant & Career Positioning"
               >
-                <Sparkles size={18} />
+                <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "ai" ? "bg-[#e7f8f4]" : "hover:bg-slate-100"}`}><Sparkles size={18} /></span>
+                <span>AI Tools</span>
                 <span className="absolute left-14 z-50 hidden rounded-md bg-foreground px-2 py-1 text-[10px] font-semibold text-background shadow-md group-hover:block whitespace-nowrap">
                   AI Assistant & Voice
                 </span>
@@ -4818,7 +4825,7 @@ export default function CvBuilderPage() {
 
         {/* LEFT EXPANDABLE DRAWER PANEL (340px) */}
         {activeNavPanel && (!isPreviewMode || activeNavPanel === "templates") && (
-          <aside className="no-print relative z-20 max-h-[min(65dvh,36rem)] w-full min-w-0 shrink-0 overflow-y-auto border-b border-border bg-card p-4 shadow-lg animate-in slide-in-from-left duration-200 md:inset-auto md:z-10 md:max-h-full md:w-[22rem] md:max-w-[26rem] md:border-b-0 md:border-r">
+          <aside className="no-print relative z-20 max-h-[min(65dvh,36rem)] w-full min-w-0 shrink-0 overflow-y-auto border-b border-border bg-white p-5 shadow-sm animate-in slide-in-from-left duration-200 md:inset-auto md:z-10 md:h-full md:max-h-full md:w-[22.5rem] md:border-b-0 md:border-r">
             <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
               <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 {activeNavPanel === "templates" && "Layout & Templates"}
@@ -5320,7 +5327,7 @@ export default function CvBuilderPage() {
         )}
 
         {/* CENTER CANVAS: LIGHT NEUTRAL BACKGROUND (#F4F5F7) + REALISTIC A4 PAGE */}
-        <main ref={canvasRef} tabIndex={-1} className="min-w-0 flex min-h-0 flex-1 flex-col items-center overflow-visible p-2 sm:overflow-y-auto sm:p-8">
+        <main ref={canvasRef} tabIndex={-1} className="min-h-0 min-w-0 flex h-full flex-1 flex-col items-center overflow-y-auto bg-slate-100 p-4 sm:p-8">
           {/* Preview Banner Pill */}
           {isPreviewMode && (
             <div className="no-print sticky top-2 z-40 mx-auto mb-4 flex items-center gap-3 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur-md animate-in fade-in slide-in-from-top-2">

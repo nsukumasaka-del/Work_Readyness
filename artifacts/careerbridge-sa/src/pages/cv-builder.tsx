@@ -1,10 +1,8 @@
 import {
   type ChangeEvent,
   type DragEvent,
-  type FormEvent,
   type TextareaHTMLAttributes,
   Fragment,
-  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -866,7 +864,6 @@ function buildLocalCvResponse(
 
 const CV_INTAKE_TAB_KEY = "bonlist-cv-intake-tab";
 const CV_INTAKE_DATA_KEY = "bonlist-cv-intake-data";
-const CV_INTAKE_FILE_KEY = "bonlist-cv-intake-file";
 
 function readIntakeSession<T>(key: string, fallback: T, parse?: (value: unknown) => T): T {
   if (typeof window === "undefined") return fallback;
@@ -1932,39 +1929,14 @@ export default function CvBuilderPage() {
   const [generatingFromIntake, setGeneratingFromIntake] = useState(false);
   const [intakePasteText, setIntakePasteText] = useState("");
   const [showPasteInsideUpload, setShowPasteInsideUpload] = useState(false);
-  const [selectedUploadName, setSelectedUploadName] = useState(() => readIntakeSession(CV_INTAKE_FILE_KEY, ""));
-  const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
+  const [selectedUploadMeta, setSelectedUploadMeta] = useState<{ name: string; size: number; type: string } | null>(null);
   const [isUploadDropActive, setIsUploadDropActive] = useState(false);
   const [uploadReadStatus, setUploadReadStatus] = useState("");
   const intakeUploadInputRef = useRef<HTMLInputElement | null>(null);
   const lastHandledUploadRef = useRef("");
-  const pendingIntakeFileRef = useRef<File | null>(null);
-  const processIntakeFileRef = useRef<(file: File) => void>(() => undefined);
-  const intakeFileSelectionHandlerRef = useRef<(input: HTMLInputElement, file: File) => void>(() => undefined);
-  const nativeIntakeListenerRef = useRef<{ input: HTMLInputElement; listener: () => void } | null>(null);
-  const attachIntakeUploadInput = useCallback((input: HTMLInputElement | null) => {
-    const attached = nativeIntakeListenerRef.current;
-    if (attached) {
-      attached.input.removeEventListener("input", attached.listener);
-      attached.input.removeEventListener("change", attached.listener);
-      nativeIntakeListenerRef.current = null;
-    }
-    intakeUploadInputRef.current = input;
-    if (!input) return;
-    const listener = () => {
-      try {
-        const file = input.files?.item(0) || null;
-        if (file) intakeFileSelectionHandlerRef.current(input, file);
-      } catch (err) {
-        console.error("CV Upload/Parsing Error:", err);
-        setError(err instanceof Error ? err.message : "Could not read the selected file.");
-        setUploadReadStatus("The file could not be selected. Please try again or enter your details manually.");
-      }
-    };
-    input.addEventListener("input", listener);
-    input.addEventListener("change", listener);
-    nativeIntakeListenerRef.current = { input, listener };
-  }, []);
+  // Keep the non-serializable browser File outside React state. React only
+  // receives a small, render-safe description of the selected document.
+  const selectedFileRef = useRef<File | null>(null);
 
   // Agent Working State: Animated High-Trust Progress Screen
   const [isAgentWorking, setIsAgentWorking] = useState(false);
@@ -2181,9 +2153,8 @@ export default function CvBuilderPage() {
     console.error("CV Upload/Parsing Error:", err);
     const message = err instanceof Error ? err.message : "The CV file could not be read. Please try again.";
     if (file) {
-      setSelectedUploadFile(file);
-      setSelectedUploadName(file.name);
-      pendingIntakeFileRef.current = file;
+      selectedFileRef.current = file;
+      setSelectedUploadMeta({ name: file.name, size: file.size, type: file.type });
     }
     setError(message);
     setUploadReadStatus(file
@@ -2198,8 +2169,7 @@ export default function CvBuilderPage() {
   const processIntakeCvFile = async (file: File) => {
     try {
       setIntakeTab("upload");
-      setSelectedUploadName(file.name);
-      setSelectedUploadFile(file);
+      setSelectedUploadMeta({ name: file.name, size: file.size, type: file.type });
       setUploadReadStatus(`Reading ${file.name}…`);
       setError("");
       setAgentFileName(file.name);
@@ -2274,7 +2244,7 @@ export default function CvBuilderPage() {
       }
 
       setExtractedData(data);
-      pendingIntakeFileRef.current = null;
+      selectedFileRef.current = null;
       setAgentStepIndex(3);
       setAgentStepText("CV details captured. Review them below, then generate your CV.");
       setUploadReadStatus("Document read. Review the detected sections below.");
@@ -2297,18 +2267,16 @@ export default function CvBuilderPage() {
       const extension = file.name.split(".").pop()?.toLowerCase();
       if (!extension || !["pdf", "docx", "txt"].includes(extension)) {
         if (input) input.value = "";
-        pendingIntakeFileRef.current = null;
-        setSelectedUploadFile(null);
-        setSelectedUploadName("");
+        selectedFileRef.current = null;
+        setSelectedUploadMeta(null);
         setUploadReadStatus("Unsupported file type. Choose a PDF, Word (.docx), or text (.txt) CV.");
         setError("Unsupported file type. Choose a PDF, Word (.docx), or text (.txt) CV.");
         return;
       }
       if (file.size > 20 * 1024 * 1024) {
         if (input) input.value = "";
-        pendingIntakeFileRef.current = null;
-        setSelectedUploadFile(null);
-        setSelectedUploadName("");
+        selectedFileRef.current = null;
+        setSelectedUploadMeta(null);
         setUploadReadStatus("This file is over the 20 MB limit. Choose a smaller CV.");
         setError("This file is over the 20 MB limit. Choose a smaller CV.");
         return;
@@ -2316,28 +2284,22 @@ export default function CvBuilderPage() {
       const selectionKey = `${file.name}:${file.size}:${file.lastModified}`;
       if (lastHandledUploadRef.current === selectionKey) return;
       lastHandledUploadRef.current = selectionKey;
-      pendingIntakeFileRef.current = file;
+      selectedFileRef.current = file;
       setIntakeTab("upload");
-      setSelectedUploadFile(file);
-      setSelectedUploadName(file.name);
+      setSelectedUploadMeta({ name: file.name, size: file.size, type: file.type });
       const size = file.size < 1024 * 1024
         ? `${Math.max(1, Math.round(file.size / 1024))} KB`
         : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
-      setUploadReadStatus(`File selected: ${file.name} (${size}). Starting document reader…`);
+      setUploadReadStatus(`File selected: ${file.name} (${size}). Click Generate Modern ATS CV to read it.`);
       setError("");
-      window.setTimeout(() => {
-        try {
-          if (input) input.value = "";
-          processIntakeFileRef.current(file);
-        } catch (err) {
-          reportIntakeUploadError(err, file);
-        }
-      }, 0);
+      // Clear the native control after capturing the File so selecting the
+      // same document again still emits a change event. The ref retains it.
+      if (input) input.value = "";
     } catch (err) {
       reportIntakeUploadError(err, file);
     }
   };
-  const handleIntakeFileSelectionEvent = (event: ChangeEvent<HTMLInputElement> | FormEvent<HTMLInputElement>) => {
+  const handleIntakeFileSelectionEvent = (event: ChangeEvent<HTMLInputElement>) => {
     event.preventDefault();
     event.stopPropagation();
     try {
@@ -2347,17 +2309,6 @@ export default function CvBuilderPage() {
       reportIntakeUploadError(err);
     }
   };
-  intakeFileSelectionHandlerRef.current = handleIntakeFileUpload;
-  processIntakeFileRef.current = (file) => {
-    try {
-      void processIntakeCvFile(file).catch((err) => {
-        reportIntakeUploadError(err, file);
-      });
-    } catch (err) {
-      reportIntakeUploadError(err, file);
-    }
-  };
-
   const handleIntakeFileDrop = (event: DragEvent<HTMLDivElement>) => {
     try {
       event.preventDefault();
@@ -2518,7 +2469,7 @@ export default function CvBuilderPage() {
     setGeneratingFromIntake(true);
     setError("");
 
-    const pendingFile = pendingIntakeFileRef.current || intakeUploadInputRef.current?.files?.[0];
+    const pendingFile = selectedFileRef.current || intakeUploadInputRef.current?.files?.[0];
     if (intakeTab === "upload" && !extractedData && !intakePasteText.trim() && pendingFile) {
       setGeneratingFromIntake(false);
       void processIntakeCvFile(pendingFile);
@@ -2752,13 +2703,12 @@ export default function CvBuilderPage() {
   useEffect(() => {
     try {
       window.sessionStorage.setItem(CV_INTAKE_TAB_KEY, intakeTab);
-      window.sessionStorage.setItem(CV_INTAKE_FILE_KEY, selectedUploadName);
       if (extractedData) window.sessionStorage.setItem(CV_INTAKE_DATA_KEY, JSON.stringify(extractedData));
       else window.sessionStorage.removeItem(CV_INTAKE_DATA_KEY);
     } catch {
       // The upload still works if the browser blocks session storage.
     }
-  }, [intakeTab, selectedUploadName, extractedData]);
+  }, [intakeTab, extractedData]);
 
   // Restore the review form from an upload already parsed in this tab.
   useEffect(() => {
@@ -7627,30 +7577,29 @@ export default function CvBuilderPage() {
                       Choose file
                     </button>
                     <div className="min-w-0 flex-1 px-3 py-2 text-xs" aria-live="polite">
-                      {selectedUploadFile ? (
+                      {selectedUploadMeta ? (
                         <div className="flex min-w-0 items-center gap-2">
                           <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
-                          <span className="truncate font-medium text-foreground" title={selectedUploadFile.name}>{selectedUploadFile.name}</span>
+                          <span className="truncate font-medium text-foreground" title={selectedUploadMeta.name}>{selectedUploadMeta.name}</span>
                           <span className="shrink-0 text-muted-foreground">
-                            ({selectedUploadFile.size < 1024 * 1024
-                              ? `${Math.max(1, Math.round(selectedUploadFile.size / 1024))} KB`
-                              : `${(selectedUploadFile.size / (1024 * 1024)).toFixed(1)} MB`})
+                            ({selectedUploadMeta.size < 1024 * 1024
+                              ? `${Math.max(1, Math.round(selectedUploadMeta.size / 1024))} KB`
+                              : `${(selectedUploadMeta.size / (1024 * 1024)).toFixed(1)} MB`})
                           </span>
                         </div>
                       ) : (
                         <span className="text-muted-foreground">No file chosen</span>
                       )}
                     </div>
-                    {selectedUploadFile && (
+                    {selectedUploadMeta && (
                       <button
                         type="button"
                         onClick={() => {
                           if (extracting) return;
                           intakeUploadInputRef.current && (intakeUploadInputRef.current.value = "");
-                          pendingIntakeFileRef.current = null;
+                          selectedFileRef.current = null;
                           lastHandledUploadRef.current = "";
-                          setSelectedUploadFile(null);
-                          setSelectedUploadName("");
+                          setSelectedUploadMeta(null);
                           setExtractedData(null);
                           setUploadReadStatus("");
                           setError("");
@@ -7665,11 +7614,10 @@ export default function CvBuilderPage() {
                     )}
                   </div>
                   <input
-                    ref={attachIntakeUploadInput}
+                    ref={intakeUploadInputRef}
                     type="file"
                     accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                     className="sr-only"
-                    onInput={handleIntakeFileSelectionEvent}
                     onChange={handleIntakeFileSelectionEvent}
                     disabled={extracting}
                     aria-label="Choose a PDF, Word DOCX, or TXT CV file"

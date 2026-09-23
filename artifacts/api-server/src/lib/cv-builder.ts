@@ -2309,8 +2309,15 @@ export function verifyExtractedDataAgainstRawText(
 // ---------------------------------------------------------------------------
 
 export function extractCvDataFromText(rawText: string, fileName?: string): ExtractedCvData {
+  // Some Word-exported PDFs map bullet and en-dash glyphs to U+FFFD in the
+  // text layer. Recover those structural characters before sanitization strips
+  // them, otherwise date ranges stop matching and bullet lists collapse.
+  const recoveredText = rawText
+    .replace(/((?:19|20)\d{2})\s*\uFFFD\s*(?=(?:(?:\d{1,2}\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+|(?:19|20)\d{2}\b|present\b|current\b|ongoing\b))/gi, "$1 – ")
+    .replace(/(^|\n)([\t ]*)\uFFFD[\t ]*(?=\S)/g, "$1$2- ")
+    .replace(/\uFFFD/g, " — ");
   // Always sanitize first — never parse raw PDF binary dumps
-  const text = sanitizeExtractedCvText(rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim());
+  const text = sanitizeExtractedCvText(recoveredText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim());
   // Defense: split mid-line section headings that survived flattening.
   // IMPORTANT: never use bare words like "Experience" / "Skills" — they appear inside summary sentences
   // ("…professional with experience in…") and would truncate the summary.
@@ -2469,8 +2476,8 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
 
   // Contact line often uses: phone • email • address
   for (const line of lines.slice(0, 6)) {
-    if (line.includes("@") && (line.includes("•") || line.includes("|") || line.includes("·"))) {
-      const parts = line.split(/\s*[•|·]\s*/).map((p) => p.trim()).filter(Boolean);
+    if (line.includes("@") && (line.includes("•") || line.includes("|") || line.includes("·") || line.includes("—") || line.includes("–"))) {
+      const parts = line.split(/\s*[•|·—–]\s*/).map((p) => p.trim()).filter(Boolean);
       for (const part of parts) {
         if (!email && part.includes("@")) {
           // already captured globally; keep
@@ -2672,7 +2679,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       }
       const dateMatch = el.match(dateRangeRe)?.[0] || "Past - Present";
       const withoutDate = el.replace(dateRangeRe, "").replace(/[\s\-—–]+$/g, "").trim();
-      const parts = withoutDate.split(/\s*[·•|]\s*/).map((p) => p.trim()).filter(Boolean);
+      const parts = withoutDate.split(/\s*[·•|—–]\s*/).map((p) => p.trim()).filter(Boolean);
       let role = parts[0] || professionalTitle;
       let company = parts[1] || "Company";
       if (parts.length >= 2 && companyKeywords.test(parts[0] || "") && roleKeywords.test(parts[1] || "")) {
@@ -2708,7 +2715,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
         !dateRangeRe.test(maybeCompany) &&
         maybeCompany.length < 100
       ) {
-        const companyParts = maybeCompany.split(/\s*[•·|]\s*/).map((p) => p.trim());
+        const companyParts = maybeCompany.split(/\s*[•·|—–]\s*/).map((p) => p.trim());
         company = companyParts[0] || maybeCompany;
         if (companyParts[1]) expLocation = companyParts[1];
         i += 1;

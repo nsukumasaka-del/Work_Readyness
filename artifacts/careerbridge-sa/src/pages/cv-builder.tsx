@@ -1,9 +1,9 @@
 import {
   type ChangeEvent,
   type DragEvent,
-  type FormEvent,
   type TextareaHTMLAttributes,
   Fragment,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -1932,6 +1932,27 @@ export default function CvBuilderPage() {
   const [uploadReadStatus, setUploadReadStatus] = useState("");
   const intakeUploadInputRef = useRef<HTMLInputElement | null>(null);
   const lastHandledUploadRef = useRef("");
+  const pendingIntakeFileRef = useRef<File | null>(null);
+  const processIntakeFileRef = useRef<(file: File) => void>(() => undefined);
+  const intakeFileSelectionHandlerRef = useRef<(input: HTMLInputElement, file: File) => void>(() => undefined);
+  const nativeIntakeListenerRef = useRef<{ input: HTMLInputElement; listener: () => void } | null>(null);
+  const attachIntakeUploadInput = useCallback((input: HTMLInputElement | null) => {
+    const attached = nativeIntakeListenerRef.current;
+    if (attached) {
+      attached.input.removeEventListener("input", attached.listener);
+      attached.input.removeEventListener("change", attached.listener);
+      nativeIntakeListenerRef.current = null;
+    }
+    intakeUploadInputRef.current = input;
+    if (!input) return;
+    const listener = () => {
+      const file = input.files?.[0];
+      if (file) intakeFileSelectionHandlerRef.current(input, file);
+    };
+    input.addEventListener("input", listener);
+    input.addEventListener("change", listener);
+    nativeIntakeListenerRef.current = { input, listener };
+  }, []);
 
   // Agent Working State: Animated High-Trust Progress Screen
   const [isAgentWorking, setIsAgentWorking] = useState(false);
@@ -2167,6 +2188,7 @@ export default function CvBuilderPage() {
       setAgentStepIndex(2);
       setAgentStepText("Structuring candidate achievements, education & ATS keyword tags…");
       setExtractedData(data);
+      pendingIntakeFileRef.current = null;
       const candidateContent = data.cv_content!;
 
       const rawExperiences = (candidateContent.experiences || []).map((exp, idx) => ({
@@ -2243,13 +2265,11 @@ export default function CvBuilderPage() {
     }
   };
 
-  const handleIntakeFileUpload = (event: ChangeEvent<HTMLInputElement> | FormEvent<HTMLInputElement>) => {
-    const input = event.currentTarget;
-    const file = input.files?.[0];
-    if (!file) return;
+  const handleIntakeFileUpload = (input: HTMLInputElement, file: File) => {
     const selectionKey = `${file.name}:${file.size}:${file.lastModified}`;
     if (lastHandledUploadRef.current === selectionKey) return;
     lastHandledUploadRef.current = selectionKey;
+    pendingIntakeFileRef.current = file;
     // Confirm the selection immediately, but defer processing until the native
     // picker has finished dispatching its input/change events. Starting the
     // progress state inside the first event can unmount the portal before the
@@ -2260,9 +2280,11 @@ export default function CvBuilderPage() {
     setError("");
     window.setTimeout(() => {
       input.value = "";
-      void processIntakeCvFile(file);
+      processIntakeFileRef.current(file);
     }, 0);
   };
+  intakeFileSelectionHandlerRef.current = handleIntakeFileUpload;
+  processIntakeFileRef.current = (file) => { void processIntakeCvFile(file); };
 
   const handleIntakeFileDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -2418,7 +2440,7 @@ export default function CvBuilderPage() {
     setGeneratingFromIntake(true);
     setError("");
 
-    const pendingFile = intakeUploadInputRef.current?.files?.[0];
+    const pendingFile = pendingIntakeFileRef.current || intakeUploadInputRef.current?.files?.[0];
     if (intakeTab === "upload" && !extractedData && !intakePasteText.trim() && pendingFile) {
       setGeneratingFromIntake(false);
       void processIntakeCvFile(pendingFile);
@@ -7504,12 +7526,10 @@ export default function CvBuilderPage() {
                     Supports <strong>PDF, Word (.docx), or Text (.txt)</strong>. We will extract your verified history into structured ATS fields.
                   </p>
                   <input
-                    ref={intakeUploadInputRef}
+                    ref={attachIntakeUploadInput}
                     type="file"
                     accept=".txt,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                     className="mt-4 block w-full max-w-[380px] cursor-pointer rounded-xl border border-primary/30 bg-background text-xs text-foreground file:mr-3 file:cursor-pointer file:rounded-l-xl file:border-0 file:bg-primary file:px-4 file:py-2.5 file:text-xs file:font-bold file:text-primary-foreground hover:file:brightness-105 disabled:cursor-wait disabled:opacity-60"
-                    onInput={handleIntakeFileUpload}
-                    onChange={handleIntakeFileUpload}
                     disabled={extracting}
                     aria-label="Choose a CV file to upload"
                   />

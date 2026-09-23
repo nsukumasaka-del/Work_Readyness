@@ -1937,6 +1937,7 @@ export default function CvBuilderPage() {
 
   // Intake Workstation State (Upload CV or Add Manually before generation)
   const [isIntakeModalOpen, setIsIntakeModalOpen] = useState(false);
+  const hasGeneratedRef = useRef(false);
   const [intakeTab, setIntakeTab] = useState<"manual" | "upload">(() =>
     readIntakeSession<string>(CV_INTAKE_TAB_KEY, "manual") === "upload" ? "upload" : "manual",
   );
@@ -2717,12 +2718,29 @@ export default function CvBuilderPage() {
         setAiFeedback(created.document.aiFeedback);
       }
       persistGeneratedCv(created);
+      hasGeneratedRef.current = true;
       setIsIntakeModalOpen(false);
+      selectedFileRef.current = null;
+      setSelectedUploadMeta(null);
+      setUploadReadStatus("");
+      setIntakePasteText("");
+      setShowPasteInsideUpload(false);
+      if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = "";
+      const currentUrl = new URL(window.location.href);
+      currentUrl.searchParams.delete("intake");
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`,
+      );
       showTemplatesAfterGeneration();
       setMessage("Your modern ATS CV is ready! Use Templates to test layouts.");
       setTimeout(() => setMessage(""), 5000);
       void runQualityEvaluation(created.document, jobDescription);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.requestAnimationFrame(() => {
+        canvasRef.current?.focus({ preventScroll: true });
+        canvasRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate CV");
       setIsIntakeModalOpen(true);
@@ -2848,7 +2866,7 @@ export default function CvBuilderPage() {
       persistGeneratedCv(condensed);
       setSelectedTemplate(existing.structure || "professional");
       void runQualityEvaluation(condensed.document);
-      if (isIntakeRequested) setIsIntakeModalOpen(true);
+      if (isIntakeRequested && !hasGeneratedRef.current) setIsIntakeModalOpen(true);
       return;
     }
 
@@ -5208,7 +5226,7 @@ export default function CvBuilderPage() {
         )}
 
         {/* CENTER CANVAS: LIGHT NEUTRAL BACKGROUND (#F4F5F7) + REALISTIC A4 PAGE */}
-        <main ref={canvasRef} className="min-w-0 flex min-h-0 flex-1 flex-col items-center overflow-visible p-2 sm:overflow-y-auto sm:p-8">
+        <main ref={canvasRef} tabIndex={-1} className="min-w-0 flex min-h-0 flex-1 flex-col items-center overflow-visible p-2 sm:overflow-y-auto sm:p-8">
           {/* Preview Banner Pill */}
           {isPreviewMode && (
             <div className="no-print sticky top-2 z-40 mx-auto mb-4 flex items-center gap-3 rounded-full border border-border bg-card/95 px-4 py-1.5 shadow-lg backdrop-blur-md animate-in fade-in slide-in-from-top-2">

@@ -2217,11 +2217,11 @@ export function verifyExtractedDataAgainstRawText(
   // 6. Verify Languages & References
   const verifiedLanguages = extracted.languages && extracted.languages.length > 0
     ? extracted.languages
-    : ["English"];
+    : [];
 
   const verifiedReferences = extracted.references && extracted.references.length > 0
     ? extracted.references
-    : ["Available upon request"];
+    : [];
 
   // 7. Verify Summary & Quarantine Reviewer Notes
   let verifiedSummary = extracted.summary;
@@ -2387,7 +2387,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   }
 
   // Location heuristics (South African cities or generic)
-  let location = "South Africa";
+  let location = "";
   const saCities = [
     "Johannesburg", "Cape Town", "Durban", "Pretoria", "Centurion",
     "Sandton", "Gauteng", "Western Cape", "KwaZulu-Natal", "Port Elizabeth",
@@ -2470,7 +2470,10 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       !isGarbagePersonalToken(maybeTitle) &&
       !/^(professional summary|work experience|education)/i.test(maybeTitle)
     ) {
-      professionalTitle = maybeTitle.replace(/\s*[|•]\s*/g, " | ").trim();
+       const titleOptions = maybeTitle.split(/\s*[|•]\s*/).map((title) => title.trim()).filter(Boolean);
+       // Some CVs list several target roles on one line. Keep the first explicit
+       // title instead of treating every alternative as one malformed job title.
+       professionalTitle = (titleOptions.length >= 3 ? titleOptions[0] : titleOptions.join(" | ")) || professionalTitle;
     }
   }
 
@@ -2677,22 +2680,22 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       if (currentExp && (currentExp.bullets.length > 0 || currentExp.role)) {
         experiences.push(currentExp);
       }
-      const dateMatch = el.match(dateRangeRe)?.[0] || "Past - Present";
+      const dateMatch = el.match(dateRangeRe)?.[0] || "";
       const withoutDate = el.replace(dateRangeRe, "").replace(/[\s\-—–]+$/g, "").trim();
       const parts = withoutDate.split(/\s*[·•|—–]\s*/).map((p) => p.trim()).filter(Boolean);
-      let role = parts[0] || professionalTitle;
-      let company = parts[1] || "Company";
+      let role = parts[0] || "";
+      let company = parts[1] || "";
       if (parts.length >= 2 && companyKeywords.test(parts[0] || "") && roleKeywords.test(parts[1] || "")) {
         company = parts[0] || company;
         role = parts[1] || role;
       }
       currentExp = {
         id: `exp-${experiences.length + 1}`,
-        company: isGarbagePersonalToken(company) ? "Company" : company,
-        role: isGarbagePersonalToken(role) ? professionalTitle : role,
-        startDate: dateMatch.split(/(?:to|[-—–])/i)[0]?.trim() || "2023",
-        endDate: dateMatch.split(/(?:to|[-—–])/i)[1]?.trim() || "Present",
-        current: /present|current|ongoing|date/i.test(dateMatch),
+        company: isGarbagePersonalToken(company) ? "" : company,
+        role: isGarbagePersonalToken(role) ? "" : role,
+        startDate: dateMatch ? dateMatch.split(/(?:to|[-—–])/i)[0]?.trim() || "" : "",
+        endDate: dateMatch ? dateMatch.split(/(?:to|[-—–])/i)[1]?.trim() || "" : "",
+        current: /present|current|ongoing/i.test(dateMatch),
         bullets: [],
         classification: "VERIFIED",
       };
@@ -2704,10 +2707,10 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       if (currentExp && (currentExp.bullets.length > 0 || currentExp.role)) {
         experiences.push(currentExp);
       }
-      const dateMatch = el.match(dateRangeRe)?.[0] || "Past - Present";
-      const roleOnly = el.replace(dateRangeRe, "").replace(/[\s\-—–]+$/g, "").trim() || professionalTitle;
+      const dateMatch = el.match(dateRangeRe)?.[0] || "";
+      const roleOnly = el.replace(dateRangeRe, "").replace(/[\s\-—–]+$/g, "").trim();
       const maybeCompany = experienceLines[i + 1] || "";
-      let company = "Company";
+      let company = "";
       let expLocation: string | undefined;
       if (
         maybeCompany &&
@@ -2722,12 +2725,12 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       }
       currentExp = {
         id: `exp-${experiences.length + 1}`,
-        company: isGarbagePersonalToken(company) ? "Company" : company,
-        role: isGarbagePersonalToken(roleOnly) ? professionalTitle : roleOnly,
+        company: isGarbagePersonalToken(company) ? "" : company,
+        role: isGarbagePersonalToken(roleOnly) ? "" : roleOnly,
         location: expLocation,
-        startDate: dateMatch.split(/(?:to|[-—–])/i)[0]?.trim() || "2023",
-        endDate: dateMatch.split(/(?:to|[-—–])/i)[1]?.trim() || "Present",
-        current: /present|current|ongoing|date/i.test(dateMatch),
+        startDate: dateMatch ? dateMatch.split(/(?:to|[-—–])/i)[0]?.trim() || "" : "",
+        endDate: dateMatch ? dateMatch.split(/(?:to|[-—–])/i)[1]?.trim() || "" : "",
+        current: /present|current|ongoing/i.test(dateMatch),
         bullets: [],
         classification: "VERIFIED",
       };
@@ -2756,19 +2759,19 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
           ? maybeDates
           : dateRangeRe.test(maybeCompany)
             ? maybeCompany
-            : "Past - Present";
+          : "";
         const company =
           dateRangeRe.test(maybeCompany) && !companyKeywords.test(maybeCompany)
-            ? "Company"
-            : maybeCompany.replace(dateRangeRe, "").split(/\s*[•·|]\s*/)[0]?.trim() || "Company";
-        const d = dateSource.match(dateRangeRe)?.[0] || "Past - Present";
+            ? ""
+            : maybeCompany.replace(dateRangeRe, "").split(/\s*[•·|]\s*/)[0]?.trim() || "";
+        const d = dateSource.match(dateRangeRe)?.[0] || "";
         currentExp = {
           id: `exp-${experiences.length + 1}`,
-          company: isGarbagePersonalToken(company) ? "Company" : company,
+          company: isGarbagePersonalToken(company) ? "" : company,
           role: el.trim(),
-          startDate: d.split(/(?:to|[-—–])/i)[0]?.trim() || "2023",
-          endDate: d.split(/(?:to|[-—–])/i)[1]?.trim() || "Present",
-          current: /present|current|ongoing|date/i.test(d),
+          startDate: d ? d.split(/(?:to|[-—–])/i)[0]?.trim() || "" : "",
+          endDate: d ? d.split(/(?:to|[-—–])/i)[1]?.trim() || "" : "",
+          current: /present|current|ongoing/i.test(d),
           bullets: [],
           classification: "VERIFIED",
         };
@@ -2785,22 +2788,22 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       }
       const parts = el.split(/[—–\-|]/).map((p) => p.trim()).filter(Boolean);
       let comp = parts[0] || "";
-      let r = parts[1] || professionalTitle;
+      let r = parts[1] || "";
 
       if (roleKeywords.test(comp) || companyKeywords.test(r)) {
         const temp = comp;
         comp = r;
         r = temp;
       }
-      const d = parts.find((p) => dateRangeRe.test(p)) || (hasDateRange ? el.match(dateRangeRe)?.[0] || "Past - Present" : "Past - Present");
+      const d = parts.find((p) => dateRangeRe.test(p)) || el.match(dateRangeRe)?.[0] || "";
 
       currentExp = {
         id: `exp-${experiences.length + 1}`,
-        company: isGarbagePersonalToken(comp) ? "Company" : comp || "Company",
-        role: isGarbagePersonalToken(r) ? professionalTitle : r || professionalTitle,
-        startDate: d.split(/(?:to|[-—–])/i)[0]?.trim() || "2023",
-        endDate: d.split(/(?:to|[-—–])/i)[1]?.trim() || "Present",
-        current: /present|current|ongoing|date/i.test(d),
+        company: isGarbagePersonalToken(comp) ? "" : comp,
+        role: isGarbagePersonalToken(r) ? "" : r,
+        startDate: d ? d.split(/(?:to|[-—–])/i)[0]?.trim() || "" : "",
+        endDate: d ? d.split(/(?:to|[-—–])/i)[1]?.trim() || "" : "",
+        current: /present|current|ongoing/i.test(d),
         bullets: [],
         classification: "VERIFIED",
       };
@@ -2850,21 +2853,20 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
 
   // If experience lines exist but were unstructured, extract bullets from source lines
   if (experiences.length === 0 && experienceLines.length > 0) {
-    const validBullets = selectProfessionalBullets(
+    const validBullets = preserveSourceBullets(
       experienceLines
         .map((l) => l.replace(/^[\s•\-\*▪▫►]+/, "").trim())
         .filter((b) => b.length > 3 && !isGarbagePersonalToken(b) && !isPageMarker(b)),
-      5,
     );
 
     if (validBullets.length > 0) {
       experiences.push({
         id: "exp-1",
-        company: "Work History Entry",
-        role: professionalTitle !== "Professional" ? professionalTitle.split("|")[0]!.trim() : "Professional Role",
-        startDate: "Past",
-        endDate: "Present",
-        current: true,
+        company: "",
+        role: "",
+        startDate: "",
+        endDate: "",
+        current: false,
         bullets: validBullets,
         classification: "VERIFIED",
       });
@@ -2884,18 +2886,18 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
         const parts = line.split(/[|—–·]/).map((p) => p.trim()).filter(Boolean);
         let deg = parts[0] || line;
         let fieldOrInst = parts[1] || "";
-        let yr = line.match(/\b(?:19|20)\d{2}\b/)?.[0] || ( /in progress/i.test(line) ? "In progress" : "Completed");
+        let yr = line.match(/\b(?:19|20)\d{2}\b/)?.[0] || ( /in progress/i.test(line) ? "In progress" : "");
         // "N2 Certificate — Mechanical Engineering Dec 2023"
         if (fieldOrInst && !/university|college|school|institute|academy/i.test(fieldOrInst)) {
           fieldOrInst = fieldOrInst.replace(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?:19|20)\d{2}\b/i, "").replace(/\b(?:19|20)\d{2}\b/g, "").replace(/\bin progress\b/i, "").trim();
           if (fieldOrInst) deg = `${deg} — ${fieldOrInst}`;
         }
-        let inst = "Accredited Institution";
+        let inst = "";
         if (fieldOrInst && /university|college|school|institute|academy/i.test(parts[1] || "")) {
           inst = (parts[1] || "").replace(/\b(?:19|20)\d{2}\b/g, "").trim() || inst;
         }
         const next = educationLines[i + 1]?.trim() || "";
-        if (inst === "Accredited Institution" && next && !/certificate|diploma|degree|matric|n2|n3|bachelor|bsc|ba\b|bcom/i.test(next) && !/^(?:professional skills|skills|systems)/i.test(next) && next.length < 80) {
+        if (!inst && next && !/certificate|diploma|degree|matric|n2|n3|bachelor|bsc|ba\b|bcom/i.test(next) && !/^(?:professional skills|skills|systems)/i.test(next) && next.length < 80) {
           inst = next;
           i += 1;
         }
@@ -2914,11 +2916,11 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       } else if (i + 1 < educationLines.length && !/\b(?:19|20)\d{2}\b/.test(line) && /\b(?:19|20)\d{2}\b/.test(educationLines[i + 1] || "")) {
         const deg = line;
         const inst = educationLines[i + 1] || "";
-        const yr = (deg + " " + inst).match(/\b(?:19|20)\d{2}\b/)?.[0] || "Completed";
+        const yr = (deg + " " + inst).match(/\b(?:19|20)\d{2}\b/)?.[0] || "";
         education.push({
           id: `edu-${education.length + 1}`,
           degree: deg || "Qualification",
-          institution: inst.replace(/\b(?:19|20)\d{2}\b/g, "").replace(/[()]/g, "").trim() || "Accredited Institution",
+          institution: inst.replace(/\b(?:19|20)\d{2}\b/g, "").replace(/[()]/g, "").trim(),
           graduationYear: yr,
           classification: "VERIFIED",
         });
@@ -2928,8 +2930,8 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
         education.push({
           id: `edu-${education.length + 1}`,
           degree: line,
-          institution: "Accredited Institution",
-          graduationYear: line.match(/\b(?:19|20)\d{2}\b/)?.[0] || "Completed",
+          institution: "",
+          graduationYear: line.match(/\b(?:19|20)\d{2}\b/)?.[0] || "",
           classification: "VERIFIED",
         });
       }
@@ -2951,9 +2953,10 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     .map((s) => s.trim())
     .filter((s) => s.length > 1 && s.length < 80 && !isPageMarker(s) && !isGarbagePersonalToken(s));
 
-  const finalSkills = skills.length > 0
-    ? Array.from(new Set(skills)).slice(0, 40)
-    : [];
+  const finalSkills = Array.from(new Map(skills.map((skill) => [skill.toLocaleLowerCase(), skill])).values()).slice(0, 40);
+  const isStandaloneTool = (skill: string) => /^(?:(?:microsoft|ms|google|oracle|salesforce)\s+)?(?:excel|word|outlook|powerpoint|power bi|office(?: 365)?|teams|sharepoint|sap|crm|tms|navis|radix(?: go)?|ft|tp portal|spotlight tracking|sql|python|jira|react)(?:\s+(?:365|online|desktop))?$/i.test(skill.trim());
+  const toolsAndSoftware = finalSkills.filter(isStandaloneTool);
+  const coreSkills = finalSkills.filter((skill) => !isStandaloneTool(skill));
 
   // Parse Certifications
   const certifications: CvCertificationItem[] = [];
@@ -3043,10 +3046,6 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       languages = Array.from(new Set(rawLang));
     }
   }
-  if (languages.length === 0) {
-    languages = ["English"];
-  }
-
   // Parse References
   let references: string[] = [];
   if (referenceLines.length > 0) {
@@ -3075,8 +3074,8 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     summary,
     experiences,
     education,
-    skills: finalSkills,
-    toolsAndSoftware: finalSkills.filter((s) => /excel|word|crm|sap|python|sql|react|jira|power/i.test(s)),
+      skills: coreSkills,
+    toolsAndSoftware,
     certifications,
     languages,
     projects,

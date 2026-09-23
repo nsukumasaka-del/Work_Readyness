@@ -243,8 +243,22 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     }))
     .filter((edu) => edu.degree || edu.institution);
 
-  const skills = (doc.skills || []).map((s) => scrubCvText(s)).filter((s) => s.length > 1 && s.length < 60);
-  const toolsAndSoftware = (doc.toolsAndSoftware || []).map((s) => scrubCvText(s)).filter((s) => s.length > 1 && s.length < 80);
+  const normalizeList = (items: string[], maxLength: number) => {
+    const seen = new Set<string>();
+    return items
+      .map((item) => scrubCvText(item))
+      .filter((item) => {
+        const key = item.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+        if (key.length < 2 || key.length >= maxLength || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  };
+  const toolsAndSoftware = normalizeList(doc.toolsAndSoftware || [], 80);
+  const toolKeys = new Set(toolsAndSoftware.map((tool) => tool.toLocaleLowerCase().replace(/\s+/g, " ").trim()));
+  const skills = normalizeList(doc.skills || [], 60).filter(
+    (skill) => !toolKeys.has(skill.toLocaleLowerCase().replace(/\s+/g, " ").trim()),
+  );
 
   const projects = (doc.projects || [])
     .map((proj) => ({
@@ -5488,23 +5502,22 @@ export default function CvBuilderPage() {
                       </button>
                     </div>
 
-                    {renderSectionHeading(
-                      isSerifClassic
-                        ? "Experience"
-                        : isCorporateBlue
-                          ? "Professional Experience"
-                          : isEditorialGold
-                            ? "Professional Experience"
-                            : isAnalystClean
-                              ? "Experience"
-                              : "Work Experience",
-                    )}
-
                     <div className={isTimeline ? "relative pl-6 border-l-2 ml-2 space-y-6 my-2" : "space-y-4"} style={isTimeline ? { borderColor: selectedColor.border } : {}}>
                       {cv.document.experiences.map((exp, expIdx) => (
                         <Fragment key={exp.id || expIdx}>
-                          <A4PageSpacer id={`exp-${expIdx}`} height={a4Spacers[`exp-${expIdx}`] || 0} />
+                        <A4PageSpacer id={`exp-${expIdx}`} height={a4Spacers[`exp-${expIdx}`] || 0} />
                         <div data-a4-id={`exp-${expIdx}`} className="group/role cv-a4-keep relative space-y-1.5">
+                          {expIdx === 0 && renderSectionHeading(
+                            isSerifClassic
+                              ? "Experience"
+                              : isCorporateBlue
+                                ? "Professional Experience"
+                                : isEditorialGold
+                                  ? "Professional Experience"
+                                  : isAnalystClean
+                                    ? "Experience"
+                                    : "Work Experience",
+                          )}
                           {isTimeline && (
                             <span
                               className="absolute -left-[31px] top-1.5 h-3.5 w-3.5 rounded-full border-2 bg-white shadow-xs transition group-hover/role:scale-125"

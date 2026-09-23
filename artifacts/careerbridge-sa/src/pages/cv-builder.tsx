@@ -4835,6 +4835,26 @@ export default function CvBuilderPage() {
                   </p>
                 </div>
 
+                <div className="space-y-1.5">
+                  <label htmlFor="workspace-template-switcher" className="text-[11px] font-semibold text-foreground">
+                    Switch CV template
+                  </label>
+                  <select
+                    id="workspace-template-switcher"
+                    value={selectedTemplate}
+                    onChange={(event) => handleTemplateChange(event.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground shadow-xs outline-none focus:ring-2 focus:ring-primary/30"
+                    aria-label="Switch the current CV to another template"
+                  >
+                    {TEMPLATE_CATALOG.map((tpl) => (
+                      <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-muted-foreground">
+                    Your CV details stay in place while the preview changes.
+                  </p>
+                </div>
+
                 {/* Filter Pills */}
                 <div className="flex flex-wrap gap-1.5 border-b border-border pb-3">
                   {[

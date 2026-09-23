@@ -64,31 +64,28 @@ export function restoreCvSectionBreaks(text: string): string {
     .trim();
 }
 
-export function sanitizeExtractedCvText(raw: string): string {
+export function sanitizeExtractedCvText(raw: string, options: { preserveParagraphs?: boolean } = {}): string {
   if (!raw) return "";
-  let text = restoreCvSectionBreaks(
-    collapseLetterSpacedText(
+  const collapsed = collapseLetterSpacedText(
       raw
         .replace(/\u0000/g, "")
         .replace(/[\uFFFD\uFFFE\uFFFF]+/g, " ")
         .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " "),
-    ),
-  );
+    );
+  let text = options.preserveParagraphs ? collapsed.trim() : restoreCvSectionBreaks(collapsed);
   if (looksLikePdfBinary(text)) return "";
-  text = text
+  const cleanedLines = text
     .split(/\r\n|\r|\n/)
     .map((line) => line.trim())
     .filter((line) => {
-      if (!line || /^(?:\d+\s+\d+\s+obj|endobj|stream|endstream|xref|trailer|startxref|%%EOF|\/[A-Z][A-Za-z0-9]+(?:\s+\d+)?)\s*$/i.test(line)) return false;
+      if (!line) return options.preserveParagraphs;
+      if (/^(?:\d+\s+\d+\s+obj|endobj|stream|endstream|xref|trailer|startxref|%%EOF|\/[A-Z][A-Za-z0-9]+(?:\s+\d+)?)\s*$/i.test(line)) return false;
       if (/^\d+\s+\d+\s+R$/.test(line)) return false;
       if (/^<<.*>>$/.test(line) && line.includes("/")) return false;
       const printable = line.replace(/[^\x20-\x7E\u00A0-\u024F\u1E00-\u1EFF]/g, "");
       return printable.length >= Math.min(3, line.length) || line.length <= 2;
     })
-    .map((line) => line.replace(/\s{2,}/g, " ").replace(/\b\d+\s+\d+\s+obj\b/gi, " ").replace(/\bendobj\b/gi, " ").trim())
-    .filter(Boolean)
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    .map((line) => line ? line.replace(/\s{2,}/g, " ").replace(/\b\d+\s+\d+\s+obj\b/gi, " ").replace(/\bendobj\b/gi, " ").trim() : "");
+  text = cleanedLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   return looksLikePdfBinary(text) ? "" : text;
 }

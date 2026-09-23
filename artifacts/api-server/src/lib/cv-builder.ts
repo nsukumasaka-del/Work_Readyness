@@ -2305,6 +2305,51 @@ export function verifyExtractedDataAgainstRawText(
 // Intelligent CV Upload & Extraction Parser (Zero-Hallucination Guarded)
 // ---------------------------------------------------------------------------
 
+function validateExtractedCvData(data: ExtractedCvData, fileName?: string, sourceText = ""): ExtractedCvData {
+  const content = data.cv_content;
+  const normalizeIdentity = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
+  const name = String(content.personal.fullName || "").trim();
+  const nameTokens = name.split(/\s+/).filter(Boolean);
+  const invalidIdentity = /\b(?:cv|resume|curriculum vitae|page|profile|summary|experience|education|skills?)\b/i.test(name);
+  let fullName = nameTokens.length >= 2 && nameTokens.length <= 4 && !invalidIdentity && !/[\d@]|https?:|www\./i.test(name) ? name : "";
+  if (fileName && fullName) {
+    const cleanFileName = (fileName.split(/[\\/]/).pop() || fileName).replace(/\.(?:pdf|docx?|txt)$/i, "").replace(/[_-]+/g, " ").trim();
+    if (normalizeIdentity(fullName) === normalizeIdentity(cleanFileName) && !normalizeIdentity(sourceText).includes(normalizeIdentity(fullName))) {
+      fullName = "";
+    }
+  }
+
+  const rejectedSkillFragments = /^(?:a|an|the|and|or|of|to|in|on|at|by|for|from|with|as|is|are|was|were|be|been|being|etc\.?)$/i;
+  const uniqueCleanSkills = (values: string[]) => {
+    const seen = new Set<string>();
+    return (values || []).map((value) => String(value || "").trim().replace(/\s+/g, " ")).filter((value) => {
+      const key = value.toLocaleLowerCase();
+      if (value.length < 2 || value.length > 80 || rejectedSkillFragments.test(value) || !/[\p{L}\p{N}]/u.test(value) || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const experiences = (content.experiences || []).map((experience) => ({
+    ...experience,
+    bullets: preserveSourceBullets(experience.bullets || []),
+  }));
+  const skills = uniqueCleanSkills(content.skills || []);
+  const toolsAndSoftware = uniqueCleanSkills(content.toolsAndSoftware || []);
+  const title = String(content.personal.professionalTitle || "").trim();
+  const professionalTitle = title && title.split(/\s+/).length <= 10 && !/^(?:cv|resume|curriculum vitae|page(?:\s+\d+)?|profile|summary|experience|education|skills?)\s*:?$/i.test(title)
+    ? title.split(/[|•]/)[0]?.trim() || ""
+    : "";
+  const personal = { ...content.personal, fullName, professionalTitle };
+  const cv_content = { ...content, personal, experiences, skills, toolsAndSoftware };
+  return {
+    ...data,
+    cv_content,
+    personal,
+    experiences,
+    skills,
+    toolsAndSoftware,
+  };
+}
 export function extractCvDataFromText(rawText: string, fileName?: string): ExtractedCvData {
   // Some Word-exported PDFs map bullet and en-dash glyphs to U+FFFD in the
   // text layer. Recover those structural characters before sanitization strips
@@ -2314,28 +2359,13 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     .replace(/(^|\n)([\t ]*)\uFFFD[\t ]*(?=\S)/g, "$1$2- ")
     .replace(/\uFFFD/g, " — ");
   // Always sanitize first — never parse raw PDF binary dumps
-  const text = sanitizeExtractedCvText(recoveredText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim());
-  // Defense: split mid-line section headings that survived flattening.
-  // IMPORTANT: never use bare words like "Experience" / "Skills" — they appear inside summary sentences
-  // ("…professional with experience in…") and would truncate the summary.
-  const sectionSplitRe =
-    /\s+(?=(?:Professional Summary|Executive Summary|Career Objective|About Me|Key Impact|Key Achievements|Career Highlights|Work Experience|Professional Experience|Employment History|Career History|Relevant Experience|Previous Employment|Education and Qualifications|Academic History|Academic Background|Professional Skills|Core Competencies|Technical Skills|Key Skills|Tools & Technologies|Tools and Technologies|Key Projects|Notable Projects|Professional Certifications|Language Skills|References|Referees)\b)/gi;
-  const lines = text
-    .split("\n")
-    .flatMap((l) => {
-      const trimmed = l.trim();
-      if (!trimmed) return [];
-      if (trimmed.length > 80 && sectionSplitRe.test(trimmed)) {
-        sectionSplitRe.lastIndex = 0;
-        return trimmed
-          .replace(sectionSplitRe, "\n")
-          .split("\n")
-          .map((p) => p.trim())
-          .filter(Boolean);
-      }
-      return [trimmed];
-    })
-    .filter(Boolean);
+  const text = sanitizeExtractedCvText(
+    recoveredText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim(),
+    { preserveParagraphs: true },
+  );
+  // Keep paragraph boundaries. Section headings below are matched only when
+  // they occupy a dedicated line; body text is never split on section keywords.
+  const lines = text.split("\n").map((line) => line.trim());
 
   // 1. Personal Contact Extraction
   // Email
@@ -2400,77 +2430,49 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     }
   }
 
-  // Full Name heuristic: Check top lines — never accept PDF junk / replacement chars
-  let fullName = "Candidate";
-  let professionalTitle = "Professional";
+  // Candidate identity must come from a clean name line in the document body.
+  // Never derive a person's name from file metadata.
+  let fullName = "";
+  let professionalTitle = "";
+  let nameLineIndex = -1;
+  const headerLines = lines.map((line, index) => ({ line, index })).filter(({ line }) => line).slice(0, 14);
+  const rejectedIdentityWords = /\b(?:cv|resume|curriculum vitae|page|profile|summary|experience|education|skills?)\b/i;
+  const titleWords = /\b(engineer|developer|manager|lead|architect|consultant|analyst|specialist|officer|director|administrator|coordinator|controller|associate|intern|designer|technician|representative|supervisor|executive|programmer|assistant|accountant|auditor|nurse|doctor|lawyer|clerk|driver|operator|teacher|lecturer|agent|advisor|imports|exports|logistics|procurement|buyer|planner|broker|customer service|operations|administration|mechanical)\b/i;
+  const cleanNameCandidate = (value: string) => {
+    const candidate = value.replace(/^name\s*[:\-]\s*/i, "").trim();
+    if (!candidate || rejectedIdentityWords.test(candidate) || titleWords.test(candidate) || /[@\d]|https?:|www\./i.test(candidate)) return "";
+    const tokens = candidate.split(/\s+/);
+    if (tokens.length < 2 || tokens.length > 4) return "";
+    if (!tokens.every((token) => /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*$/.test(token))) return "";
+    return candidate.replace(/\s+/g, " ");
+  };
 
-  for (const line of lines.slice(0, 12)) {
-    const cleanLine = line
-      .replace(/^(?:curriculum vitae(?:\s+of)?|resume(?:\s+of)?|cv(?:\s+of)?|name\s*[:\-])\s*/i, "")
-      .replace(/^[\s•\-\*|▪▫►]+/, "")
-      .trim();
+  for (const { line, index } of headerLines) {
+    const candidateLine = line.replace(/^[\s•\-*▪▫►]+/, "").trim();
+    const segments = candidateLine.split(/[|•·—–]/).map((part) => part.trim());
+    const candidate = cleanNameCandidate(segments[0] || candidateLine);
+    if (!candidate || isGarbagePersonalToken(candidate)) continue;
+    fullName = candidate;
+    nameLineIndex = index;
+    const inlineTitle = segments.slice(1).find((part) => titleWords.test(part));
+    if (inlineTitle && inlineTitle.split(/\s+/).length <= 10 && !rejectedIdentityWords.test(inlineTitle)) {
+      professionalTitle = inlineTitle;
+    }
+    break;
+  }
 
-    if (isGarbagePersonalToken(cleanLine)) continue;
-
-    if (
-      cleanLine.length >= 2 &&
-      cleanLine.length < 60 &&
-      !cleanLine.includes("@") &&
-      !cleanLine.includes("http") &&
-      !cleanLine.includes("www.") &&
-      !/^(?:curriculum vitae|resume|cv|personal details|contact information|profile|summary|work experience|education|skills|imports controller)$/i.test(cleanLine) &&
-      !/\d{3,}/.test(cleanLine) &&
-      /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s'.\-]+$/.test(cleanLine)
-    ) {
-      if (cleanLine.includes("|") || cleanLine.includes("—") || cleanLine.includes("–")) {
-        const parts = cleanLine.split(/[|—–]/).map((p) => p.trim());
-        if (!isGarbagePersonalToken(parts[0] || "")) {
-          fullName = parts[0] || cleanLine;
-        }
-        if (parts[1] && parts[1].length > 2 && !isGarbagePersonalToken(parts[1]) && !/\d/.test(parts[1])) {
-          professionalTitle = parts[1];
-        }
-      } else {
-        fullName = cleanLine;
+  // Use one explicit line after the name for the headline. Do not concatenate
+  // multiple header lines or infer a title from skills, contact details, or sections.
+  if (!professionalTitle && nameLineIndex >= 0) {
+    for (let index = nameLineIndex + 1; index < Math.min(nameLineIndex + 5, lines.length); index += 1) {
+      const candidate = lines[index]?.trim() || "";
+      if (!candidate) continue;
+      if (/@|https?:|www\.|^\+?\d|[•▪▫►]/i.test(candidate)) continue;
+      if (rejectedIdentityWords.test(candidate)) break;
+      if (candidate.length <= 100 && candidate.split(/\s+/).length <= 10 && titleWords.test(candidate)) {
+        professionalTitle = candidate.split(/[|•]/)[0]?.trim() || "";
+        break;
       }
-      break;
-    }
-  }
-
-  // If candidate name still defaulted, check filename
-  if ((fullName === "Candidate" || isGarbagePersonalToken(fullName) || /^[A-Z]{8,}$/.test(fullName.replace(/\s+/g, ""))) && fileName) {
-    const nameFromFile = fileName
-      .replace(/\.(pdf|docx|txt|doc)$/i, "")
-      .replace(/[\-_]+/g, " ")
-      .replace(/\b(cv|resume|curriculum|vitae|updated|final|draft|main|master|copy|v\d+)\b/gi, "")
-      .trim();
-    if (
-      nameFromFile.length >= 3 &&
-      nameFromFile.length <= 60 &&
-      !/\d/.test(nameFromFile) &&
-      !isGarbagePersonalToken(nameFromFile) &&
-      (fullName === "Candidate" || isGarbagePersonalToken(fullName) || nameFromFile.includes(" ") || nameFromFile.length < fullName.length)
-    ) {
-      fullName = nameFromFile.replace(/\s+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    }
-  }
-  if (isGarbagePersonalToken(fullName)) fullName = "Candidate";
-
-  // Prefer explicit title line under the name (pipe-separated target roles)
-  if (lines.length >= 2) {
-    const maybeTitle = lines[1] || "";
-    if (
-      maybeTitle.includes("|") &&
-      maybeTitle.length > 8 &&
-      maybeTitle.length < 120 &&
-      !maybeTitle.includes("@") &&
-      !isGarbagePersonalToken(maybeTitle) &&
-      !/^(professional summary|work experience|education)/i.test(maybeTitle)
-    ) {
-       const titleOptions = maybeTitle.split(/\s*[|•]\s*/).map((title) => title.trim()).filter(Boolean);
-       // Some CVs list several target roles on one line. Keep the first explicit
-       // title instead of treating every alternative as one malformed job title.
-       professionalTitle = (titleOptions.length >= 3 ? titleOptions[0] : titleOptions.join(" | ")) || professionalTitle;
     }
   }
 
@@ -2499,39 +2501,12 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     }
   }
 
-  // Professional Title / Headline heuristic (if not already set from pipe title line)
-  if (professionalTitle === "Professional") {
-    const nameIdx = lines.findIndex(
-      (l) =>
-        (fullName !== "Candidate" && l.toLowerCase().includes(fullName.toLowerCase())) ||
-        /^[A-Z]{5,}$/.test(l.replace(/\s+/g, "")),
-    );
-    const searchFrom = nameIdx >= 0 ? nameIdx + 1 : 0;
-    for (let i = searchFrom; i < Math.min(searchFrom + 6, lines.length); i++) {
-      const nextLine = lines[i]?.trim() || "";
-      if (
-        nextLine.length > 3 &&
-        nextLine.length < 120 &&
-        !nextLine.includes("@") &&
-        !nextLine.includes("http") &&
-        !isGarbagePersonalToken(nextLine) &&
-        !/^(?:[A-Z]{6,})$/.test(nextLine.replace(/\s+/g, "")) &&
-        !/(contact|email|phone|address|cell|tel|location|curriculum|resume|linkedin)/i.test(nextLine) &&
-        !/^(summary|experience|education|skills|profile|about|professional summary|work experience|technical skills)/i.test(nextLine) &&
-        !/^\+?\d/.test(nextLine) &&
-        !/•/.test(nextLine)
-      ) {
-        professionalTitle = nextLine.replace(/^[\s•\-\*|▪▫►]+/, "").trim();
-        break;
-      }
-    }
-  }
   if (
     isGarbagePersonalToken(professionalTitle) ||
-    /^(professional summary|work experience|education)$/i.test(professionalTitle) ||
-    professionalTitle.replace(/\s+/g, "").toUpperCase() === fullName.replace(/\s+/g, "").toUpperCase()
+    rejectedIdentityWords.test(professionalTitle) ||
+    (fullName && professionalTitle.replace(/\s+/g, "").toUpperCase() === fullName.replace(/\s+/g, "").toUpperCase())
   ) {
-    professionalTitle = "Professional";
+    professionalTitle = "";
   }
 
   // 2. Sections Parsing — standard CV template sections
@@ -2564,6 +2539,10 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   };
 
   for (const line of lines) {
+    if (!line) {
+      if (currentSection === "summary" && summaryLines.at(-1) !== "") summaryLines.push("");
+      continue;
+    }
     if (isPageMarker(line)) continue;
     const lower = line.toLowerCase().trim();
 
@@ -2588,10 +2567,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       continue;
     } else if (
       looksLikeSectionTitle(line) &&
-      (/^(?:work\s+history|employment\s+history|career\s+history|professional\s+experience|work\s+experience|relevant\s+experience|previous\s+employment|experience)\s*:?\s*$/i.test(
-        lower,
-      ) ||
-        (/^(?:professional\s+experience|work\s+experience|employment\s+history)\b/i.test(lower) && line.length < 45))
+      /^(?:work\s+history|employment\s+history|career\s+history|professional\s+experience|work\s+experience|relevant\s+experience|previous\s+employment|experience)\s*:?\s*$/i.test(lower)
     ) {
       currentSection = "experience";
       continue;
@@ -2948,7 +2924,14 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       return [clean];
     })
     .map((s) => s.trim())
-    .filter((s) => s.length > 1 && s.length < 80 && !isPageMarker(s) && !isGarbagePersonalToken(s));
+    .filter((s) =>
+      s.length > 1 &&
+      s.length < 80 &&
+      /[a-z0-9]/i.test(s) &&
+      !/^(?:a|an|the|and|or|of|to|in|on|at|by|for|from|with|as|is|are|was|were|be|been|being|etc\.?)$/i.test(s) &&
+      !isPageMarker(s) &&
+      !isGarbagePersonalToken(s),
+    );
 
   const finalSkills = Array.from(new Map(skills.map((skill) => [skill.toLocaleLowerCase(), skill])).values()).slice(0, 40);
   const isStandaloneTool = (skill: string) => /^(?:(?:microsoft|ms|google|oracle|salesforce)\s+)?(?:excel|word|outlook|powerpoint|power bi|office(?: 365)?|teams|sharepoint|sap|crm|tms|navis|radix(?: go)?|ft|tp portal|spotlight tracking|sql|python|jira|react)(?:\s+(?:365|online|desktop))?$/i.test(skill.trim());
@@ -3053,7 +3036,13 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   // Candidate summary is copied from the CV when present; missing content stays empty.
 
   // Candidate summary: strictly 2-3 sentence biography, never reviewer notes
-  let summary = summaryLines.join(" ").replace(/\s+/g, " ").trim();
+  let summary = summaryLines
+    .join("\n")
+    .split("\n")
+    .map((paragraph) => paragraph.replace(/[\t ]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   // Keep full professional summaries — only hard-cap extreme paste dumps
   if (summary.length > 2500) summary = summary.slice(0, 2500).trim();
   if (isReviewerFeedbackNote(summary)) summary = "";
@@ -3128,8 +3117,8 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     },
   };
 
-  // Run strict verification guardrail against source document text
-  return verifyExtractedDataAgainstRawText(initialExtracted, text);
+  // Run the source corroboration and final shape checks before returning data.
+  return validateExtractedCvData(verifyExtractedDataAgainstRawText(initialExtracted, text), fileName, text);
 }
 
 // ---------------------------------------------------------------------------
@@ -3260,20 +3249,24 @@ function preserveSourceBullets(bullets: string[]): string[] {
   const seen = new Set<string>();
   const preserved: string[] = [];
   for (const raw of bullets || []) {
-    const bullet = String(raw || "")
-      .replace(/^[\s•\-\*▪▫►○●]+/, "")
-      .replace(/\s+/g, " ")
-      .replace(/[\s\-–—]+$/, "")
-      .trim();
-    if (bullet.length < 4 || isGarbagePersonalToken(bullet)) continue;
-    const key = bullet.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    preserved.push(bullet);
+    // Split only where an explicit bullet marker starts a new line or follows
+    // another bullet; ordinary wrapped prose remains one bullet.
+    const chunks = String(raw || "").split(/\r?\n(?=[\t ]*[•\-*▪▫►○●]\s*)|(?=[•▪▫►○●])/);
+    for (const chunk of chunks) {
+      const bullet = chunk
+        .replace(/^[\s•\-*▪▫►○●]+/, "")
+        .replace(/[\r\n\t ]+/g, " ")
+        .replace(/[\s\-–—]+$/, "")
+        .trim();
+      if (bullet.length < 4 || isGarbagePersonalToken(bullet)) continue;
+      const key = bullet.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      preserved.push(bullet);
+    }
   }
   return preserved;
 }
-
 export function condenseExperiences(experiences: CvExperienceItem[]): CvExperienceItem[] {
   return (experiences || []).map((exp) => ({
     ...exp,

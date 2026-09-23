@@ -709,17 +709,17 @@ function normalizeExtractedCvData(value: unknown): ExtractedCvData {
   const raw = (value && typeof value === "object" ? value : {}) as Partial<ExtractedCvData>;
   const nested = (raw.cv_content && typeof raw.cv_content === "object" ? raw.cv_content : {}) as Partial<CvContentData>;
   const topPersonal: NonNullable<Partial<ExtractedCvData>["personal"]> = raw.personal || {
-    fullName: "Candidate",
+    fullName: "",
     email: "",
   };
   const nestedPersonal: CvContentData["personal"] = nested.personal || {
-    fullName: "Candidate",
+    fullName: "",
     email: "",
   };
   const personal = {
     ...topPersonal,
     ...nestedPersonal,
-    fullName: nestedPersonal.fullName || topPersonal.fullName || "Candidate",
+    fullName: nestedPersonal.fullName || topPersonal.fullName || "",
     email: nestedPersonal.email || topPersonal.email || "",
     phone: nestedPersonal.phone || topPersonal.phone,
     location: nestedPersonal.location || topPersonal.location,

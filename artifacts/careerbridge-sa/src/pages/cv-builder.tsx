@@ -1,6 +1,7 @@
 import {
   type ChangeEvent,
   type DragEvent,
+  type FormEvent,
   type TextareaHTMLAttributes,
   Fragment,
   useCallback,
@@ -2336,6 +2337,16 @@ export default function CvBuilderPage() {
       reportIntakeUploadError(err, file);
     }
   };
+  const handleIntakeFileSelectionEvent = (event: ChangeEvent<HTMLInputElement> | FormEvent<HTMLInputElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      const file = event.currentTarget.files?.item(0) || null;
+      if (file) handleIntakeFileUpload(event.currentTarget, file);
+    } catch (err) {
+      reportIntakeUploadError(err);
+    }
+  };
   intakeFileSelectionHandlerRef.current = handleIntakeFileUpload;
   processIntakeFileRef.current = (file) => {
     try {
@@ -2350,6 +2361,7 @@ export default function CvBuilderPage() {
   const handleIntakeFileDrop = (event: DragEvent<HTMLDivElement>) => {
     try {
       event.preventDefault();
+      event.stopPropagation();
       setIsUploadDropActive(false);
       const file = event.dataTransfer?.files?.item(0) || null;
       if (file) handleIntakeFileUpload(null, file);
@@ -7603,8 +7615,12 @@ export default function CvBuilderPage() {
                   </p>
                   <div className="mt-4 flex w-full max-w-[460px] items-center overflow-hidden rounded-xl border border-primary/30 bg-background text-left">
                     <button
-                      type="button"
-                      onClick={() => intakeUploadInputRef.current?.click()}
+                    type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        intakeUploadInputRef.current?.click();
+                      }}
                       disabled={extracting}
                       className="shrink-0 bg-primary px-4 py-3 text-xs font-bold text-primary-foreground hover:brightness-105 disabled:cursor-wait disabled:opacity-60"
                     >
@@ -7653,14 +7669,8 @@ export default function CvBuilderPage() {
                     type="file"
                     accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                     className="sr-only"
-                    onInput={(event) => {
-                      const file = event.currentTarget.files?.[0];
-                      if (file) handleIntakeFileUpload(event.currentTarget, file);
-                    }}
-                    onChange={(event) => {
-                      const file = event.currentTarget.files?.[0];
-                      if (file) handleIntakeFileUpload(event.currentTarget, file);
-                    }}
+                    onInput={handleIntakeFileSelectionEvent}
+                    onChange={handleIntakeFileSelectionEvent}
                     disabled={extracting}
                     aria-label="Choose a PDF, Word DOCX, or TXT CV file"
                   />

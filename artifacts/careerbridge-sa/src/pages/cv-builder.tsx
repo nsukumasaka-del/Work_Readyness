@@ -1790,6 +1790,10 @@ export default function CvBuilderPage() {
   // Enhancv-Style Left Navigation Rail State
   // 5 Main Options: "templates" | "design" | "sections" | "ai" | "ats" (null if collapsed)
   const [activeNavPanel, setActiveNavPanel] = useState<"templates" | "design" | "sections" | "ai" | "ats" | null>(null);
+  const [commandHeaderHost, setCommandHeaderHost] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setCommandHeaderHost(document.getElementById("cv-builder-command-slot"));
+  }, []);
   const showTemplatesAfterGeneration = () => {
     setActiveNavPanel(window.innerWidth >= 768 ? "templates" : null);
   };
@@ -4395,35 +4399,36 @@ export default function CvBuilderPage() {
   });
 
   return (
-    <div className="cv-builder flex min-h-[calc(100dvh-4rem)] min-w-0 flex-1 flex-col overflow-x-hidden bg-[#F4F5F7] font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="cv-builder flex h-[calc(100dvh-4rem)] min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-[#F4F5F7] font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       {/* 1. MINIMALIST TOP COMMAND HEADER (ENHANCV-STYLE) */}
-      <header className="cv-builder-command-header no-print relative z-30 border-b border-border bg-card/95 backdrop-blur-md sm:sticky sm:top-16">
-        <div className="mx-auto flex min-h-14 max-w-full flex-wrap items-center justify-between gap-x-2 gap-y-1.5 px-3 py-2 sm:h-14 sm:flex-nowrap sm:gap-3 sm:px-6 sm:py-0">
+      {commandHeaderHost ? createPortal(
+        <div className="cv-builder-command-header no-print flex h-full min-w-0 flex-1 items-center justify-between gap-2 overflow-x-auto px-2">
           {/* Left: Brand + Role Title + Cloud Saved Indicator */}
-          <div className="flex min-w-0 max-w-[calc(100%-4rem)] items-center gap-2 sm:max-w-none sm:gap-3">
-            <Link href="/" className="flex items-center gap-2 group" aria-label="BonList home">
-              <img src="/brand/bonlist-mark.png" alt="" className="h-8 w-8 object-contain transition group-hover:scale-105 md:hidden" width={32} height={32} />
-              <img
-                src="/brand/bonlist-logo.png"
-                alt="BonList"
-                className="hidden h-7 w-auto max-w-[190px] object-contain object-left md:inline-block"
-                height={28}
-              />
-            </Link>
-
-            <span className="h-4 w-[1px] bg-border hidden sm:block" />
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="h-6 w-px bg-border" aria-hidden="true" />
 
             {/* Version / Title Pill */}
             <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowVersionDropdown(!showVersionDropdown)}
-                className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-secondary transition"
-              >
-                <Layers size={13} className="text-primary" />
-                <span className="max-w-[110px] truncate sm:max-w-[180px]">{currentVersionName}</span>
-                <ChevronDown size={12} className="text-muted-foreground" />
-              </button>
+              <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1">
+                <Layers size={13} className="shrink-0 text-primary" />
+                <input
+                  type="text"
+                  aria-label="CV document title"
+                  value={currentVersionName}
+                  onChange={(event) => setCurrentVersionName(event.target.value)}
+                  onBlur={() => { if (!currentVersionName.trim()) setCurrentVersionName("My Master CV"); }}
+                  className="w-[6.5rem] bg-transparent text-xs font-semibold text-foreground outline-none sm:w-32"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowVersionDropdown(!showVersionDropdown)}
+                  className="rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  aria-label="Switch CV version"
+                  aria-expanded={showVersionDropdown}
+                >
+                  <ChevronDown size={12} />
+                </button>
+              </div>
 
               {showVersionDropdown && (
                 <div className="absolute left-0 mt-2 z-50 w-64 rounded-2xl border border-border bg-card p-2 shadow-xl animate-in fade-in zoom-in-95">
@@ -4475,7 +4480,7 @@ export default function CvBuilderPage() {
           </div>
 
           {/* Center: Quick Document Actions (Undo, Reset, Pre-Flight Status) */}
-          <div className="order-3 flex w-full min-w-0 items-center justify-end gap-1.5 overflow-x-auto border-t border-border/60 pt-1.5 sm:order-none sm:w-auto sm:overflow-visible sm:border-t-0 sm:pt-0">
+          <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5 overflow-x-auto">
             <button
               type="button"
               disabled={changeHistory.length === 0}
@@ -4521,7 +4526,7 @@ export default function CvBuilderPage() {
           </div>
 
           {/* Right: Live ATS Score Badge + Job Match + Export + Save */}
-          <div className="order-2 flex w-full min-w-0 flex-wrap items-center justify-end gap-1.5 sm:order-none sm:w-auto sm:shrink-0 sm:gap-2">
+          <div className="flex shrink-0 items-center justify-end gap-1.5">
             {/* ATS Live Score Slide-Out Button */}
             <button
               type="button"
@@ -4652,7 +4657,7 @@ export default function CvBuilderPage() {
             <button
               type="button"
               disabled={saving}
-              onClick={() => void handleSaveCv()}
+              onClick={() => void handleSaveCv(currentVersionName.trim() || "My Master CV")}
               className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-secondary disabled:opacity-50 transition"
               title="Save snapshot to cloud"
             >
@@ -4660,8 +4665,9 @@ export default function CvBuilderPage() {
               <span>{saving ? "Saving…" : "Save"}</span>
             </button>
           </div>
-        </div>
-      </header>
+        </div>,
+        commandHeaderHost,
+      ) : null}
 
       <nav className="no-print flex w-full gap-2 overflow-x-auto border-b border-border bg-card px-3 py-2 md:hidden" aria-label="CV builder tools">
           {(isPreviewMode ? ([
@@ -6348,11 +6354,11 @@ export default function CvBuilderPage() {
                               className="mt-1 w-full bg-transparent text-sm text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
                             />
                           </div>
-                          <div className="text-right text-[11px] text-slate-600 space-y-0.5 shrink-0">
-                            <div><input type="text" value={cv.document.phone || ""} onChange={(e) => updateDocumentField("phone", e.target.value)} placeholder="Phone" className="bg-transparent text-right focus:outline-none" style={{ width: `${Math.max((cv.document.phone || "").length + 1, 12)}ch` }} /></div>
-                            <div><input type="text" value={cv.document.email} onChange={(e) => updateDocumentField("email", e.target.value)} placeholder="Email" className="bg-transparent text-right focus:outline-none" style={{ width: `${Math.max((cv.document.email || "").length + 1, 14)}ch` }} /></div>
-                            <div><input type="text" value={cv.document.website || ""} onChange={(e) => updateDocumentField("website", e.target.value)} placeholder="Website" className={`bg-transparent text-right focus:outline-none ${!cv.document.website ? "hidden" : ""}`} style={{ width: `${Math.max((cv.document.website || "").length + 1, 12)}ch` }} /></div>
-                            <div><input type="text" value={cv.document.location || ""} onChange={(e) => updateDocumentField("location", e.target.value)} placeholder="Location" className="bg-transparent text-right focus:outline-none" style={{ width: `${Math.max((cv.document.location || "").length + 1, 12)}ch` }} /></div>
+                          <div className="flex min-w-0 max-w-full shrink flex-wrap justify-end gap-x-2 gap-y-0.5 text-right text-[11px] text-slate-600">
+                            <div className="min-w-0 max-w-full"><input type="text" value={cv.document.phone || ""} onChange={(e) => updateDocumentField("phone", e.target.value)} placeholder="Phone" className="max-w-full bg-transparent text-right focus:outline-none" style={{ width: `${Math.max((cv.document.phone || "").length + 1, 12)}ch`, maxWidth: "100%" }} /></div>
+                            <div className="min-w-0 max-w-full"><input type="text" value={cv.document.email} onChange={(e) => updateDocumentField("email", e.target.value)} placeholder="Email" className="max-w-full bg-transparent text-right focus:outline-none" style={{ width: `${Math.max((cv.document.email || "").length + 1, 14)}ch`, maxWidth: "100%" }} /></div>
+                            <div className="min-w-0 max-w-full"><input type="text" value={cv.document.website || ""} onChange={(e) => updateDocumentField("website", e.target.value)} placeholder="Website" className={`max-w-full bg-transparent text-right focus:outline-none ${!cv.document.website ? "hidden" : ""}`} style={{ width: `${Math.max((cv.document.website || "").length + 1, 12)}ch`, maxWidth: "100%" }} /></div>
+                            <div className="min-w-0 max-w-full"><input type="text" value={cv.document.location || ""} onChange={(e) => updateDocumentField("location", e.target.value)} placeholder="Location" className="max-w-full bg-transparent text-right focus:outline-none" style={{ width: `${Math.max((cv.document.location || "").length + 1, 12)}ch`, maxWidth: "100%" }} /></div>
                           </div>
                         </div>
                         <div className="mt-4 border-b border-dashed border-slate-300" />

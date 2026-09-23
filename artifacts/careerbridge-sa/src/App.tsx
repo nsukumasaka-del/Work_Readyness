@@ -780,13 +780,15 @@ function AppShell({ children }: { children: ReactNode }) {
         />
       ) : null}
       <header className="app-safe-header sticky top-0 z-40 border-b border-border/70 bg-background/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:h-16 sm:px-5 md:px-8">
+        <div className={`mx-auto flex ${isCvBuilder ? 'h-16 w-full max-w-full gap-3 px-3 sm:px-5' : 'h-14 max-w-6xl gap-3 px-4 sm:h-16 sm:px-5 md:px-8'} items-center justify-between`}>
           <div className="min-w-0 shrink-0">
             <LogoMark />
           </div>
 
           {/* Desktop Enhancv-Style Control Panel Navigation */}
-          <nav
+          {isCvBuilder ? (
+            <div id="cv-builder-command-slot" className="flex h-full min-w-0 flex-1 items-center" />
+          ) : <nav
             className="hidden min-w-0 items-center gap-1 lg:flex"
             aria-label="Primary navigation"
           >
@@ -1148,11 +1150,11 @@ function AppShell({ children }: { children: ReactNode }) {
             >
               Pricing
             </Link>
-          </nav>
+          </nav>}
 
           {/* Right Header Actions */}
           <div className="flex shrink-0 items-center gap-2">
-            {!inNativeApp ? (
+            {!isCvBuilder && !inNativeApp ? (
             <button
               type="button"
               onClick={() => triggerAndroidApkDownload()}
@@ -1165,15 +1167,19 @@ function AppShell({ children }: { children: ReactNode }) {
               <Download size={13} className="md:hidden" />
             </button>
             ) : null}
-            <div className="hidden lg:flex">
+            {isCvBuilder ? (
+              <Link href="/profile" className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-card text-sm font-bold text-primary hover:border-primary/40" title="Your profile" aria-label="Your profile">
+                {profile?.name?.charAt(0).toUpperCase() || <span className="text-xs">P</span>}
+              </Link>
+            ) : <div className="hidden lg:flex">
               <HeaderAuthActions
                 profileReady={profileReady}
                 profile={profile}
                 isAdmin={isAdmin}
                 onLogout={handleLogout}
               />
-            </div>
-            <button
+            </div>}
+            {!isCvBuilder && <button
               className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-card lg:hidden"
               onClick={() => setMenuOpen(!menuOpen)}
               data-testid="button-mobile-menu"
@@ -1181,12 +1187,12 @@ function AppShell({ children }: { children: ReactNode }) {
               aria-expanded={menuOpen}
             >
               {menuOpen ? <X size={18} /> : <Menu size={18} />}
-            </button>
+            </button>}
           </div>
         </div>
 
         {/* Mobile Enhancv-Style Accordion Menu */}
-        {menuOpen && (
+        {menuOpen && !isCvBuilder && (
           <div className="max-h-[min(80vh,calc(100dvh-4rem))] overflow-y-auto border-t border-border bg-card px-4 py-4 lg:hidden animate-in slide-in-from-top-2 duration-200">
             {/* Resume Accordion */}
             <div className="border-b border-border/70 pb-3">

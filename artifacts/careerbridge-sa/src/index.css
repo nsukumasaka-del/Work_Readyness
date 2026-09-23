@@ -496,6 +496,12 @@
   border-radius: 2px;
 }
 
+.cv-page-sheet header input[type="text"] {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
 /* Soft page bands behind content (overridden by print / custom paper patterns) */
 #bonlist-cv-document.cv-page-sheet::before {
   content: "";

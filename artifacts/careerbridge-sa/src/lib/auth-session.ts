@@ -21,17 +21,47 @@ export type AuthSessionPayload = UserProfile & {
   emailVerified?: boolean;
 };
 
-function storage(): Storage {
+function availableStores(): Storage[] {
+  const stores: Storage[] = [];
+  try { stores.push(localStorage); } catch { /* Storage may be blocked by browser policy. */ }
   try {
-    return localStorage;
-  } catch {
-    return sessionStorage;
+    const session = sessionStorage;
+    if (!stores.includes(session)) stores.push(session);
+  } catch { /* Keep the in-memory app usable when storage is unavailable. */ }
+  return stores;
+}
+
+function readStoredValue(key: string): string | null {
+  for (const store of availableStores()) {
+    try {
+      const value = store.getItem(key);
+      if (value) return value;
+    } catch { /* Try the other store if this one is inaccessible. */ }
+  }
+  return null;
+}
+
+function hasStoredValue(key: string, expected: string): boolean {
+  return availableStores().some((store) => {
+    try { return store.getItem(key) === expected; } catch { return false; }
+  });
+}
+
+function writeStoredValue(key: string, value: string): void {
+  for (const store of availableStores()) {
+    try { store.setItem(key, value); } catch { /* Persistence is best-effort. */ }
+  }
+}
+
+function removeStoredValue(key: string): void {
+  for (const store of availableStores()) {
+    try { store.removeItem(key); } catch { /* Clear any store that remains accessible. */ }
   }
 }
 
 export function readProfile(): UserProfile | null {
   try {
-    const stored = storage().getItem(PROFILE_KEY) || sessionStorage.getItem(PROFILE_KEY);
+    const stored = readStoredValue(PROFILE_KEY);
     return stored ? (JSON.parse(stored) as UserProfile) : null;
   } catch {
     return null;
@@ -43,41 +73,34 @@ export function hasProfile() {
 }
 
 export function isAdminUser() {
-  const store = storage();
   return (
-    (store.getItem(ADMIN_FLAG_KEY) === '1' || sessionStorage.getItem(ADMIN_FLAG_KEY) === '1') &&
-    Boolean(store.getItem(ADMIN_TOKEN_KEY) || sessionStorage.getItem(ADMIN_TOKEN_KEY))
+    hasStoredValue(ADMIN_FLAG_KEY, '1') && Boolean(readStoredValue(ADMIN_TOKEN_KEY))
   );
 }
 
 export function getAdminToken(): string | null {
-  return storage().getItem(ADMIN_TOKEN_KEY) || sessionStorage.getItem(ADMIN_TOKEN_KEY);
+  return readStoredValue(ADMIN_TOKEN_KEY);
 }
 
 export function getSessionToken(): string | null {
-  return storage().getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+  return readStoredValue(SESSION_KEY);
 }
 
 export function clearAuthSession() {
-  for (const store of [storage(), sessionStorage]) {
-    store.removeItem(PROFILE_KEY);
-    store.removeItem(SESSION_KEY);
-    store.removeItem(ADMIN_TOKEN_KEY);
-    store.removeItem(ADMIN_FLAG_KEY);
-  }
-  sessionStorage.removeItem('careerbridge-report');
-  sessionStorage.removeItem('bonlist-report');
-  sessionStorage.removeItem('careerbridge-selected-job');
+  [PROFILE_KEY, SESSION_KEY, ADMIN_TOKEN_KEY, ADMIN_FLAG_KEY].forEach(removeStoredValue);
+  try {
+    sessionStorage.removeItem('careerbridge-report');
+    sessionStorage.removeItem('bonlist-report');
+    sessionStorage.removeItem('careerbridge-selected-job');
+  } catch { /* Storage may be blocked; auth state is already handled in memory. */ }
 }
 
 export function persistProfile(profile: UserProfile) {
   const raw = JSON.stringify(profile);
-  storage().setItem(PROFILE_KEY, raw);
-  sessionStorage.setItem(PROFILE_KEY, raw);
+  writeStoredValue(PROFILE_KEY, raw);
   // Drop legacy guest stub so CV generate never prefers a fake profileId: 1.
   try {
-    sessionStorage.removeItem('bonlist-profile');
-    storage().removeItem('bonlist-profile');
+    removeStoredValue('bonlist-profile');
   } catch {
     // ignore
   }
@@ -86,26 +109,20 @@ export function persistProfile(profile: UserProfile) {
 
 export function persistAdminAccess(adminToken?: string, isAdmin?: boolean) {
   if (isAdmin && adminToken) {
-    storage().setItem(ADMIN_TOKEN_KEY, adminToken);
-    storage().setItem(ADMIN_FLAG_KEY, '1');
-    sessionStorage.setItem(ADMIN_TOKEN_KEY, adminToken);
-    sessionStorage.setItem(ADMIN_FLAG_KEY, '1');
+    writeStoredValue(ADMIN_TOKEN_KEY, adminToken);
+    writeStoredValue(ADMIN_FLAG_KEY, '1');
     return;
   }
-  storage().removeItem(ADMIN_TOKEN_KEY);
-  storage().removeItem(ADMIN_FLAG_KEY);
-  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-  sessionStorage.removeItem(ADMIN_FLAG_KEY);
+  removeStoredValue(ADMIN_TOKEN_KEY);
+  removeStoredValue(ADMIN_FLAG_KEY);
 }
 
 export function persistSessionToken(token?: string) {
   if (token) {
-    storage().setItem(SESSION_KEY, token);
-    sessionStorage.setItem(SESSION_KEY, token);
+    writeStoredValue(SESSION_KEY, token);
     return;
   }
-  storage().removeItem(SESSION_KEY);
-  sessionStorage.removeItem(SESSION_KEY);
+  removeStoredValue(SESSION_KEY);
 }
 
 export async function completeAuthSession(payload: AuthSessionPayload) {
@@ -113,16 +130,16 @@ export async function completeAuthSession(payload: AuthSessionPayload) {
   persistSessionToken(payload.sessionToken);
   persistAdminAccess(payload.adminToken, Boolean(payload.isAdmin));
   if (payload.showSecurityNudge) {
-    storage().setItem(NUDGE_KEY, '1');
+    writeStoredValue(NUDGE_KEY, '1');
   }
 }
 
 export function shouldShowSecurityNudge(): boolean {
-  return storage().getItem(NUDGE_KEY) === '1';
+  return readStoredValue(NUDGE_KEY) === '1';
 }
 
 export function dismissSecurityNudgeLocal() {
-  storage().removeItem(NUDGE_KEY);
+  removeStoredValue(NUDGE_KEY);
 }
 
 export function authHeaders(extra?: HeadersInit): HeadersInit {

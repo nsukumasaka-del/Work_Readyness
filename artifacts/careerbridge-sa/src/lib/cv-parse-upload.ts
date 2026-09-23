@@ -102,6 +102,10 @@ export function parseUploadErrorMessage(
   status: number,
   errBody: { error?: string } | null,
 ): string {
+  if (status === 401 || status === 403) {
+    return errBody?.error || "The CV reader could not authorize this upload. Your current page and selected file are still available; retry or paste the CV text instead.";
+  }
+
   if (status === 404 || status === 501) {
     return "The CV upload service is unavailable on this deployment. Please try again later, or paste your CV text / enter your information manually.";
   }
@@ -120,6 +124,10 @@ export function parseUploadErrorMessage(
   
   if (status === 400) {
     return errBody?.error || "Unable to read this document. Please upload a text-based PDF, Word (.docx), or .txt file.";
+  }
+
+  if (status === 422) {
+    return errBody?.error || "The CV reader could not extract readable text from this file. Try a text-based PDF, Word (.docx), or .txt file.";
   }
   
   if (status === 500) {

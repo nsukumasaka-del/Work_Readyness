@@ -3413,7 +3413,6 @@ function ProtectedApp() {
 
   useEffect(() => {
     let current = true;
-    setAccess(null);
 
     const verifySession = async () => {
       const hasSavedToken = Boolean(getSessionToken() || getAdminToken());
@@ -3475,7 +3474,11 @@ function ProtectedApp() {
     return () => { current = false; };
   }, [location, check, setLocation]);
 
-  if (!access || access.location !== location || access.check !== check) {
+  // Keep the current protected route mounted during same-route revalidation.
+  // In particular, returning from the native file picker fires `focus`; a
+  // temporary full-screen loading state here would unmount CV Builder and
+  // discard its selected-file ref before Generate is clicked.
+  if (!access || access.location !== location) {
     return <div className="grid min-h-[100dvh] place-items-center bg-background text-sm text-muted-foreground">Checking your session…</div>;
   }
   if (access.status === 'unavailable') {

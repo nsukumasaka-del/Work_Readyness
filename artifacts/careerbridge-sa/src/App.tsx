@@ -2664,6 +2664,11 @@ function DiagnosticPage() {
                         )}
                       </span>
                     )}
+                    {job.fitBreakdown ? (
+                      <span className="w-full text-[10px] font-medium text-muted-foreground">
+                        Skills {job.fitBreakdown.skills}% · Role/domain {job.fitBreakdown.titleDomain}% · Seniority {job.fitBreakdown.seniority}% · Location {job.fitBreakdown.location}%
+                      </span>
+                    ) : null}
                     <span className="flex shrink-0 items-center gap-2">
                       <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
                         {job.match}% fit
@@ -2708,6 +2713,35 @@ function DiagnosticPage() {
           </p>
         ) : null}
         <BoardSearchLinks report={report} />
+
+        {report.careerAdvisory ? (
+          <section className="mt-8 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6" aria-labelledby="career-alignment-title">
+            <div>
+              <h3 id="career-alignment-title" className="text-lg font-bold text-slate-900">🎯 Career Strategic Alignment &amp; Hiring Advisory</h3>
+              <p className="mt-1 text-xs text-slate-600">Requested field: <span className="font-semibold">{report.careerAdvisory.requestedField}</span></p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <h4 className="text-xs font-bold uppercase tracking-wide text-slate-700">Parsed CV profile</h4>
+              <p className="mt-1 text-sm leading-6 text-slate-700">{report.careerAdvisory.cvProfileSummary}</p>
+              {report.careerAdvisory.primarySystems.length ? <p className="mt-2 text-xs text-slate-600"><span className="font-semibold">Systems found:</span> {report.careerAdvisory.primarySystems.join(", ")}</p> : null}
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <h4 className="text-sm font-semibold uppercase tracking-wide text-emerald-700">Highest Probability Roles</h4>
+                <p className="mt-1 text-sm leading-6 text-slate-700">{report.careerAdvisory.highestProbabilityAdvice}</p>
+                {report.careerAdvisory.strongestFitSectors.length ? <div className="mt-3 flex flex-wrap gap-1.5">{report.careerAdvisory.strongestFitSectors.map((sector) => <span key={sector} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">{sector}</span>)}</div> : null}
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <h4 className="text-sm font-semibold uppercase tracking-wide text-amber-700">Positioning Adjustments Needed</h4>
+                <p className="mt-1 text-sm leading-6 text-slate-700">{report.careerAdvisory.positioningGapsAdvice}</p>
+                {report.careerAdvisory.skillGaps.length ? <p className="mt-2 text-xs text-amber-900"><span className="font-semibold">Potential gaps:</span> {report.careerAdvisory.skillGaps.join(", ")}</p> : null}
+              </div>
+            </div>
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+              <p className="text-sm leading-6 text-blue-900"><strong>Agent Success Verdict:</strong> {report.careerAdvisory.strategicSuccessVerdict}</p>
+            </div>
+          </section>
+        ) : null}
 
         <div className="mt-6 flex flex-col items-stretch gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">Apply your fixes in one pass — then send a cleaner CV.</p>

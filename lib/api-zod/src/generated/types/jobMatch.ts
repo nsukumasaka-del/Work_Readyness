@@ -10,4 +10,6 @@ export interface JobMatch {
   tags: string[];
   source?: string;
   url?: string;
+  description?: string;
+  fitBreakdown?: { skills: number; titleDomain: number; seniority: number; location: number };
 }

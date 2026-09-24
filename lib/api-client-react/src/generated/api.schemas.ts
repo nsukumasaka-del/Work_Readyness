@@ -49,6 +49,7 @@ export interface JobMatch {
   source?: string;
   url?: string;
   description?: string;
+  fitBreakdown?: { skills: number; titleDomain: number; seniority: number; location: number };
 }
 
 export interface DiagnosticJobSearch {
@@ -109,6 +110,18 @@ export interface DiagnosticReport {
   rewriteExamples: DiagnosticRewrite[];
   prompts: string[];
   relatedJobs: JobMatch[];
+  careerAdvisory?: {
+    requestedField: string;
+    cvProfileSummary: string;
+    experienceSectors: string[];
+    primarySystems: string[];
+    yearsExperience: number | null;
+    strongestFitSectors: string[];
+    skillGaps: string[];
+    highestProbabilityAdvice: string;
+    positioningGapsAdvice: string;
+    strategicSuccessVerdict: string;
+  };
   jobSearch: DiagnosticJobSearch;
 }
 

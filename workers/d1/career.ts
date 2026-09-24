@@ -11,6 +11,7 @@ import {
   type UserRow,
 } from "./auth";
 import { searchTrustedJobBoards } from "../../artifacts/api-server/src/lib/job-board-search";
+import { buildCareerAlignmentReport, estimateCareerYears } from "../../artifacts/api-server/src/lib/career-alignment";
 import {
   buildGeneratedCv,
   normalizeStructure,
@@ -736,13 +737,18 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
     location,
     limit: 6,
     experienceRoles: data?.experiences.map((entry) => entry.role).filter(Boolean) || [],
-    expertise: data?.skills || [],
+    expertise: [
+      ...(data?.skills || []),
+      ...(data?.toolsAndSoftware || []),
+    ].slice(0, 60),
+    yearsExperience: estimateCareerYears(data?.experiences),
     adzunaAppId: env.ADZUNA_APP_ID,
     adzunaAppKey: env.ADZUNA_APP_KEY,
   });
   const report = {
     ...buildReport(fileName, role, location, data, id),
     relatedJobs: jobSearch.jobs,
+    ...(data ? { careerAdvisory: buildCareerAlignmentReport(role || data.personal.professionalTitle || "Professional", location || data.personal.location || "South Africa", data, jobSearch.jobs) } : {}),
     jobSearch: {
       query: jobSearch.query,
       queriedBoards: jobSearch.queriedBoards,

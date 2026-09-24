@@ -15,6 +15,7 @@ import {
 import { db, adminUsersTable, applicationOutcomesTable, coachingApplicationsTable, diagnosticReportsTable, generatedCvsTable, jobsTable, profilesTable, programmesTable } from "@workspace/db";
 import { and, count, desc, eq, ne } from "drizzle-orm";
 import { searchTrustedJobBoards, getTrustedBoardLabels } from "../lib/job-board-search";
+import { buildCareerAlignmentReport, estimateCareerYears, type CareerAlignmentReport } from "../lib/career-alignment";
 import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
 import { ensurePrimaryAdmin } from "../lib/admin-auth";
 import { createAdminNotification } from "../lib/admin-ops";
@@ -338,6 +339,7 @@ function buildDiagnosticPayload(input: {
     queriedBoards: string[];
     liveResults: boolean;
   };
+  careerAdvisory?: CareerAlignmentReport;
   analysis?: {
     authenticityScore: number;
     atsScore: number;
@@ -497,6 +499,7 @@ function buildDiagnosticPayload(input: {
     ],
     relatedJobs: input.relatedJobs,
     jobSearch: input.jobSearch,
+    ...(input.careerAdvisory ? { careerAdvisory: input.careerAdvisory } : {}),
   };
 }
 
@@ -993,6 +996,7 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
     const pastedText = typeof body.text === "string" ? body.text : undefined;
 
     let analysis: ReturnType<typeof analyzeUploadedCv> | undefined;
+    let extractedCandidate: ExtractedCvData | undefined;
     if (fileData || pastedText) {
       try {
         const extractedDoc = await extractTextFromUpload({
@@ -1008,6 +1012,7 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
           return;
         }
         const extracted = extractCvDataFromText(extractedDoc.text, fileName);
+        extractedCandidate = extracted;
         analysis = analyzeUploadedCv({
           extracted,
           targetRole,
@@ -1029,6 +1034,13 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       role: targetRole,
       location: locationLabel,
       limit: MATCH_LIMIT,
+      experienceRoles: extractedCandidate?.experiences.map((item) => item.role) ?? [],
+      expertise: [
+        ...(extractedCandidate?.skills ?? []),
+        ...(extractedCandidate?.toolsAndSoftware ?? []),
+      ].slice(0, 60),
+      yearsExperience: estimateCareerYears(extractedCandidate?.experiences),
+      languages: extractedCandidate?.languages ?? [],
     });
 
     const relatedJobs = liveSearch.jobs;
@@ -1038,6 +1050,9 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       liveResults: liveSearch.liveResults,
       boardSearchLinks: liveSearch.boardSearchLinks,
     };
+    const careerAdvisory = extractedCandidate
+      ? buildCareerAlignmentReport(targetRole, locationLabel, extractedCandidate, relatedJobs)
+      : undefined;
 
     const draftPayload = buildDiagnosticPayload({
       fileName,
@@ -1046,6 +1061,7 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       reportId: 0,
       relatedJobs: relatedJobs.slice(0, MATCH_LIMIT),
       jobSearch,
+      careerAdvisory,
       analysis,
     });
 
@@ -1074,6 +1090,7 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
         reportId: report.id,
         relatedJobs: relatedJobs.slice(0, MATCH_LIMIT),
         jobSearch,
+        careerAdvisory,
         analysis,
       }),
     );

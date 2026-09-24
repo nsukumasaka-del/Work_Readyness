@@ -69,6 +69,12 @@ export const ListJobsResponseItem = zod.object({
   source: zod.string().optional(),
   url: zod.string().optional(),
   description: zod.string().optional(),
+  fitBreakdown: zod.object({
+    skills: zod.number().int(),
+    titleDomain: zod.number().int(),
+    seniority: zod.number().int(),
+    location: zod.number().int(),
+  }).optional(),
 });
 export const ListJobsResponse = zod.array(ListJobsResponseItem);
 
@@ -130,6 +136,18 @@ export const CreateDiagnosticResponse = zod.object({
   ),
   prompts: zod.array(zod.string()),
   relatedJobs: zod.array(ListJobsResponseItem),
+  careerAdvisory: zod.object({
+    requestedField: zod.string(),
+    cvProfileSummary: zod.string(),
+    experienceSectors: zod.array(zod.string()),
+    primarySystems: zod.array(zod.string()),
+    yearsExperience: zod.number().int().nullable(),
+    strongestFitSectors: zod.array(zod.string()),
+    skillGaps: zod.array(zod.string()),
+    highestProbabilityAdvice: zod.string(),
+    positioningGapsAdvice: zod.string(),
+    strategicSuccessVerdict: zod.string(),
+  }).optional(),
   jobSearch: zod.object({
     query: zod.string(),
     queriedBoards: zod.array(zod.string()),

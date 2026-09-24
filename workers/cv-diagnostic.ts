@@ -6,6 +6,7 @@ import {
   type GeneratedCvDocument,
 } from "../artifacts/api-server/src/lib/cv-builder";
 import { searchTrustedJobBoards } from "../artifacts/api-server/src/lib/job-board-search";
+import { buildCareerAlignmentReport } from "../artifacts/api-server/src/lib/career-alignment";
 import { getAuthenticatedUser, type D1Env } from "./d1/auth";
 import { handleCvParseUpload } from "./cv-parse";
 
@@ -114,6 +115,7 @@ async function buildReport(extracted: ExtractedCvData, fileName: string, role: s
     jobs: [], queriedBoards: [], liveResults: false, query: `${role} · ${location}`,
     boardSearchLinks: [],
   }));
+  const careerAdvisory = buildCareerAlignmentReport(role, location, extracted, search.jobs);
   const flaggedPhrases = authenticity.flaggedItems.map((item) => {
     const quoted = /"([^"]+)"/.exec(item.reason);
     return quoted?.[1] || item.text.slice(0, 40);
@@ -145,6 +147,7 @@ async function buildReport(extracted: ExtractedCvData, fileName: string, role: s
       `Which keyword from a ${role} listing can your experience substantiate?`,
     ],
     relatedJobs: search.jobs,
+    careerAdvisory,
     jobSearch: {
       query: search.query,
       queriedBoards: search.queriedBoards,

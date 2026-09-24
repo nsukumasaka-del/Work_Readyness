@@ -269,11 +269,20 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     const factPhrase = normalizeFactPhrase(fact);
     return Boolean(factPhrase && (` ${sourcePhrase} `).includes(` ${factPhrase} `));
   };
+  const normalizeHeadingKey = (value: string) => value.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const skillSectionAliases = new Set([
+    "skills", "key skills", "skills competencies", "skills and competencies", "core competencies",
+    "core skills tools", "core skills and tools", "systems software", "tools software", "tools and software",
+  ].map(normalizeHeadingKey));
+  const legacySkillItems = (doc.sections || [])
+    .filter((section) => skillSectionAliases.has(normalizeHeadingKey(section.heading || "")))
+    .flatMap((section) => section.items || []);
   const primaryNarrative = [summary, ...experiences.flatMap((exp) => exp.bullets)];
   const skills = normalizeList([
     ...(doc.skills || []),
     ...(doc.toolsAndSoftware || []),
     ...(doc.skillGroups || []).flatMap((group) => group.skills || []),
+    ...legacySkillItems,
   ], 80).filter((skill) => !primaryNarrative.some((source) => containsFact(source, skill)));
   // Skills, tools, and competencies have one canonical location and one
   // renderer. Keep the old fields empty for compatibility with older data.
@@ -358,11 +367,35 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     ...referenceDetails.flatMap((reference) => [reference.name, reference.title || "", reference.company || "", reference.phone || ""]),
   ].filter(Boolean);
   const customFactKeys = new Set<string>();
+  const renderedCategories = new Set<string>();
+  const categoryForHeading = (heading: string) => {
+    const normalized = normalizeHeadingKey(heading);
+    if (["summary", "professional summary", "executive summary", "career objective", "profile"].includes(normalized)) return "summary";
+    if (["experience", "work experience", "professional experience", "employment history", "experience accomplishments"].includes(normalized)) return "experience";
+    if (["education", "education qualifications", "academic background", "qualifications"].includes(normalized)) return "education";
+    if (skillSectionAliases.has(normalized)) return "skills";
+    if (["languages", "language skills", "languages spoken", "language proficiency"].includes(normalized)) return "languages";
+    if (["references", "referees", "testimonials"].includes(normalized)) return "references";
+    return "custom";
+  };
+  for (const [category, hasContent] of [
+    ["summary", Boolean(summary)],
+    ["experience", experiences.length > 0],
+    ["education", education.length > 0],
+    ["skills", skills.length > 0],
+    ["languages", languages.length > 0],
+    ["references", references.length > 0],
+  ] as const) {
+    if (hasContent) renderedCategories.add(category);
+  }
   const sectionsByHeading = new Map<string, { heading: string; items: string[] }>();
   for (const section of doc.sections || []) {
     const heading = scrubCvText(section.heading);
     const headingKey = heading.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     if (!heading || !headingKey || (builtInSectionAliases.has(headingKey) && hasFirstClassSection(heading))) continue;
+    const category = categoryForHeading(heading);
+    if (category !== "custom" && renderedCategories.has(category)) continue;
+    if (category !== "custom") renderedCategories.add(category);
     const items = normalizeList(section.items || [], 10000).filter((item) => {
       const key = normalizeFactPhrase(item);
       if (!key || customFactKeys.has(key) || occupiedFacts.some((fact) => containsFact(fact, item))) return false;
@@ -527,6 +560,7 @@ export interface GeneratedCvDocument {
   skillGroups: CvSkillGroup[];
   skills: string[];
   toolsAndSoftware?: string[];
+  competencies?: string[];
   projects?: CvProjectItem[];
   certifications?: CvCertificationItem[];
   languages?: string[];
@@ -831,6 +865,7 @@ export interface ExtractedCvData {
   education: CvEducationItem[];
   skills: string[];
   toolsAndSoftware: string[];
+  competencies?: string[];
   certifications: CvCertificationItem[];
   languages: string[];
   projects: CvProjectItem[];
@@ -879,13 +914,24 @@ function normalizeExtractedCvData(value: unknown): ExtractedCvData {
   };
   const summary = [nested.summary, raw.summary].filter((part): part is string => typeof part === "string")
     .sort((a, b) => b.length - a.length)[0] || "";
+  const canonicalSkills = [
+    ...chooseArray(nested.skills, raw.skills),
+    ...(Array.isArray(nested.toolsAndSoftware) ? nested.toolsAndSoftware : []),
+    ...(Array.isArray(raw.toolsAndSoftware) ? raw.toolsAndSoftware : []),
+    ...(Array.isArray(nested.competencies) ? nested.competencies : []),
+    ...(Array.isArray(raw.competencies) ? raw.competencies : []),
+  ].filter((skill, index, all) => {
+    const key = String(skill || "").toLocaleLowerCase().replace(/[^a-z0-9]+/g, "").trim();
+    return Boolean(key) && all.findIndex((candidate) => String(candidate || "").toLocaleLowerCase().replace(/[^a-z0-9]+/g, "").trim() === key) === index;
+  });
   const content: CvContentData = {
     personal,
     summary,
     experiences: chooseArray(nested.experiences, raw.experiences),
     education: chooseArray(nested.education, raw.education),
-    skills: chooseArray(nested.skills, raw.skills),
-    toolsAndSoftware: chooseArray(nested.toolsAndSoftware, raw.toolsAndSoftware),
+    skills: canonicalSkills,
+    toolsAndSoftware: [],
+    competencies: [],
     certifications: chooseArray(nested.certifications, raw.certifications),
     languages: chooseArray(nested.languages, raw.languages),
     projects: chooseArray(nested.projects, raw.projects),
@@ -900,7 +946,8 @@ function normalizeExtractedCvData(value: unknown): ExtractedCvData {
     experiences: content.experiences,
     education: content.education,
     skills: content.skills,
-    toolsAndSoftware: content.toolsAndSoftware || [],
+    toolsAndSoftware: [],
+    competencies: [],
     certifications: content.certifications || [],
     languages: content.languages || [],
     projects: content.projects || [],

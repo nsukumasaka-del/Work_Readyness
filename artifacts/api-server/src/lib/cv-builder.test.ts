@@ -60,6 +60,21 @@ PHANTOM FOOTER SKILL`);
     expect(extracted.summary).not.toContain("PHANTOM FOOTER SKILL");
   });
 
+  it("retains at most three references and discards repeated text after that boundary", () => {
+    const extracted = extractCvDataFromText(`Jane Doe
+References
+Jacky van Rooyan | Team Leader, DSV Road Brokerage | 082 320 1339
+Samantha Smith | Operations Manager | 082 555 0101
+Peter Jones | Supervisor | 083 555 0102
+Fourth Phantom Name | Fake Company | 084 555 0103
+Skills
+PHANTOM FOOTER SKILL`);
+
+    expect(extracted.references).toHaveLength(3);
+    expect(extracted.references.join(" ")).not.toContain("Fourth Phantom Name");
+    expect(extracted.skills).not.toContain("PHANTOM FOOTER SKILL");
+  });
+
   it("stores skills and systems once and removes facts already present in the summary", () => {
     const extracted = extractCvDataFromText(`Jane Doe
 Professional Summary

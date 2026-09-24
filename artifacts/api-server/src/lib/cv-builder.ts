@@ -165,6 +165,8 @@ export interface GeneratedCvDocument {
   education: CvEducationItem[];
   skillGroups: CvSkillGroup[];
   skills: string[];
+  toolsAndSoftware?: string[];
+  competencies?: string[];
   projects?: CvProjectItem[];
   certifications?: CvCertificationItem[];
   languages?: string[];
@@ -492,6 +494,7 @@ export interface CvContentData {
   education: CvEducationItem[];
   skills: string[];
   toolsAndSoftware: string[];
+  competencies?: string[];
   certifications: CvCertificationItem[];
   languages: string[];
   projects: CvProjectItem[];
@@ -522,6 +525,7 @@ export interface ExtractedCvData {
   education: CvEducationItem[];
   skills: string[];
   toolsAndSoftware: string[];
+  competencies?: string[];
   certifications: CvCertificationItem[];
   languages: string[];
   projects: CvProjectItem[];
@@ -2342,25 +2346,39 @@ function validateExtractedCvData(data: ExtractedCvData, fileName?: string, sourc
       return true;
     });
   };
+  const seenNarrativeFacts = new Set<string>();
+  const summary = String(content.summary || "").trim();
   const experiences = (content.experiences || []).map((experience) => ({
     ...experience,
-    bullets: preserveSourceBullets(experience.bullets || []),
+    bullets: preserveSourceBullets(experience.bullets || []).filter((bullet) => {
+      const key = normalizeTextKey(bullet);
+      if (!key || seenNarrativeFacts.has(key)) return false;
+      seenNarrativeFacts.add(key);
+      return true;
+    }),
   }));
-  const skills = uniqueCleanSkills(content.skills || []);
-  const toolsAndSoftware = uniqueCleanSkills(content.toolsAndSoftware || []);
+  // Skills, systems, and competencies are normalized into one canonical list.
+  // Anything already stated verbatim in the summary or a work bullet is kept
+  // only in that narrative location.
+  const primaryNarrative = [summary, ...experiences.flatMap((experience) => experience.bullets)].join("\n");
+  const skills = uniqueCleanSkills([...(content.skills || []), ...(content.toolsAndSoftware || []), ...(content.competencies || [])])
+    .filter((skill) => !containsTextFact(primaryNarrative, skill));
+  const toolsAndSoftware: string[] = [];
   const title = String(content.personal.professionalTitle || "").trim();
   const professionalTitle = title && title.split(/\s+/).length <= 10 && !/^(?:cv|resume|curriculum vitae|page(?:\s+\d+)?|profile|summary|experience|education|skills?)\s*:?$/i.test(title)
     ? title.replace(/\s*[|•]\s*/g, " | ").trim()
     : "";
   const personal = { ...content.personal, fullName, professionalTitle };
-  const cv_content = { ...content, personal, experiences, skills, toolsAndSoftware };
+  const cv_content = { ...content, summary, personal, experiences, skills, toolsAndSoftware, competencies: [] };
   return {
     ...data,
     cv_content,
     personal,
+    summary,
     experiences,
     skills,
     toolsAndSoftware,
+    competencies: [],
   };
 }
 export function extractCvDataFromText(rawText: string, fileName?: string): ExtractedCvData {
@@ -2538,6 +2556,9 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   const reviewerNoteLines: string[] = [];
   const assignedSectionLineKeys = new Set<string>();
   let referencesHaveProcessedEntry = false;
+  let referenceEntryCount = 0;
+  let activeReferenceHasContact = false;
+  let activeReferenceHasName = false;
   const assignSectionLine = (bucket: string[], line: string) => {
     const key = normalizeTextKey(line);
     if (key && assignedSectionLineKeys.has(key)) return;
@@ -2562,6 +2583,15 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     const tokens = nameCandidate.split(/\s+/);
     const nameParticles = /^(?:van|von|de|del|der|den|da|dos|du|la|le|bin|al)$/i;
     return tokens.length >= 2 && tokens.length <= 5 && tokens.every((token) => /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*$/.test(token) && (/^[A-ZÀ-ÖØ-Þ]/.test(token) || nameParticles.test(token)));
+  };
+  const isReferenceNameLine = (line: string) => {
+    const value = line.trim();
+    if (!value || value.length > 120 || /@/.test(value)) return false;
+    const withoutPhone = value.replace(/(?:\+27(?:\s*\(0\))?[\s-]*|\b0)(?:\(?\d{2,3}\)?[\s-]*){2,4}\d{2,4}/, "");
+    const candidate = withoutPhone.split(/[|•·—–]/)[0]?.trim() || withoutPhone.trim();
+    if (/\b(?:team leader|manager|director|supervisor|coordinator|consultant|officer|administrator|head of|human resources|hr|company|pty|ltd|limited|inc\.?|group|services|brokerage|aviation|logistics|freight|transport|trading|manufacturing|consulting|technologies|solutions|hospital|clinic|university|college|school)\b/i.test(candidate)) return false;
+    const tokens = candidate.split(/\s+/);
+    return tokens.length >= 2 && tokens.length <= 5 && tokens.every((token) => /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*$/.test(token) && (/^[A-ZÀ-ÖØ-Þ]/.test(token) || /^(?:van|von|de|del|der|den|da|dos|du|la|le|bin|al)$/i.test(token)));
   };
 
   /** True only for real CV section titles — not body sentences that contain those words. */
@@ -2594,6 +2624,22 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     if (currentSection === "references") {
       if (isDocumentEndOrNoise(line) || isKnownSectionHeading(line)) break;
       if (referencesHaveProcessedEntry && !isReferenceDataLine(line)) break;
+      const hasReferencePhone = /(?:\+27(?:\s*\(0\))?[\s-]*|\b0)(?:\(?\d{2,3}\)?[\s-]*){2,4}\d{2,4}/.test(line);
+      const beginsNextReference = isReferenceNameLine(line) && (referenceEntryCount === 0 || activeReferenceHasContact || activeReferenceHasName);
+      if (beginsNextReference) {
+        // Keep up to three complete references; anything beyond that is
+        // treated as trailing document noise and is deliberately discarded.
+        if (referenceEntryCount >= 3) break;
+        referenceEntryCount += 1;
+        activeReferenceHasContact = false;
+        activeReferenceHasName = true;
+      } else if (hasReferencePhone && referenceEntryCount === 0) {
+        referenceEntryCount = 1;
+      }
+      if (hasReferencePhone) activeReferenceHasContact = true;
+      if (isReferenceDataLine(line)) referencesHaveProcessedEntry = true;
+      assignSectionLine(referenceLines, line);
+      continue;
     }
 
     if (isReviewerFeedbackNote(line)) {
@@ -2680,9 +2726,6 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       assignSectionLine(certLines, line);
     } else if (currentSection === "languages") {
       assignSectionLine(languageLines, line);
-    } else if (currentSection === "references") {
-      assignSectionLine(referenceLines, line);
-      if (isReferenceDataLine(line)) referencesHaveProcessedEntry = true;
     }
   }
 
@@ -3465,8 +3508,10 @@ export function buildGeneratedCv({
   const skillsFromAllSources = uniqueTextValues([
     ...(extracted?.skills || []),
     ...(extracted?.toolsAndSoftware || []),
+    ...(extracted?.competencies || []),
     ...(extracted?.cv_content?.skills || []),
     ...(extracted?.cv_content?.toolsAndSoftware || []),
+    ...(extracted?.cv_content?.competencies || []),
   ]);
 
   // Projects
@@ -3582,6 +3627,8 @@ export function buildGeneratedCv({
     education,
     skillGroups,
     skills,
+    toolsAndSoftware: [],
+    competencies: [],
     projects,
     certifications,
     languages,

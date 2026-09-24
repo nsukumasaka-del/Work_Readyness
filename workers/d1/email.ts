@@ -34,6 +34,8 @@ function fromAddress(env: MailEnv): string {
   return env.EMAIL_FROM?.trim() || "BonList <onboarding@resend.dev>";
 }
 
+const RESEND_FALLBACK_FROM = "BonList <onboarding@resend.dev>";
+
 export function isEmailDeliveryConfigured(env: MailEnv): boolean {
   return Boolean(env.RESEND_API_KEY?.trim());
 }
@@ -43,26 +45,31 @@ async function sendResend(
   input: { to: string; subject: string; text: string; html: string },
 ): Promise<boolean> {
   const apiKey = env.RESEND_API_KEY?.trim();
-  if (!apiKey) return false;
+  if (!apiKey) {
+    console.error("[bonlist-email] CRITICAL: RESEND_API_KEY is not configured on this Worker.");
+    return false;
+  }
 
-  const response = await fetch("https://api.resend.com/emails", {
+  const sendFrom = (from: string) => fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      from: fromAddress(env),
-      to: [input.to],
-      subject: input.subject,
-      text: input.text,
-      html: input.html,
-    }),
+    body: JSON.stringify({ from, to: [input.to], subject: input.subject, text: input.text, html: input.html }),
   });
 
+  const configuredFrom = fromAddress(env);
+  let response = await sendFrom(configuredFrom);
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Resend failed (${response.status}): ${detail.slice(0, 200)}`);
+    let detail = await response.text().catch(() => "");
+    const senderNotVerified = /(domain|from address).*(not verified|verification|verified|verify)|not verified.*(domain|from address)/i.test(detail);
+    if (configuredFrom !== RESEND_FALLBACK_FROM && senderNotVerified) {
+      console.warn("[bonlist-email] Configured sender is not verified; retrying with Resend's onboarding sender.");
+      response = await sendFrom(RESEND_FALLBACK_FROM);
+      if (!response.ok) detail = await response.text().catch(() => "");
+    }
+    if (!response.ok) throw new Error(`Resend failed (${response.status}): ${detail.slice(0, 200)}`);
   }
   return true;
 }

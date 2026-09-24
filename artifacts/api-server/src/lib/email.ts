@@ -40,24 +40,25 @@ async function sendViaResendRaw(input: SendMailInput, from: string): Promise<boo
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return false;
 
-  const response = await fetch("https://api.resend.com/emails", {
+  const fallbackFrom = "BonList <onboarding@resend.dev>";
+  const sendFrom = (sender: string) => fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      from,
-      to: [input.to],
-      subject: input.subject,
-      text: input.text,
-      html: input.html,
-    }),
+    body: JSON.stringify({ from: sender, to: [input.to], subject: input.subject, text: input.text, html: input.html }),
   });
-
+  let response = await sendFrom(from);
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Email provider failed (${response.status}): ${detail.slice(0, 120)}`);
+    let detail = await response.text().catch(() => "");
+    const senderNotVerified = /(domain|from address).*(not verified|verification|verified|verify)|not verified.*(domain|from address)/i.test(detail);
+    if (from !== fallbackFrom && senderNotVerified) {
+      logger.warn("Configured Resend sender is not verified; retrying with onboarding@resend.dev.");
+      response = await sendFrom(fallbackFrom);
+      if (!response.ok) detail = await response.text().catch(() => "");
+    }
+    if (!response.ok) throw new Error(`Email provider failed (${response.status}): ${detail.slice(0, 120)}`);
   }
   return true;
 }

@@ -68,11 +68,23 @@ export default {
       const latestVersion = String(env.ANDROID_LATEST_VERSION || "1.0.0").trim();
       const parsedVersionCode = Number(env.ANDROID_VERSION_CODE || 1);
       const configuredApkUrl = String(env.ANDROID_APK_URL || "https://www.bonlist.site/downloads/BonList.apk").trim();
+      let bundleManifest: Record<string, unknown> = {};
+      try {
+        const manifestUrl = new URL("/ota/manifest.json", url.origin);
+        const manifestResponse = await env.ASSETS.fetch(new Request(manifestUrl, { headers: { "cache-control": "no-cache" } }));
+        if (manifestResponse.ok) bundleManifest = await manifestResponse.json() as Record<string, unknown>;
+      } catch (error) {
+        console.warn("[app-version] OTA manifest unavailable; returning APK metadata only", error);
+      }
       return new Response(JSON.stringify({
         latestVersion,
         versionCode: Number.isFinite(parsedVersionCode) && parsedVersionCode > 0 ? parsedVersionCode : 1,
         apkUrl: configuredApkUrl,
-        releaseNotes: String(env.ANDROID_RELEASE_NOTES || "Current stable BonList Android release."),
+        bundleVersion: String(bundleManifest.bundleVersion || ""),
+        bundleUrl: String(bundleManifest.bundleUrl || ""),
+        targetPlatform: String(bundleManifest.targetPlatform || "all"),
+        requiresNewAPK: Boolean(bundleManifest.requiresNewAPK),
+        releaseNotes: String(bundleManifest.releaseNotes || env.ANDROID_RELEASE_NOTES || "Current stable BonList Android release."),
       }), {
         headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
       });

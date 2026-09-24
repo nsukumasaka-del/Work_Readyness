@@ -1,4 +1,5 @@
 import path from 'path';
+import { readFileSync } from 'node:fs';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
@@ -11,9 +12,15 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const basePath = process.env.BASE_PATH || '/';
+const otaMetaPath = path.resolve(import.meta.dirname, '.ota-build-meta.json');
+const otaBundleVersion = (() => {
+  try { return JSON.parse(readFileSync(otaMetaPath, 'utf8')).bundleVersion as string; }
+  catch { return 'development'; }
+})();
 
 export default defineConfig({
   base: basePath,
+  define: { __BONLIST_BUNDLE_VERSION__: JSON.stringify(otaBundleVersion) },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

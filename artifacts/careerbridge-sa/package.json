@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
+    "prebuild": "node ../../scripts/prepare-ota-meta.mjs",
     "build": "vite build --config vite.config.ts",
-    "postbuild": "node ../../mobile/bonlist-android/scripts/after-web-build.mjs",
+    "postbuild": "node ../../scripts/package-ota-bundle.mjs && node ../../mobile/bonlist-android/scripts/after-web-build.mjs",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -74,9 +75,11 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.6.9",
     "@capacitor/network": "^7.0.4",
     "@capacitor/preferences": "^7.0.4",
+    "@capgo/capacitor-updater": "^7.51.23",
     "@simplewebauthn/browser": "^14.0.0",
     "jszip": "3.10.2",
     "pdfjs-dist": "^6.3.289"

@@ -19,7 +19,8 @@
     "@capacitor/network": "^7.0.4",
     "@capacitor/preferences": "^7.0.4",
     "@capacitor/splash-screen": "^7.0.3",
-    "@capacitor/status-bar": "^7.0.3"
+    "@capacitor/status-bar": "^7.0.3",
+    "@capgo/capacitor-updater": "^7.51.23"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.4.3",

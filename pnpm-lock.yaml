@@ -181,6 +181,9 @@ importers:
 
   artifacts/careerbridge-sa:
     dependencies:
+      '@capacitor/app':
+        specifier: ^7.1.2
+        version: 7.1.2(@capacitor/core@7.6.9)
       '@capacitor/core':
         specifier: ^7.6.9
         version: 7.6.9
@@ -190,6 +193,9 @@ importers:
       '@capacitor/preferences':
         specifier: ^7.0.4
         version: 7.0.4(@capacitor/core@7.6.9)
+      '@capgo/capacitor-updater':
+        specifier: ^7.51.23
+        version: 7.51.23(@capacitor/core@7.6.9)
       '@simplewebauthn/browser':
         specifier: ^14.0.0
         version: 14.0.0
@@ -630,6 +636,9 @@ importers:
       '@capacitor/status-bar':
         specifier: ^7.0.3
         version: 7.0.6(@capacitor/core@7.6.9)
+      '@capgo/capacitor-updater':
+        specifier: ^7.51.23
+        version: 7.51.23(@capacitor/core@7.6.9)
     devDependencies:
       '@capacitor/cli':
         specifier: ^7.4.3
@@ -773,6 +782,11 @@ packages:
     resolution: {integrity: sha512-7AVqj46b26QikImQzWfsJmzG8NUJZBGkrVSuoeTo+SX/YH3hXH0MqwwFgMqMGHfa/BICDgSvTjM9miVFlq0+RQ==}
     peerDependencies:
       '@capacitor/core': '>=7.0.0'
+
+  '@capgo/capacitor-updater@7.51.23':
+    resolution: {integrity: sha512-jxSV45vQ6q5+5gI9zGHot6aZFT4KD5X8wNZuEWd/pt8LbOSjjDNoeu9HWSimpzGmTgmlHRwElX7cNETquoaHzA==}
+    peerDependencies:
+      '@capacitor/core': ^7.0.0
 
   '@cloudflare/kv-asset-handler@0.5.0':
     resolution: {integrity: sha512-jxQYkj8dSIzc0cD6cMMNdOc1UVjqSqu8BZdor5s8cGjW2I8BjODt/kWPVdY+u9zj3ms75Q5qaZgnxUad83+eAg==}
@@ -4206,6 +4220,10 @@ snapshots:
       '@capacitor/core': 7.6.9
 
   '@capacitor/status-bar@7.0.6(@capacitor/core@7.6.9)':
+    dependencies:
+      '@capacitor/core': 7.6.9
+
+  '@capgo/capacitor-updater@7.51.23(@capacitor/core@7.6.9)':
     dependencies:
       '@capacitor/core': 7.6.9
 

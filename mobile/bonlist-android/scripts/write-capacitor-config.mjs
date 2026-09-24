@@ -59,6 +59,12 @@ const config = {
       : {}),
   },
   plugins: {
+    CapacitorUpdater: {
+      autoUpdate: false,
+      appReadyTimeout: 20000,
+      resetWhenUpdate: true,
+      keepUrlPathAfterReload: true,
+    },
     SplashScreen: {
       launchShowDuration: 1200,
       backgroundColor: "#0F172A",

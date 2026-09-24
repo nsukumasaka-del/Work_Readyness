@@ -1,5 +1,7 @@
 import { type ReactNode, type FormEvent, useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Capacitor } from '@capacitor/core';
+import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -243,15 +245,17 @@ function HeaderAuthActions({
             </div>
           ) : null}
         </div>
-        <Link
-          href="/settings/updates"
-          className={`rounded-xl px-2.5 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground xl:px-3 ${
-            compact ? 'w-full border border-border text-center' : 'hidden sm:inline'
-          }`}
-          data-testid="link-header-updates"
-        >
-          Updates
-        </Link>
+        {Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android' ? (
+          <Link
+            href="/app/updates"
+            className={`rounded-xl px-2.5 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground xl:px-3 ${
+              compact ? 'w-full border border-border text-center' : 'hidden sm:inline'
+            }`}
+            data-testid="link-header-updates"
+          >
+            Updates
+          </Link>
+        ) : null}
         <button
           type="button"
           onClick={onLogout}
@@ -3542,6 +3546,7 @@ function ProtectedApp() {
           <Route path="/" component={Home} />
           <Route path="/settings/security" component={() => <SecuritySettingsPage />} />
           <Route path="/settings/updates" component={UpdatesPage} />
+          <Route path="/app/updates" component={UpdatesPage} />
           <Route path="/security/admin-mfa" component={AdminMfaSetupPage} />
           <Route path="/profile" component={ProfilePage} />
           <Route path="/dashboard" component={CvDashboardPage} />
@@ -3595,6 +3600,13 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function App() {
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return;
+    void CapacitorUpdater.notifyAppReady().catch((error) => {
+      console.error('[bonlist-updater] Could not mark the active bundle ready:', error);
+    });
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

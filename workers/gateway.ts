@@ -62,8 +62,16 @@ export default {
 
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
       if (env.DB) {
-        const authResponse = await handleD1Auth(request, env);
-        if (authResponse) return authResponse;
+        try {
+          const authResponse = await handleD1Auth(request, env);
+          if (authResponse) return authResponse;
+        } catch (err) {
+          console.error("[auth] D1 auth handler failed:", err);
+          return jsonError(
+            500,
+            "Authentication is temporarily unavailable. Please try again.",
+          );
+        }
         const careerResponse = await handleD1Career(request, env);
         if (careerResponse) return careerResponse;
         const cvToolsResponse = await handleCvTools(request, env);

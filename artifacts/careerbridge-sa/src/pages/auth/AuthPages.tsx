@@ -526,6 +526,7 @@ export function LoginPage() {
       if (!response.ok) throw new Error(payload.error || 'Login failed');
       await finish(payload);
     } catch (err) {
+      console.error('Auth Error:', err);
       setError(friendlyClientError(err, "We couldn't sign you in. Please try again."));
     } finally {
       setLoading(false);

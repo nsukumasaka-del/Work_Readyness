@@ -515,6 +515,7 @@ export async function handleLogin(request: Request, env: D1Env): Promise<Respons
     .trim()
     .toLowerCase();
   const password = String(body.password || "");
+  const rememberMe = body.rememberMe !== false;
 
   if (!email || !password) return error(400, "Email and password are required.");
 

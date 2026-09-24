@@ -132,6 +132,14 @@ export interface CvSkillGroup {
   skills: string[];
 }
 
+export interface CvReferenceDetail {
+  id: string;
+  name: string;
+  title?: string;
+  company?: string;
+  phone?: string;
+}
+
 export interface CvSection {
   heading: string;
   items: string[];
@@ -161,6 +169,7 @@ export interface GeneratedCvDocument {
   certifications?: CvCertificationItem[];
   languages?: string[];
   references?: string[];
+  referenceDetails?: CvReferenceDetail[];
   strengths?: string[];
   keywords: string[];
   sections: CvSection[];
@@ -487,6 +496,7 @@ export interface CvContentData {
   languages: string[];
   projects: CvProjectItem[];
   references: string[];
+  referenceDetails?: CvReferenceDetail[];
 }
 
 export interface AiFeedbackData {
@@ -516,6 +526,7 @@ export interface ExtractedCvData {
   languages: string[];
   projects: CvProjectItem[];
   references: string[];
+  referenceDetails?: CvReferenceDetail[];
   verificationBreakdown: {
     personal: { verified: boolean; missingFields: string[] };
     experience: { count: number; verifiedDates: boolean; verifiedCompanies: boolean };
@@ -2251,6 +2262,7 @@ export function verifyExtractedDataAgainstRawText(
     languages: verifiedLanguages,
     projects: verifiedProjects,
     references: verifiedReferences,
+    referenceDetails: extracted.referenceDetails || [],
   };
 
   const aiFeedback: AiFeedbackData = {
@@ -2275,6 +2287,7 @@ export function verifyExtractedDataAgainstRawText(
     languages: cvContent.languages,
     projects: cvContent.projects,
     references: cvContent.references,
+    referenceDetails: cvContent.referenceDetails,
     verificationBreakdown: {
       personal: extracted.verificationBreakdown?.personal ?? {
         nameMatched: Boolean(extracted.personal?.fullName),
@@ -2337,7 +2350,7 @@ function validateExtractedCvData(data: ExtractedCvData, fileName?: string, sourc
   const toolsAndSoftware = uniqueCleanSkills(content.toolsAndSoftware || []);
   const title = String(content.personal.professionalTitle || "").trim();
   const professionalTitle = title && title.split(/\s+/).length <= 10 && !/^(?:cv|resume|curriculum vitae|page(?:\s+\d+)?|profile|summary|experience|education|skills?)\s*:?$/i.test(title)
-    ? title.split(/[|•]/)[0]?.trim() || ""
+    ? title.replace(/\s*[|•]\s*/g, " | ").trim()
     : "";
   const personal = { ...content.personal, fullName, professionalTitle };
   const cv_content = { ...content, personal, experiences, skills, toolsAndSoftware };
@@ -2454,9 +2467,9 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     if (!candidate || isGarbagePersonalToken(candidate)) continue;
     fullName = candidate;
     nameLineIndex = index;
-    const inlineTitle = segments.slice(1).find((part) => titleWords.test(part));
-    if (inlineTitle && inlineTitle.split(/\s+/).length <= 10 && !rejectedIdentityWords.test(inlineTitle)) {
-      professionalTitle = inlineTitle;
+    const inlineTitles = segments.slice(1).filter((part) => titleWords.test(part) && part.split(/\s+/).length <= 6 && !rejectedIdentityWords.test(part));
+    if (inlineTitles.length) {
+      professionalTitle = inlineTitles.join(" | ");
     }
     break;
   }
@@ -2470,7 +2483,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       if (/@|https?:|www\.|^\+?\d|[•▪▫►]/i.test(candidate)) continue;
       if (rejectedIdentityWords.test(candidate)) break;
       if (candidate.length <= 100 && candidate.split(/\s+/).length <= 10 && titleWords.test(candidate)) {
-        professionalTitle = candidate.split(/[|•]/)[0]?.trim() || "";
+        professionalTitle = candidate.replace(/\s*[|•]\s*/g, " | ").trim();
         break;
       }
     }
@@ -2740,15 +2753,17 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
           : dateRangeRe.test(maybeCompany)
             ? maybeCompany
           : "";
-        const company =
-          dateRangeRe.test(maybeCompany) && !companyKeywords.test(maybeCompany)
-            ? ""
-            : maybeCompany.replace(dateRangeRe, "").split(/\s*[•·|]\s*/)[0]?.trim() || "";
+        const companyParts = maybeCompany.replace(dateRangeRe, "").split(/\s*[•·|—–]\s*/).map((part) => part.trim()).filter(Boolean);
+        const company = dateRangeRe.test(maybeCompany) && !companyKeywords.test(maybeCompany)
+          ? ""
+          : companyParts[0] || maybeCompany.replace(dateRangeRe, "").trim();
+        const expLocation = companyParts.slice(1).join(", ") || undefined;
         const d = dateSource.match(dateRangeRe)?.[0] || "";
         currentExp = {
           id: `exp-${experiences.length + 1}`,
           company: isGarbagePersonalToken(company) ? "" : company,
           role: el.trim(),
+          location: expLocation,
           startDate: d ? d.split(/(?:to|[-—–])/i)[0]?.trim() || "" : "",
           endDate: d ? d.split(/(?:to|[-—–])/i)[1]?.trim() || "" : "",
           current: /present|current|ongoing/i.test(d),
@@ -3068,6 +3083,21 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       .map((l) => l.replace(/^[\s•\-\*▪▫►]+/, "").trim())
       .filter((l) => l.length > 3 && !/^(references|referees)$/i.test(l) && !isPageMarker(l));
   }
+  const referenceDetails: CvReferenceDetail[] = references.map((line, index) => {
+    const phoneMatch = line.match(/(?:\+27(?:\s*\(0\))?[\s-]*|\b0)(?:\(?\d{2,3}\)?[\s-]*){2,4}\d{2,4}/);
+    const phone = phoneMatch?.[0]?.replace(/[\s-]+/g, " ").trim();
+    const withoutPhone = phoneMatch ? line.replace(phoneMatch[0], "").trim() : line;
+    const parts = withoutPhone.split(/\s+(?:—|–|-|\||•)(?:\s+|$)/).map((part) => part.trim()).filter(Boolean);
+    const name = parts[0] || withoutPhone;
+    const descriptorParts = (parts.slice(1).join(" ").match(/[^,]+/g) || []).map((part) => part.trim()).filter(Boolean);
+    return {
+      id: `ref-${index + 1}`,
+      name,
+      title: descriptorParts[0] || undefined,
+      company: descriptorParts.length > 1 ? descriptorParts.slice(1).join(", ") : undefined,
+      phone,
+    };
+  }).filter((reference) => Boolean(reference.name));
   // Candidate summary is copied from the CV when present; missing content stays empty.
 
   // Candidate summary: strictly 2-3 sentence biography, never reviewer notes
@@ -3101,6 +3131,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     languages,
     projects,
     references,
+    referenceDetails,
   };
 
   const rawAiFeedback: AiFeedbackData = {
@@ -3132,6 +3163,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     languages: rawCandidateContent.languages,
     projects: rawCandidateContent.projects,
     references: rawCandidateContent.references,
+    referenceDetails: rawCandidateContent.referenceDetails,
     verificationBreakdown: {
       personal: {
         verified: Boolean(fullName && (email || phone)),
@@ -3402,6 +3434,10 @@ export function buildGeneratedCv({
       : extracted?.cv_content?.references && extracted.cv_content.references.length > 0
         ? extracted.cv_content.references
         : [];
+  const referenceDetails: CvReferenceDetail[] =
+    extracted?.referenceDetails && extracted.referenceDetails.length > 0
+      ? extracted.referenceDetails
+      : extracted?.cv_content?.referenceDetails || [];
 
   // Professional Summary: Candidate biography ONLY, NEVER reviewer evaluation critique notes
   let summary = "";
@@ -3520,6 +3556,7 @@ export function buildGeneratedCv({
     certifications,
     languages,
     references,
+    referenceDetails,
     sections,
     keywords: diagnostic?.missingKeywords || [],
     footerNote,

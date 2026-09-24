@@ -564,9 +564,9 @@
 .cv-page-guide-label {
   position: absolute;
   left: 50%;
-  /* Sit just above the break line (in the blank keep band), not on top of body text */
-  top: auto;
-  bottom: 6px;
+  /* Sit just inside the next page's top margin, away from the preceding text. */
+  top: 10px;
+  bottom: auto;
   transform: translateX(-50%);
   padding: 2px 10px;
   border-radius: 999px;
@@ -612,6 +612,8 @@
 }
 
 #bonlist-cv-document .cv-a4-keep,
+#bonlist-cv-document .experience-item,
+#bonlist-cv-document .education-item,
 #bonlist-cv-document header,
 #bonlist-cv-document [data-a4-id] {
   break-inside: avoid;
@@ -731,6 +733,8 @@
   }
 
   #bonlist-cv-document .cv-a4-keep,
+  #bonlist-cv-document .experience-item,
+  #bonlist-cv-document .education-item,
   #bonlist-cv-document [data-a4-id],
   #bonlist-cv-document li,
   #bonlist-cv-document header {

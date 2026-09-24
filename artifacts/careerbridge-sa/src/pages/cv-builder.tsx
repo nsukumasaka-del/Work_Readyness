@@ -292,6 +292,80 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
   const references = (doc.references || [])
     .map((r) => scrubCvText(r))
     .filter((r) => r && !UI_PLACEHOLDER_RE.test(r));
+  const referenceDetailsByKey = new Map<string, CvReferenceDetail>();
+  for (const reference of doc.referenceDetails || []) {
+    const name = scrubCvText(reference.name);
+    if (!name) continue;
+    const detail = {
+      ...reference,
+      name,
+      title: scrubCvText(reference.title) || undefined,
+      company: scrubCvText(reference.company) || undefined,
+      phone: scrubCvText(reference.phone) || undefined,
+    };
+    const key = `${name}|${detail.phone || ""}`.toLocaleLowerCase();
+    if (!referenceDetailsByKey.has(key)) referenceDetailsByKey.set(key, detail);
+  }
+  const referenceDetails = Array.from(referenceDetailsByKey.values());
+
+  // The document model has first-class fields for these standard sections.
+  // Older import/parser responses sometimes put the same content in both a
+  // first-class field (summary/experiences/etc.) and `sections`, which caused
+  // the renderer to print the standard section twice. Keep only genuinely
+  // custom sections once the corresponding first-class field has content.
+  const builtInSectionAliases = new Set([
+    "summary", "professional summary", "executive summary", "career objective", "profile",
+    "experience", "work experience", "professional experience", "employment history", "experience accomplishments",
+    "education", "education qualifications", "academic background", "qualifications",
+    "skills", "key skills", "skills competencies", "skills and competencies", "core competencies",
+  ].map((heading) => heading.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim()));
+  const hasFirstClassSection = (heading: string) => {
+    const normalized = heading.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (["summary", "professional summary", "executive summary", "career objective", "profile"].includes(normalized)) return Boolean(summary);
+    if (["experience", "work experience", "professional experience", "employment history", "experience accomplishments"].includes(normalized)) return experiences.length > 0;
+    if (["education", "education qualifications", "academic background", "qualifications"].includes(normalized)) return education.length > 0;
+    if (["skills", "key skills", "skills competencies", "skills and competencies", "core competencies"].includes(normalized)) {
+      return skills.length > 0 || (doc.skillGroups || []).some((group) => group.skills?.length) || toolsAndSoftware.length > 0;
+    }
+    return false;
+  };
+  const sectionsByHeading = new Map<string, { heading: string; items: string[] }>();
+  for (const section of doc.sections || []) {
+    const heading = scrubCvText(section.heading);
+    const headingKey = heading.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (!heading || !headingKey || (builtInSectionAliases.has(headingKey) && hasFirstClassSection(heading))) continue;
+    const items = normalizeList(section.items || [], 10000);
+    if (!items.length) continue;
+    const existing = sectionsByHeading.get(headingKey);
+    if (!existing) {
+      sectionsByHeading.set(headingKey, { heading, items });
+      continue;
+    }
+    existing.items = normalizeList([...existing.items, ...items], 10000);
+  }
+  const sections = Array.from(sectionsByHeading.values());
+
+  const dedupeBy = <T,>(items: T[], keyOf: (item: T) => string, merge: (previous: T, next: T) => T): T[] => {
+    const byKey = new Map<string, T>();
+    for (const item of items) {
+      const key = keyOf(item).toLocaleLowerCase().replace(/\s+/g, " ").trim();
+      if (!key) continue;
+      const previous = byKey.get(key);
+      byKey.set(key, previous ? merge(previous, item) : item);
+    }
+    return Array.from(byKey.values());
+  };
+  const uniqueExperiences = dedupeBy(experiences, (item) => item.id || [item.role, item.company, item.startDate, item.endDate].join("|"), (previous, next) => ({
+    ...previous,
+    ...next,
+    location: next.location || previous.location,
+    bullets: normalizeList([...previous.bullets, ...next.bullets], 1000),
+  }));
+  const uniqueEducation = dedupeBy(education, (item) => item.id || [item.degree, item.institution, item.graduationYear].join("|"), (previous, next) => ({
+    ...previous,
+    ...next,
+    details: [previous.details, next.details].filter(Boolean).filter((value, index, all) => all.indexOf(value) === index).join(" · ") || undefined,
+  }));
 
   return {
     ...doc,
@@ -304,14 +378,16 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     linkedin,
     website,
     contactLine,
-    experiences,
-    education,
+    experiences: uniqueExperiences,
+    education: uniqueEducation,
     skills,
     toolsAndSoftware,
     projects,
     certifications,
     languages,
     references,
+    referenceDetails,
+    sections,
     footerNote: "",
   };
 }
@@ -387,6 +463,14 @@ export interface CvSkillGroup {
   skills: string[];
 }
 
+export interface CvReferenceDetail {
+  id: string;
+  name: string;
+  title?: string;
+  company?: string;
+  phone?: string;
+}
+
 export interface GeneratedCvDocument {
   id?: string;
   versionName?: string;
@@ -412,6 +496,7 @@ export interface GeneratedCvDocument {
   certifications?: CvCertificationItem[];
   languages?: string[];
   references?: string[];
+  referenceDetails?: CvReferenceDetail[];
   strengths?: string[];
   keywords: string[];
   sections: { heading: string; items: string[] }[];
@@ -440,6 +525,11 @@ export interface GeneratedCvResponse {
   cv_content?: CvContentData;
   ai_feedback?: AiFeedbackData;
   message?: string;
+}
+
+function normalizeCvResponse(response: GeneratedCvResponse): GeneratedCvResponse {
+  if (!response?.document) return response;
+  return { ...response, document: sanitizeCvDocument(response.document) };
 }
 
 export interface QualityPillarScore {
@@ -670,6 +760,7 @@ export interface CvContentData {
   languages?: string[];
   projects?: CvProjectItem[];
   references?: string[];
+  referenceDetails?: CvReferenceDetail[];
 }
 
 export interface AiFeedbackData {
@@ -709,6 +800,7 @@ export interface ExtractedCvData {
   languages: string[];
   projects: CvProjectItem[];
   references: string[];
+  referenceDetails?: CvReferenceDetail[];
   verificationBreakdown: {
     personal: { verified: boolean; missingFields: string[] };
     experience: { count: number; verifiedDates: boolean; verifiedCompanies: boolean };
@@ -763,6 +855,7 @@ function normalizeExtractedCvData(value: unknown): ExtractedCvData {
     languages: chooseArray(nested.languages, raw.languages),
     projects: chooseArray(nested.projects, raw.projects),
     references: chooseArray(nested.references, raw.references),
+    referenceDetails: chooseArray(nested.referenceDetails, raw.referenceDetails),
   };
   return {
     ...raw,
@@ -777,6 +870,7 @@ function normalizeExtractedCvData(value: unknown): ExtractedCvData {
     languages: content.languages || [],
     projects: content.projects || [],
     references: content.references || [],
+    referenceDetails: content.referenceDetails || [],
     verificationBreakdown: raw.verificationBreakdown || {
       personal: { verified: Boolean(personal.fullName && (personal.email || personal.phone)), missingFields: [] },
       experience: { count: content.experiences.length, verifiedDates: false, verifiedCompanies: content.experiences.length > 0 },
@@ -1690,7 +1784,10 @@ function computeA4Spacers(root: HTMLElement): Record<string, number> {
   const padBottom = parseFloat(styles.paddingBottom) || padY;
   const usable = Math.max(40, pageH - padY - padBottom);
   // Keep a clear band above the page cut so content never sits on the dashed guide
-  const edgeSafety = Math.max(padBottom, Math.round(pageH * 0.04), 32);
+  // Reserve a clear band at the physical page edge for the page guide and
+  // label; pushing the next block beyond this band prevents text colliding
+  // with the visual pagination overlay.
+  const edgeSafety = Math.max(padBottom + 16, Math.round(pageH * 0.06), 52);
 
   const spacerEls = Array.from(root.querySelectorAll<HTMLElement>("[data-a4-spacer]"));
   const prevSpacerStyles = spacerEls.map((s) => s.getAttribute("style"));
@@ -2941,13 +3038,14 @@ export default function CvBuilderPage() {
             if (!response.ok) throw new Error(data.error || "Could not load this saved CV.");
             loaded = data as GeneratedCvResponse;
           }
-          setCv(loaded);
-          persistGeneratedCv(loaded);
-          setCurrentVersionName(loaded.title || "My Master CV");
+          const normalizedCv = normalizeCvResponse(loaded);
+          setCv(normalizedCv);
+          persistGeneratedCv(normalizedCv);
+          setCurrentVersionName(normalizedCv.title || "My Master CV");
           documentTitleEditedRef.current = true;
-          setDocumentTitle(loaded.title || ("CV of " + (loaded.document.fullName || "Candidate")));
-          setSelectedTemplate(loaded.structure || "professional");
-          const preferences = loaded.preferences;
+          setDocumentTitle(normalizedCv.title || ("CV of " + (normalizedCv.document.fullName || "Candidate")));
+          setSelectedTemplate(normalizedCv.structure || "professional");
+          const preferences = normalizedCv.preferences;
           if (preferences?.color) {
             const color = COLOR_THEMES.find((theme) => theme.id === preferences.color);
             if (color) setSelectedColor(color);
@@ -3038,13 +3136,14 @@ export default function CvBuilderPage() {
         })
         .then((loaded) => {
           if (!loaded) return;
-          setCv(loaded);
-          persistGeneratedCv(loaded);
-          setCurrentVersionName(loaded.title || "My Master CV");
+          const normalizedCv = normalizeCvResponse(loaded);
+          setCv(normalizedCv);
+          persistGeneratedCv(normalizedCv);
+          setCurrentVersionName(normalizedCv.title || "My Master CV");
           documentTitleEditedRef.current = true;
-          setDocumentTitle(loaded.title || ("CV of " + (loaded.document.fullName || "Candidate")));
-          setSelectedTemplate(loaded.structure || "professional");
-          const preferences = loaded.preferences;
+          setDocumentTitle(normalizedCv.title || ("CV of " + (normalizedCv.document.fullName || "Candidate")));
+          setSelectedTemplate(normalizedCv.structure || "professional");
+          const preferences = normalizedCv.preferences;
           if (preferences?.color) {
             const color = COLOR_THEMES.find((theme) => theme.id === preferences.color);
             if (color) setSelectedColor(color);
@@ -3460,7 +3559,7 @@ export default function CvBuilderPage() {
       if (!current || localId >= 0) return;
       void getNativeCv(localId).then((saved) => {
         if (saved?.id && saved.id > 0 && currentCvRef.current?.id === localId) {
-          setCv(saved as unknown as GeneratedCvResponse);
+          setCv(normalizeCvResponse(saved as unknown as GeneratedCvResponse));
         }
       });
     };
@@ -5400,7 +5499,7 @@ export default function CvBuilderPage() {
                 const renderSectionHeading = (title: string) => {
                   if (isSerifClassic) {
                     return (
-                      <div className="border-y border-slate-800 py-1.5 mb-3">
+                      <div className="border-b border-slate-800 pb-1.5 mb-3">
                         <h2 className="text-[11px] font-serif font-bold uppercase tracking-[0.18em] text-slate-900">
                           {title}
                         </h2>
@@ -5410,7 +5509,6 @@ export default function CvBuilderPage() {
                   if (isCorporateBlue) {
                     return (
                       <div className="mb-3">
-                        <div className="h-[2px] w-full mb-1.5" style={{ backgroundColor: selectedColor.primary }} />
                         <h2 className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: selectedColor.primary }}>
                           {title}
                         </h2>
@@ -5570,7 +5668,7 @@ export default function CvBuilderPage() {
                         <Fragment key={exp.id || expIdx}>
                         <A4PageSpacer id={`exp-${expIdx}-header`} height={a4Spacers[`exp-${expIdx}-header`] || 0} />
                         <div className="group/role relative space-y-1.5">
-                          <div data-a4-id={`exp-${expIdx}-header`} className="cv-a4-keep relative space-y-1.5">
+                        <div data-a4-id={`exp-${expIdx}-header`} className="experience-item cv-a4-keep relative space-y-1.5">
                           {expIdx === 0 && renderSectionHeading(
                             isSerifClassic
                               ? "Experience"
@@ -5859,7 +5957,7 @@ export default function CvBuilderPage() {
                     ) : (
                       <div className={isTimeline ? "relative pl-6 border-l-2 ml-2 space-y-4 my-2" : "space-y-2"} style={isTimeline ? { borderColor: selectedColor.border } : {}}>
                         {cv.document.education.map((edu, eduIdx) => (
-                          <div key={edu.id || eduIdx} className="text-xs overflow-visible group/edu relative">
+                          <div key={edu.id || eduIdx} className="education-item cv-a4-keep text-xs overflow-visible group/edu relative">
                             {isTimeline && (
                               <span
                                 className="absolute -left-[31px] top-1.5 h-3.5 w-3.5 rounded-full border-2 bg-white shadow-xs"
@@ -8740,9 +8838,9 @@ function generateSemanticHtml(
           : `margin:0;font-size:22pt;color:${color.primary};`;
 
   const h2Style = isSerifClassic
-    ? `font-size:10.5pt;text-transform:uppercase;letter-spacing:0.16em;color:#0f172a;border-top:1px solid #0f172a;border-bottom:1px solid #0f172a;padding:6px 0;margin-top:1.4rem;font-family:${headingFont};`
+    ? `font-size:10.5pt;text-transform:uppercase;letter-spacing:0.16em;color:#0f172a;border-bottom:1px solid #0f172a;padding:6px 0;margin-top:1.4rem;font-family:${headingFont};`
     : isCorporateBlue
-      ? `font-size:10.5pt;text-transform:uppercase;letter-spacing:0.12em;color:${color.primary};border-top:2px solid ${color.primary};border-bottom:2px solid ${color.primary};padding:6px 0;margin-top:1.4rem;`
+      ? `font-size:10.5pt;text-transform:uppercase;letter-spacing:0.12em;color:${color.primary};border-bottom:2px solid ${color.primary};padding:6px 0;margin-top:1.4rem;`
       : isEditorialGold
         ? `font-size:12pt;font-family:${headingFont};color:${color.primary};border-bottom:1px solid ${color.primary};padding-bottom:4px;margin-top:1.4rem;`
         : isAnalystClean
@@ -8802,6 +8900,8 @@ function generateSemanticHtml(
     }
     h1 { ${nameStyle} }
     h2 { ${h2Style} }
+    h2 { break-after: avoid; page-break-after: avoid; }
+    .exp-item, .education-item, li { break-inside: avoid; page-break-inside: avoid; }
     .contact { font-size: 9.5pt; color: #64748b; margin-top: 4px; }
     .exp-item { margin-bottom: 1rem; }
     .role-header { font-weight: bold; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1rem; }
@@ -8883,8 +8983,8 @@ function generateSemanticHtml(
     ${doc.education
       .map(
         (edu) => `
-      <div class="role-header"><strong>${edu.degree}</strong> <span class="dates">${edu.graduationYear || ""}</span></div>
-      <div>${edu.institution}</div>
+      <div class="education-item"><div class="role-header"><strong>${edu.degree}</strong> <span class="dates">${edu.graduationYear || ""}</span></div>
+      <div>${edu.institution}</div></div>
     `,
       )
       .join("")}

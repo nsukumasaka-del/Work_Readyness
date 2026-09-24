@@ -6325,20 +6325,18 @@ export default function CvBuilderPage() {
                     {/* 1. HEADER SECTION */}
                     {isSerifClassic ? (
                       <header className="relative group/section pb-4 text-center font-serif">
-                        <input
-                          type="text"
+                        <AutoGrowTextarea
                           value={cv.document.fullName}
                           onChange={(e) => updateDocumentField("fullName", e.target.value)}
                           className="w-full bg-transparent text-center font-serif text-2xl font-bold tracking-tight text-slate-950 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm sm:text-3xl"
                           placeholder="Candidate Name"
-                        />
-                        <input
-                          type="text"
+                         />
+                        <AutoGrowTextarea
                           value={cv.document.headline}
                           onChange={(e) => updateDocumentField("headline", e.target.value)}
                           placeholder="Professional Title"
                           className="mt-1 w-full bg-transparent text-center font-serif text-sm italic text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
-                        />
+                         />
                         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[11px] text-slate-600">
                           <input type="text" value={cv.document.location || ""} onChange={(e) => updateDocumentField("location", e.target.value)} placeholder="Location" className="bg-transparent text-center focus:outline-none" style={{ width: `${Math.max((cv.document.location || "").length + 1, 10)}ch` }} />
                           <span>·</span>
@@ -6354,21 +6352,19 @@ export default function CvBuilderPage() {
                       </header>
                     ) : isCorporateBlue ? (
                       <header className="relative group/section pb-4">
-                        <input
-                          type="text"
+                        <AutoGrowTextarea
                           value={cv.document.fullName}
                           onChange={(e) => updateDocumentField("fullName", e.target.value)}
-                          className="w-full bg-transparent text-2xl font-black uppercase tracking-wide focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm sm:text-3xl"
+                          className="w-full whitespace-normal break-words leading-tight bg-transparent text-2xl font-black uppercase tracking-wide focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm sm:text-3xl"
                           style={{ color: selectedColor.primary }}
                           placeholder="CANDIDATE NAME"
-                        />
-                        <input
-                          type="text"
+                         />
+                        <AutoGrowTextarea
                           value={cv.document.headline}
                           onChange={(e) => updateDocumentField("headline", e.target.value)}
                           placeholder="PROFESSIONAL TITLE"
                           className="mt-1 w-full bg-transparent text-xs font-bold uppercase tracking-widest text-slate-800 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
-                        />
+                         />
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
                           <input type="text" value={cv.document.location || ""} onChange={(e) => updateDocumentField("location", e.target.value)} placeholder="Location" className="bg-transparent focus:outline-none" style={{ width: `${Math.max((cv.document.location || "").length + 1, 10)}ch` }} />
                           <span>|</span>
@@ -6379,14 +6375,13 @@ export default function CvBuilderPage() {
                       </header>
                     ) : isEditorialGold ? (
                       <header className="relative group/section pb-3">
-                        <input
-                          type="text"
+                        <AutoGrowTextarea
                           value={cv.document.fullName}
                           onChange={(e) => updateDocumentField("fullName", e.target.value)}
                           className="w-full bg-transparent font-serif text-3xl font-bold tracking-tight focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
                           style={{ color: selectedColor.primary }}
                           placeholder="Candidate Name"
-                        />
+                         />
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-700">
                           <input type="text" value={cv.document.location || ""} onChange={(e) => updateDocumentField("location", e.target.value)} placeholder="Location" className="bg-transparent focus:outline-none" style={{ width: `${Math.max((cv.document.location || "").length + 1, 10)}ch` }} />
                           <span>|</span>
@@ -6397,24 +6392,22 @@ export default function CvBuilderPage() {
                       </header>
                     ) : isAnalystClean ? (
                       <header className="relative group/section pb-4">
-                        <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="flex flex-col items-start gap-2">
                           <div className="min-w-0 flex-1">
-                            <input
-                              type="text"
+                            <AutoGrowTextarea
                               value={cv.document.fullName}
                               onChange={(e) => updateDocumentField("fullName", e.target.value)}
-                              className="w-full bg-transparent text-2xl font-black tracking-tight text-slate-900 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm sm:text-3xl"
+                              className="w-full whitespace-normal break-words leading-tight bg-transparent text-2xl font-black tracking-tight text-slate-900 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm sm:text-3xl"
                               placeholder="Candidate Name"
-                            />
-                            <input
-                              type="text"
+                             />
+                            <AutoGrowTextarea
                               value={cv.document.headline}
                               onChange={(e) => updateDocumentField("headline", e.target.value)}
                               placeholder="Professional Title"
                               className="mt-1 w-full bg-transparent text-sm text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
-                            />
+                             />
                           </div>
-                          <div className="flex min-w-0 max-w-full shrink flex-wrap justify-end gap-x-2 gap-y-0.5 text-right text-[11px] text-slate-600">
+                          <div className="flex w-full min-w-0 max-w-full flex-wrap justify-start gap-x-3 gap-y-1 text-left text-[11px] text-slate-600">
                             <div className="min-w-0 max-w-full"><input type="text" value={cv.document.phone || ""} onChange={(e) => updateDocumentField("phone", e.target.value)} placeholder="Phone" className="max-w-full bg-transparent text-right focus:outline-none" style={{ width: `${Math.max((cv.document.phone || "").length + 1, 12)}ch`, maxWidth: "100%" }} /></div>
                             <div className="min-w-0 max-w-full"><input type="text" value={cv.document.email} onChange={(e) => updateDocumentField("email", e.target.value)} placeholder="Email" className="max-w-full bg-transparent text-right focus:outline-none" style={{ width: `${Math.max((cv.document.email || "").length + 1, 14)}ch`, maxWidth: "100%" }} /></div>
                             <div className="min-w-0 max-w-full"><input type="text" value={cv.document.website || ""} onChange={(e) => updateDocumentField("website", e.target.value)} placeholder="Website" className={`max-w-full bg-transparent text-right focus:outline-none ${!cv.document.website ? "hidden" : ""}`} style={{ width: `${Math.max((cv.document.website || "").length + 1, 12)}ch`, maxWidth: "100%" }} /></div>
@@ -6432,21 +6425,19 @@ export default function CvBuilderPage() {
                           <span className="text-[10px] font-bold uppercase">Stylish Header Band</span>
                         </div>
 
-                        <input
-                          type="text"
+                        <AutoGrowTextarea
                           value={cv.document.fullName}
                           onChange={(e) => updateDocumentField("fullName", e.target.value)}
                           className="w-full bg-transparent text-2xl font-black tracking-tight text-white focus:outline-none focus:ring-1 focus:ring-white/40 rounded-sm sm:text-3xl placeholder:text-white/70"
                           placeholder="Candidate Name"
-                        />
+                         />
 
-                        <input
-                          type="text"
+                        <AutoGrowTextarea
                           value={cv.document.headline}
                           onChange={(e) => updateDocumentField("headline", e.target.value)}
                           placeholder="Professional Title / Target Role"
                           className="mt-1 w-full bg-transparent text-sm font-semibold tracking-wide text-white/90 focus:outline-none focus:ring-1 focus:ring-white/40 rounded-sm sm:text-base placeholder:text-white/60"
-                        />
+                         />
 
                         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-white/90 overflow-visible">
                           <input
@@ -6501,22 +6492,20 @@ export default function CvBuilderPage() {
                           <span className="text-[10px] font-bold text-primary uppercase">Ivy League Header</span>
                         </div>
 
-                        <input
-                          type="text"
+                        <AutoGrowTextarea
                           value={cv.document.fullName}
                           onChange={(e) => updateDocumentField("fullName", e.target.value)}
                           className="w-full bg-transparent text-center font-serif text-2xl font-bold tracking-wider text-slate-950 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm sm:text-3xl uppercase"
                           style={{ color: selectedColor.primary }}
                           placeholder="CANDIDATE NAME"
-                        />
+                         />
 
-                        <input
-                          type="text"
+                        <AutoGrowTextarea
                           value={cv.document.headline}
                           onChange={(e) => updateDocumentField("headline", e.target.value)}
                           placeholder="PROFESSIONAL TITLE / TARGET ROLE"
                           className="mt-1 w-full bg-transparent text-center text-xs font-semibold uppercase tracking-widest text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
-                        />
+                         />
 
                         <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-600 overflow-visible">
                           <input
@@ -6584,8 +6573,7 @@ export default function CvBuilderPage() {
                           <span className="text-[10px] font-bold text-primary uppercase">Header Fold</span>
                         </div>
 
-                        <input
-                          type="text"
+                        <AutoGrowTextarea
                           value={cv.document.fullName}
                           onChange={(e) => updateDocumentField("fullName", e.target.value)}
                           className={`w-full bg-transparent text-2xl font-black tracking-tight text-slate-950 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm sm:text-3xl ${
@@ -6593,17 +6581,16 @@ export default function CvBuilderPage() {
                           }`}
                           style={{ color: selectedColor.primary }}
                           placeholder="Candidate Name"
-                        />
+                         />
 
-                        <input
-                          type="text"
+                        <AutoGrowTextarea
                           value={cv.document.headline}
                           onChange={(e) => updateDocumentField("headline", e.target.value)}
                           placeholder="Professional Title / Target Role"
                           className={`mt-1 w-full bg-transparent text-sm font-semibold tracking-wide text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm sm:text-base ${
                             isPolished ? "text-center" : ""
                           }`}
-                        />
+                         />
 
                         <div className={`mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 overflow-visible ${
                           isPolished ? "justify-center" : ""

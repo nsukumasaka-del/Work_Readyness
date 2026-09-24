@@ -27,6 +27,38 @@ function jsonError(status: number, error: string): Response {
   });
 }
 
+const NATIVE_WEBVIEW_ORIGINS = new Set([
+  "capacitor://localhost",
+  "ionic://localhost",
+  "http://localhost",
+  "https://localhost",
+]);
+
+function isNativeWebviewOrigin(origin: string): boolean {
+  if (NATIVE_WEBVIEW_ORIGINS.has(origin)) return true;
+  try {
+    const parsed = new URL(origin);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1");
+  } catch { return false; }
+}
+
+function withNativeCors(request: Request, response: Response): Response {
+  const origin = request.headers.get("Origin") || "";
+  if (!isNativeWebviewOrigin(origin)) return response;
+  const headers = new Headers(response.headers);
+  headers.set("Access-Control-Allow-Origin", origin);
+  headers.set("Access-Control-Allow-Credentials", "true");
+  headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  headers.set("Access-Control-Allow-Headers", request.headers.get("Access-Control-Request-Headers") || "Authorization, Content-Type, Accept, X-Requested-With");
+  headers.append("Vary", "Origin");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function proxyApi(
   request: Request,
   upstreamBase: string,
@@ -76,7 +108,7 @@ export default {
       } catch (error) {
         console.warn("[app-version] OTA manifest unavailable; returning APK metadata only", error);
       }
-      return new Response(JSON.stringify({
+      return withNativeCors(request, new Response(JSON.stringify({
         latestVersion,
         versionCode: Number.isFinite(parsedVersionCode) && parsedVersionCode > 0 ? parsedVersionCode : 1,
         apkUrl: configuredApkUrl,
@@ -87,27 +119,30 @@ export default {
         releaseNotes: String(bundleManifest.releaseNotes || env.ANDROID_RELEASE_NOTES || "Current stable BonList Android release."),
       }), {
         headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
-      });
+      }));
     }
 
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+      if (request.method === "OPTIONS") {
+        return withNativeCors(request, new Response(null, { status: 204 }));
+      }
       if (env.DB) {
         try {
           const authResponse = await handleD1Auth(request, env);
-          if (authResponse) return authResponse;
+          if (authResponse) return withNativeCors(request, authResponse);
         } catch (err) {
           console.error("[auth] D1 auth handler failed:", err);
-          return jsonError(
+          return withNativeCors(request, jsonError(
             500,
             "Authentication is temporarily unavailable. Please try again.",
-          );
+          ));
         }
         const careerResponse = await handleD1Career(request, env);
-        if (careerResponse) return careerResponse;
+        if (careerResponse) return withNativeCors(request, careerResponse);
         const cvToolsResponse = await handleCvTools(request, env);
-        if (cvToolsResponse) return cvToolsResponse;
+        if (cvToolsResponse) return withNativeCors(request, cvToolsResponse);
         const platformResponse = await handlePlatformTools(request, env);
-        if (platformResponse) return platformResponse;
+        if (platformResponse) return withNativeCors(request, platformResponse);
       }
 
       const upstream = String(env.API_UPSTREAM_URL || "")
@@ -115,13 +150,13 @@ export default {
         .replace(/\/+$/, "");
 
       if (!upstream) {
-        return jsonError(
+        return withNativeCors(request, jsonError(
           501,
           "This API route is not yet available on the Cloudflare edge. Auth routes (/api/auth/*) are live; career APIs are being migrated.",
-        );
+        ));
       }
 
-      return proxyApi(request, `${upstream}/`);
+      return withNativeCors(request, await proxyApi(request, `${upstream}/`));
     }
 
     const assetResponse = await env.ASSETS.fetch(request);

@@ -1,3 +1,5 @@
+import { Capacitor } from "@capacitor/core";
+
 /**
  * Resolve API origin for browser + Capacitor Android.
  * Relative `/api/...` works on the live site / Vite proxy.
@@ -29,6 +31,17 @@ function isCapacitorLocalOrigin(origin: string): boolean {
 }
 
 export function getApiBase(): string {
+  let isNative = false;
+  try { isNative = Capacitor.isNativePlatform(); } catch { /* browser builds */ }
+
+  // A native WebView must never resolve API calls against capacitor://localhost.
+  // Allow an explicitly configured HTTPS API origin, otherwise use production.
+  if (isNative) {
+    const configured = String(import.meta.env.VITE_API_BASE_URL || "").trim();
+    if (/^https:\/\//i.test(configured)) return stripTrailingSlash(configured);
+    return "https://www.bonlist.site";
+  }
+
   if (typeof window !== "undefined") {
     const runtime = window.__BONLIST_API_BASE__?.trim();
     if (runtime) return stripTrailingSlash(runtime);
@@ -38,16 +51,6 @@ export function getApiBase(): string {
     .trim()
     .replace(/\/+$/, "");
   if (fromEnv) return fromEnv;
-
-  // A bundled Capacitor app has a local WebView origin, so relative API paths
-  // would otherwise target capacitor://localhost instead of the BonList Worker.
-  if (typeof window !== "undefined") {
-    try {
-      if (window.Capacitor?.isNativePlatform?.()) return "https://www.bonlist.site";
-    } catch {
-      // Fall through to the relative URL for browser builds.
-    }
-  }
 
   return "";
 }

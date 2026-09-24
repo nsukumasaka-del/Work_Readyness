@@ -3043,7 +3043,9 @@ export default function CvBuilderPage() {
       location: prev.location || loc,
     }));
 
-    if (prof?.name || prof?.email) {
+    const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+    const isOfflineWorkstation = searchParams?.get("offline") === "1" && isAndroidApp();
+    if (!isOfflineWorkstation && (prof?.name || prof?.email)) {
       void ensureCvProfile({
         name: prof.name,
         email: prof.email,
@@ -3053,7 +3055,6 @@ export default function CvBuilderPage() {
       }).catch(() => undefined);
     }
 
-    const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     const isIntakeRequested = searchParams?.get("intake") === "1";
     const requestedDocumentId = searchParams?.get("documentId");
     if (requestedDocumentId && /^-?\d+$/.test(requestedDocumentId)) {
@@ -3063,7 +3064,7 @@ export default function CvBuilderPage() {
         try {
           const requestedId = Number(requestedDocumentId);
           let loaded: GeneratedCvResponse;
-          if (requestedId < 0 && isAndroidApp()) {
+          if ((requestedId < 0 || isOfflineWorkstation) && isAndroidApp()) {
             const local = await getNativeCv(requestedId);
             if (!local) throw new Error("This offline CV is no longer available on this device.");
             loaded = local as unknown as GeneratedCvResponse;
@@ -3486,7 +3487,8 @@ export default function CvBuilderPage() {
       setTimeout(() => setMessage(""), 5000);
     };
     try {
-      if (isAndroidApp() && !navigator.onLine) {
+      const isOfflineWorkstation = isAndroidApp() && new URLSearchParams(window.location.search).get("offline") === "1";
+      if (isOfflineWorkstation || (isAndroidApp() && !navigator.onLine)) {
         await saveOffline();
         return;
       }
@@ -3511,7 +3513,7 @@ export default function CvBuilderPage() {
       setMessage(isAndroidApp() ? "CV saved to your BonList account and available offline." : "CV saved successfully to BonList Cloud!");
       setTimeout(() => setMessage(""), 3500);
     } catch (err) {
-      if (isAndroidApp() && !navigator.onLine) {
+      if (isAndroidApp() && (new URLSearchParams(window.location.search).get("offline") === "1" || !navigator.onLine)) {
         await saveOffline();
         return;
       }

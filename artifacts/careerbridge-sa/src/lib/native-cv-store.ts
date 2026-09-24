@@ -4,6 +4,7 @@ import { Preferences } from "@capacitor/preferences";
 import { authFetch } from "@/lib/auth-session";
 
 const STORE_KEY = "bonlist.native.saved-cvs.v1";
+const OFFLINE_MODE_KEY = "bonlist.native.offline-workstation.v1";
 export const NATIVE_CV_STORE_UPDATED = "bonlist-native-cv-store-updated";
 
 export type NativeCvRecord = {
@@ -46,6 +47,25 @@ async function writeAll(records: NativeCvRecord[]) {
 
 export async function listNativeCvs() {
   return readAll();
+}
+
+export async function enterOfflineWorkstation() {
+  if (!isAndroidApk()) throw new Error("Offline Workstation is available in the Android app only.");
+  if (!(await readAll()).length) throw new Error("There are no CVs saved on this device yet.");
+  await Preferences.set({ key: OFFLINE_MODE_KEY, value: "1" });
+}
+
+export async function isOfflineWorkstationActive() {
+  if (!isAndroidApk()) return false;
+  try {
+    const { value } = await Preferences.get({ key: OFFLINE_MODE_KEY });
+    return value === "1";
+  } catch { return false; }
+}
+
+export async function leaveOfflineWorkstation() {
+  if (!isAndroidApk()) return;
+  await Preferences.remove({ key: OFFLINE_MODE_KEY });
 }
 
 export async function getNativeCv(id: number) {

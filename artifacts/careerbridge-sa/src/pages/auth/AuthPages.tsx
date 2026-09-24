@@ -1,6 +1,8 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Eye, EyeOff, ArrowRight, Fingerprint } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Network } from '@capacitor/network';
 import { apiUrl } from '@/lib/api-base';
 import {
   startAuthentication,
@@ -19,6 +21,7 @@ import {
   friendlyClientError,
   readApiJson,
 } from '@/lib/auth-session';
+import { enterOfflineWorkstation, leaveOfflineWorkstation, listNativeCvs } from '@/lib/native-cv-store';
 
 function AuthShell({
   title,
@@ -496,6 +499,14 @@ export function LoginPage() {
   const [magicChallenge, setMagicChallenge] = useState('');
   const [magicCode, setMagicCode] = useState('');
   const [passkeysOn, setPasskeysOn] = useState(false);
+  const [offlineCvCount, setOfflineCvCount] = useState(0);
+  const [showOfflineOption, setShowOfflineOption] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void listNativeCvs().then((items) => { if (active) setOfflineCvCount(items.length); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     void authFetch('/api/career/auth/config')
@@ -509,6 +520,7 @@ export function LoginPage() {
       setMfaToken(payload.mfaToken);
       return;
     }
+    await leaveOfflineWorkstation();
     await completeAuthSession(payload as any, remember);
     afterAuthNavigate(setLocation, payload, returnTo);
   };
@@ -517,7 +529,20 @@ export function LoginPage() {
     event.preventDefault();
     setLoading(true);
     setError('');
+    setShowOfflineOption(false);
     try {
+      if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android') {
+        let connected = navigator.onLine;
+        try { connected = (await Network.getStatus()).connected; } catch { /* use browser fallback */ }
+        if (!connected) {
+          const localCount = (await listNativeCvs()).length;
+          setOfflineCvCount(localCount);
+          setShowOfflineOption(localCount > 0);
+          throw new Error(localCount > 0
+            ? 'You are offline. You can enter Offline Workstation Mode to access CVs saved on this device.'
+            : 'You are offline. Connect to the internet to sign in.');
+        }
+      }
       const response = await authFetch('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email: email.trim(), password, rememberMe }),
@@ -527,7 +552,18 @@ export function LoginPage() {
       await finish(payload);
     } catch (err) {
       console.error('Auth Error:', err);
-      setError(friendlyClientError(err, "We couldn't sign you in. Please try again."));
+      const failureMessage = err instanceof Error ? err.message : '';
+      const looksLikeConnectionFailure = !navigator.onLine || err instanceof TypeError || /network|failed to fetch|could not reach|unreachable/i.test(failureMessage);
+      if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android' && looksLikeConnectionFailure) {
+        const localCount = (await listNativeCvs()).length;
+        setOfflineCvCount(localCount);
+        setShowOfflineOption(localCount > 0);
+        setError(localCount > 0
+          ? 'We could not reach BonList. Check your internet connection, or open your CVs in Offline Workstation Mode.'
+          : 'We could not reach BonList. Check your internet connection and try again.');
+      } else {
+        setError(friendlyClientError(err, "We couldn't sign you in. Please try again."));
+      }
     } finally {
       setLoading(false);
     }
@@ -725,6 +761,19 @@ export function LoginPage() {
             Remember me on this device
           </label>
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {showOfflineOption && offlineCvCount > 0 ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <p className="font-semibold">Offline Workstation available</p>
+              <p className="mt-1 text-xs">Open {offlineCvCount} CV{offlineCvCount === 1 ? '' : 's'} saved on this device. Online account features will remain unavailable.</p>
+              <button
+                type="button"
+                className="mt-3 min-h-11 w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+                onClick={() => void enterOfflineWorkstation().then(() => setLocation('/offline-workstation')).catch((offlineError) => setError(friendlyClientError(offlineError)))}
+              >
+                Continue to Offline Workstation
+              </button>
+            </div>
+          ) : null}
           <button type="submit" className="btn-primary w-full" disabled={loading} data-testid="button-login-submit">
             {loading ? 'Signing in…' : 'Sign in'} <ArrowRight size={15} />
           </button>

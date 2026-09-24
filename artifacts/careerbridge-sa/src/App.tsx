@@ -50,6 +50,7 @@ import PricingPage from '@/pages/pricing';
 import ProgrammePage from '@/pages/programme';
 import CvBuilderPage, { generateCv, persistGeneratedCv } from '@/pages/cv-builder';
 import CvDashboardPage from '@/pages/CvDashboard';
+import OfflineWorkstationPage from '@/pages/OfflineWorkstation';
 import { AppUpdatePrompt, UpdatesPage } from '@/pages/UpdatesPage';
 import { SmokeyAgent } from '@/components/smokey-agent';
 import {
@@ -63,7 +64,7 @@ import { buildParseUploadBody, readFileAsDataUrl } from '@/lib/cv-parse-upload';
 import { isNativeApp } from '@/lib/platform';
 import { describeApiMisconfiguration } from '@/lib/api-base';
 import { triggerAndroidApkDownload } from '@/lib/download-apk';
-import { startNativeCvSync } from '@/lib/native-cv-store';
+import { getNativeCv, isOfflineWorkstationActive, listNativeCvs, startNativeCvSync } from '@/lib/native-cv-store';
 import {
   clearAuthSession,
   dismissSecurityNudgeLocal,
@@ -3476,7 +3477,7 @@ const PUBLIC_AUTH_PATHS = new Set(['/login', '/signup', '/forgot-password', '/re
 function ProtectedApp() {
   const [location, setLocation] = useLocation();
   const [check, setCheck] = useState(0);
-  const [access, setAccess] = useState<{ location: string; check: number; status: 'allowed' | 'unavailable' } | null>(null);
+  const [access, setAccess] = useState<{ location: string; check: number; status: 'allowed' | 'offline' | 'unavailable' } | null>(null);
 
   useEffect(() => {
     const refresh = () => setCheck((value) => value + 1);
@@ -3492,6 +3493,19 @@ function ProtectedApp() {
     let current = true;
 
     const verifySession = async () => {
+      const routeUrl = new URL(window.location.href);
+      const offlineEditorRequested = routeUrl.pathname === '/cv-builder' && routeUrl.searchParams.get('offline') === '1';
+      const offlineHomeRequested = routeUrl.pathname === '/offline-workstation';
+      if ((offlineEditorRequested || offlineHomeRequested) && isNativeApp() && await isOfflineWorkstationActive()) {
+        const localDocuments = offlineHomeRequested ? await listNativeCvs() : [];
+        const requestedId = Number(routeUrl.searchParams.get('documentId'));
+        const requestedDocument = offlineEditorRequested && Number.isInteger(requestedId) ? await getNativeCv(requestedId) : null;
+        if ((offlineHomeRequested && localDocuments.length > 0) || requestedDocument) {
+          if (current) setAccess({ location, check, status: 'offline' });
+          return;
+        }
+      }
+
       const hasSavedToken = Boolean(getSessionToken() || getAdminToken());
       if (!hasSavedToken) {
         clearAuthSession();
@@ -3568,6 +3582,13 @@ function ProtectedApp() {
         </div>
       </div>
     );
+  }
+
+  if (access.status === 'offline') {
+    const offlinePath = new URL(window.location.href);
+    if (offlinePath.pathname === '/offline-workstation') return <OfflineWorkstationPage />;
+    if (offlinePath.pathname === '/cv-builder' && offlinePath.searchParams.get('offline') === '1') return <RoutedErrorBoundary><CvBuilderPage /></RoutedErrorBoundary>;
+    return <OfflineWorkstationPage />;
   }
 
   const isAdmin = location === '/admin' || location.startsWith('/admin/');

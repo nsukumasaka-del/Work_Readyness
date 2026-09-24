@@ -2537,6 +2537,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   const referenceLines: string[] = [];
   const reviewerNoteLines: string[] = [];
   const assignedSectionLineKeys = new Set<string>();
+  let referencesHaveProcessedEntry = false;
   const assignSectionLine = (bucket: string[], line: string) => {
     const key = normalizeTextKey(line);
     if (key && assignedSectionLineKeys.has(key)) return;
@@ -2545,6 +2546,23 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   };
 
   const isPageMarker = (line: string) => /^--\s*\d+\s*of\s*\d+\s*--$/i.test(line.trim());
+  const isDocumentEndOrNoise = (line: string) =>
+    /^(?:page\s+\d+(?:\s+(?:of|\/|\|)\s*\d+)?|(?:end|continued to next page)\s+of\s+(?:the\s+)?(?:document|cv|resume)|confidential(?:ity)?(?:\s+notice)?|all rights reserved|www\.|https?:\/\/|generated (?:by|on)\b)/i.test(line.trim()) ||
+    /^(?:\d+\s*(?:of|\/)\s*\d+|\.{3,}|[_=*-]{4,})$/.test(line.trim()) ||
+    line.trim().length > 180;
+  const isKnownSectionHeading = (line: string) =>
+    /^(?:personal(?:\s+(?:details|information))?|contact(?:\s+details)?|professional\s+summary|summary|profile|about me|professional statement|executive summary|career objective|biography|key impact(?:\s+at\s+.+)?|key achievements|selected achievements|career highlights|highlights|work history|employment history|career history|professional experience|work experience|relevant experience|previous employment|experience|education(?:\s+and\s+qualifications)?|qualifications|academic history|tertiary education|academic background|studies|education\s*&\s*training|academic qualifications|professional skills|skills(?:\s+and\s+competencies)?|core competencies|competencies|tools\s*&\s*technologies|tools and technologies|technical skills|key skills|technologies|software\s*&\s*tools|expertise|core skills|hard\s*&\s*soft skills|systems|projects|key projects|portfolio|notable projects|personal projects|selected projects|certifications|certificates|licenses(?:\s+and\s+certifications)?|accreditations|courses(?:\s*&\s*certifications)?|professional certifications|languages(?:\s+(?:spoken|skills|proficiency))?|references|referees|testimonials)\s*:?$/i.test(line.trim());
+  const isReferenceDataLine = (line: string) => {
+    const value = line.trim();
+    if (!value || isDocumentEndOrNoise(value)) return false;
+    if (/^(?:references?\s+)?available upon request\.?$/i.test(value)) return true;
+    if (/@|(?:\+?\d[\d ()-]{7,}\d)/.test(value)) return true;
+    if (/\b(?:team leader|manager|director|supervisor|coordinator|consultant|officer|administrator|head of|human resources|hr|company|pty|ltd|limited|inc\.?|group|services|brokerage|university|college)\b/i.test(value)) return true;
+    const nameCandidate = value.split(/[|•·—–]/)[0]?.trim() || value;
+    const tokens = nameCandidate.split(/\s+/);
+    const nameParticles = /^(?:van|von|de|del|der|den|da|dos|du|la|le|bin|al)$/i;
+    return tokens.length >= 2 && tokens.length <= 5 && tokens.every((token) => /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*$/.test(token) && (/^[A-ZÀ-ÖØ-Þ]/.test(token) || nameParticles.test(token)));
+  };
 
   /** True only for real CV section titles — not body sentences that contain those words. */
   const looksLikeSectionTitle = (line: string) => {
@@ -2565,8 +2583,18 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       if (currentSection === "summary" && summaryLines.at(-1) !== "") summaryLines.push("");
       continue;
     }
-    if (isPageMarker(line)) continue;
+    if (isPageMarker(line)) {
+      if (currentSection === "references") break;
+      continue;
+    }
     const lower = line.toLowerCase().trim();
+
+    // References are the final supported CV section. Do not let repeated PDF
+    // text layers, footer copy, or later headings start new content buckets.
+    if (currentSection === "references") {
+      if (isDocumentEndOrNoise(line) || isKnownSectionHeading(line)) break;
+      if (referencesHaveProcessedEntry && !isReferenceDataLine(line)) break;
+    }
 
     if (isReviewerFeedbackNote(line)) {
       reviewerNoteLines.push(line);
@@ -2654,6 +2682,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       assignSectionLine(languageLines, line);
     } else if (currentSection === "references") {
       assignSectionLine(referenceLines, line);
+      if (isReferenceDataLine(line)) referencesHaveProcessedEntry = true;
     }
   }
 

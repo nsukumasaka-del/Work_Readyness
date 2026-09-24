@@ -263,11 +263,21 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
         return true;
       });
   };
-  const toolsAndSoftware = normalizeList(doc.toolsAndSoftware || [], 80);
-  const toolKeys = new Set(toolsAndSoftware.map((tool) => tool.toLocaleLowerCase().replace(/\s+/g, " ").trim()));
-  const skills = normalizeList(doc.skills || [], 60).filter(
-    (skill) => !toolKeys.has(skill.toLocaleLowerCase().replace(/\s+/g, " ").trim()),
-  );
+  const normalizeFactPhrase = (value: string) => value.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+  const containsFact = (source: string, fact: string) => {
+    const sourcePhrase = normalizeFactPhrase(source);
+    const factPhrase = normalizeFactPhrase(fact);
+    return Boolean(factPhrase && (` ${sourcePhrase} `).includes(` ${factPhrase} `));
+  };
+  const primaryNarrative = [summary, ...experiences.flatMap((exp) => exp.bullets)];
+  const skills = normalizeList([
+    ...(doc.skills || []),
+    ...(doc.toolsAndSoftware || []),
+    ...(doc.skillGroups || []).flatMap((group) => group.skills || []),
+  ], 80).filter((skill) => !primaryNarrative.some((source) => containsFact(source, skill)));
+  // Skills, tools, and competencies have one canonical location and one
+  // renderer. Keep the old fields empty for compatibility with older data.
+  const toolsAndSoftware: string[] = [];
 
   const projects = (doc.projects || [])
     .map((proj) => ({
@@ -318,23 +328,47 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     "experience", "work experience", "professional experience", "employment history", "experience accomplishments",
     "education", "education qualifications", "academic background", "qualifications",
     "skills", "key skills", "skills competencies", "skills and competencies", "core competencies",
+    "core skills tools", "core skills and tools", "systems software", "tools software", "tools and software",
+    "languages", "references", "referees", "certifications", "certifications accreditations",
+    "key projects", "projects", "portfolio", "notable projects", "selected projects",
   ].map((heading) => heading.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim()));
   const hasFirstClassSection = (heading: string) => {
     const normalized = heading.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     if (["summary", "professional summary", "executive summary", "career objective", "profile"].includes(normalized)) return Boolean(summary);
     if (["experience", "work experience", "professional experience", "employment history", "experience accomplishments"].includes(normalized)) return experiences.length > 0;
     if (["education", "education qualifications", "academic background", "qualifications"].includes(normalized)) return education.length > 0;
-    if (["skills", "key skills", "skills competencies", "skills and competencies", "core competencies"].includes(normalized)) {
-      return skills.length > 0 || (doc.skillGroups || []).some((group) => group.skills?.length) || toolsAndSoftware.length > 0;
+    if (["skills", "key skills", "skills competencies", "skills and competencies", "core competencies", "core skills tools", "core skills and tools", "systems software", "tools software", "tools and software"].includes(normalized)) {
+      return skills.length > 0;
     }
+    if (["languages"].includes(normalized)) return languages.length > 0;
+    if (["references", "referees"].includes(normalized)) return references.length > 0;
+    if (["certifications", "certifications accreditations"].includes(normalized)) return certifications.length > 0;
+    if (["key projects", "projects", "portfolio", "notable projects", "selected projects"].includes(normalized)) return projects.length > 0;
     return false;
   };
+  const occupiedFacts = [
+    summary,
+    ...experiences.flatMap((exp) => [exp.role, exp.company, ...exp.bullets]),
+    ...education.flatMap((edu) => [edu.degree, edu.institution, edu.details || ""]),
+    ...skills,
+    ...projects.flatMap((project) => [project.title, project.subtitle || "", ...project.bullets]),
+    ...certifications.flatMap((cert) => [cert.name, cert.issuer]),
+    ...languages,
+    ...references,
+    ...referenceDetails.flatMap((reference) => [reference.name, reference.title || "", reference.company || "", reference.phone || ""]),
+  ].filter(Boolean);
+  const customFactKeys = new Set<string>();
   const sectionsByHeading = new Map<string, { heading: string; items: string[] }>();
   for (const section of doc.sections || []) {
     const heading = scrubCvText(section.heading);
     const headingKey = heading.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     if (!heading || !headingKey || (builtInSectionAliases.has(headingKey) && hasFirstClassSection(heading))) continue;
-    const items = normalizeList(section.items || [], 10000);
+    const items = normalizeList(section.items || [], 10000).filter((item) => {
+      const key = normalizeFactPhrase(item);
+      if (!key || customFactKeys.has(key) || occupiedFacts.some((fact) => containsFact(fact, item))) return false;
+      customFactKeys.add(key);
+      return true;
+    });
     if (!items.length) continue;
     const existing = sectionsByHeading.get(headingKey);
     if (!existing) {
@@ -381,6 +415,7 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     experiences: uniqueExperiences,
     education: uniqueEducation,
     skills,
+    skillGroups: [],
     toolsAndSoftware,
     projects,
     certifications,
@@ -5894,37 +5929,7 @@ export default function CvBuilderPage() {
                   </>
                 );
 
-                const systemsSection = visibleSections.systems && (
-                  <>
-                    <A4PageSpacer id="systems" height={a4Spacers.systems || 0} />
-                    <section data-a4-id="systems" className={`relative group/section cv-a4-keep rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.toolsAndSoftware || []).length === 0 ? "hidden" : ""}`}>
-                      <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 px-2 py-0.5 shadow-sm">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const tool = prompt("Enter a system or software tool:");
-                            if (tool?.trim()) updateDocumentField("toolsAndSoftware", [...(cv.document.toolsAndSoftware || []), tool.trim()]);
-                          }}
-                          className="text-[10px] font-bold text-primary hover:underline"
-                        >
-                          + Add System
-                        </button>
-                      </div>
-                      {renderSectionHeading("Systems & Software")}
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {(cv.document.toolsAndSoftware || []).map((tool, toolIdx) => (
-                          <span
-                            key={toolIdx}
-                            className="cv-skill-chip rounded-lg border px-2.5 py-0.5 text-[11px] font-medium"
-                            style={{ backgroundColor: selectedColor.secondary, borderColor: selectedColor.border, color: selectedColor.primary }}
-                          >
-                            {tool}
-                          </span>
-                        ))}
-                      </div>
-                    </section>
-                  </>
-                );
+                const systemsSection = null;
 
                 const educationSection = visibleSections.education && (
                   <>

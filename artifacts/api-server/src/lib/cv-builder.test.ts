@@ -46,6 +46,41 @@ describe("CV extraction anti-fabrication guardrails", () => {
     expect(extracted.experiences[0]?.company).not.toMatch(/Company|Enterprise Services|Institution/i);
   });
 
+  it("stops extraction at the end of the References block", () => {
+    const extracted = extractCvDataFromText(`Jane Doe
+References
+Jacky van Rooyan — Team Leader, DSV Road Brokerage • 082 320 1339
+Page 2 of 2
+Skills
+PHANTOM FOOTER SKILL`);
+
+    expect(extracted.references).toHaveLength(1);
+    expect(extracted.references[0]).toContain("Jacky van Rooyan");
+    expect(extracted.skills).not.toContain("PHANTOM FOOTER SKILL");
+    expect(extracted.summary).not.toContain("PHANTOM FOOTER SKILL");
+  });
+
+  it("stores skills and systems once and removes facts already present in the summary", () => {
+    const extracted = extractCvDataFromText(`Jane Doe
+Professional Summary
+Experienced in Microsoft Excel and customer account management.
+Skills
+Microsoft Excel
+Customer Account Management
+Problem Solving
+Systems
+NAVIS`);
+    const document = buildGeneratedCv({ profile: { name: "Jane Doe" }, extracted });
+
+    expect(extracted.toolsAndSoftware).toEqual([]);
+    expect(document.skills).toContain("NAVIS");
+    expect(document.skills).toContain("Problem Solving");
+    expect(document.skills).not.toContain("Microsoft Excel");
+    expect(document.skills).not.toContain("Customer Account Management");
+    expect(document.skillGroups).toEqual([]);
+    expect(document.sections).toEqual([]);
+  });
+
   it("buildGeneratedCv does not inject fake data when the source fields are empty", () => {
     const doc = buildGeneratedCv({
       profile: { name: "", email: "", phone: "", location: "", targetRole: "" },

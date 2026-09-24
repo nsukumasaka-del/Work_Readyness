@@ -3018,13 +3018,11 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   const uniqueValues = (values: string[]) => {
     return uniqueTextValues(values);
   };
-  const finalSkills = uniqueValues(parseCompetencyLines(skillsLines)).slice(0, 40);
-  const isStandaloneTool = (skill: string) => /^(?:(?:microsoft|ms|google|oracle|salesforce)\s+)?(?:excel|word|outlook|powerpoint|power bi|office(?: 365)?|teams|sharepoint|sap|crm|tms|navis|radix(?: go)?|vft|ft|tp portal|spotlight tracking|sql|python|jira|react)$/i.test(skill.trim());
-  const toolsAndSoftware = uniqueValues([
+  const finalSkills = uniqueValues([
+    ...parseCompetencyLines(skillsLines),
     ...parseCompetencyLines(systemsLines),
-    ...finalSkills.filter(isStandaloneTool),
-  ]).slice(0, 40);
-  const coreSkills = finalSkills.filter((skill) => !isStandaloneTool(skill));
+  ]).slice(0, 60);
+  const toolsAndSoftware: string[] = [];
 
   // Parse Certifications
   const certifications: CvCertificationItem[] = [];
@@ -3163,7 +3161,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     summary,
     experiences,
     education,
-      skills: coreSkills,
+    skills: finalSkills,
     toolsAndSoftware,
     certifications,
     languages,
@@ -3354,6 +3352,16 @@ function normalizeTextKey(text: string): string {
   return String(text || "").toLocaleLowerCase().replace(/[^a-z0-9]/g, "").trim();
 }
 
+function normalizeTextPhrase(text: string): string {
+  return String(text || "").toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+}
+
+function containsTextFact(source: string, fact: string): boolean {
+  const sourcePhrase = normalizeTextPhrase(source);
+  const factPhrase = normalizeTextPhrase(fact);
+  return Boolean(factPhrase && (` ${sourcePhrase} `).includes(` ${factPhrase} `));
+}
+
 function uniqueTextValues(values: string[]): string[] {
   const unique = new Map<string, string>();
   for (const value of values || []) {
@@ -3454,12 +3462,12 @@ export function buildGeneratedCv({
         : [];
 
   // Skills: ZERO fabrication - if not present, keep empty array
-  const skills: string[] =
-    extracted?.skills && extracted.skills.length > 0
-      ? uniqueTextValues(extracted.skills)
-      : extracted?.cv_content?.skills && extracted.cv_content.skills.length > 0
-        ? uniqueTextValues(extracted.cv_content.skills)
-        : [];
+  const skillsFromAllSources = uniqueTextValues([
+    ...(extracted?.skills || []),
+    ...(extracted?.toolsAndSoftware || []),
+    ...(extracted?.cv_content?.skills || []),
+    ...(extracted?.cv_content?.toolsAndSoftware || []),
+  ]);
 
   // Projects
   const projects: CvProjectItem[] =
@@ -3507,72 +3515,36 @@ export function buildGeneratedCv({
     summary = "";
   }
 
-  const skillGroups: CvSkillGroup[] = [
-    {
-      category: "Core Competencies",
-      skills: skills.slice(0, 4),
-    },
-    {
-      category: "Tools & Execution",
-      skills: skills.slice(4),
-    },
-  ].filter((g) => g.skills.length > 0);
+  // One canonical skill array. Facts already expressed in the candidate's
+  // summary or experience bullets stay in those sections instead of appearing
+  // again as skill chips.
+  const primaryNarrative = [summary, ...experiences.flatMap((experience) => experience.bullets)].join("\n");
+  const skills = skillsFromAllSources.filter((skill) => !containsTextFact(primaryNarrative, skill));
 
-  const sections: CvSection[] = [
-    {
-      heading: "Professional Summary",
-      items: summary ? [summary] : [],
-    },
-  ];
+  // `skills` is the only stored/rendered skill list; this legacy grouping field
+  // remains empty for compatibility with older clients.
+  const skillGroups: CvSkillGroup[] = [];
 
-  if (experiences.length > 0) {
-    sections.push({
-      heading: "Experience & Accomplishments",
-      items: experiences.flatMap((e) => e.bullets),
-    });
+  // Standard sections are carried by their typed fields above. The legacy
+  // `sections` array is reserved for genuinely custom sections, so it cannot
+  // echo the same facts into a second render block.
+  const renderedCategories = new Set<string>();
+  const claimCategory = (category: string) => {
+    if (renderedCategories.has(category)) return false;
+    renderedCategories.add(category);
+    return true;
+  };
+  for (const [category, hasContent] of [
+    ["summary", Boolean(summary)],
+    ["experience", experiences.length > 0],
+    ["education", education.length > 0],
+    ["skills", skills.length > 0],
+    ["languages", languages.length > 0],
+    ["references", references.length > 0],
+  ] as const) {
+    if (hasContent) claimCategory(category);
   }
-
-  if (projects.length > 0) {
-    sections.push({
-      heading: "Key Projects",
-      items: projects.flatMap((p) => [p.title + (p.subtitle ? ` — ${p.subtitle}` : ""), ...p.bullets]),
-    });
-  }
-
-  if (skills.length > 0) {
-    sections.push({
-      heading: "Core Skills & Tools",
-      items: skills,
-    });
-  }
-
-  if (education.length > 0) {
-    sections.push({
-      heading: "Education",
-      items: education.map((ed) => `${ed.degree} — ${ed.institution}${ed.graduationYear ? ` (${ed.graduationYear})` : ""}`),
-    });
-  }
-
-  if (certifications.length > 0) {
-    sections.push({
-      heading: "Certifications & Accreditations",
-      items: certifications.map((c) => `${c.name}${c.issuer ? ` — ${c.issuer}` : ""}${c.year ? ` (${c.year})` : ""}`),
-    });
-  }
-
-  if (languages.length > 0) {
-    sections.push({
-      heading: "Languages",
-      items: languages,
-    });
-  }
-
-  if (references.length > 0) {
-    sections.push({
-      heading: "References",
-      items: references,
-    });
-  }
+  const sections: CvSection[] = [];
 
   const footerNote = "Engineered by BonList AI. 100% verified candidate information with semantic text layers, standard ATS headings, and anti-fabrication standards.";
 

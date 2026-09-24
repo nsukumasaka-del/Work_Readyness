@@ -3598,7 +3598,7 @@ export function traceCvEvidence(cv: GeneratedCvDocument, sourceText?: string): E
 
       if (bulletMetrics.length > 0 && normalizedSource.length > 0) {
         // Check if the numbers appear in source text
-        const hasUnsupportedNum = bulletMetrics.some((num) => !normalizedSource.includes(num.toLowerCase()));
+        const hasUnsupportedNum = bulletMetrics.some((num) => !normalizedSource.includes(String(num).toLowerCase()));
         if (hasUnsupportedNum) {
           isSupported = false;
           missingInquiry = `You mentioned quantitative results (${bulletMetrics.join(", ")}). What was the exact confirmed volume at ${exp.company}?`;

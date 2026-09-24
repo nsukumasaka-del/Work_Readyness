@@ -74,6 +74,9 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@capacitor/core": "^7.6.9",
+    "@capacitor/network": "^7.0.4",
+    "@capacitor/preferences": "^7.0.4",
     "@simplewebauthn/browser": "^14.0.0",
     "jszip": "3.10.2",
     "pdfjs-dist": "^6.3.289"

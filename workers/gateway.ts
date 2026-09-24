@@ -11,6 +11,10 @@ import { handlePlatformTools } from "./d1/platform-tools";
 
 export interface Env extends D1Env {
   ASSETS: Fetcher;
+  ANDROID_LATEST_VERSION?: string;
+  ANDROID_VERSION_CODE?: string;
+  ANDROID_APK_URL?: string;
+  ANDROID_RELEASE_NOTES?: string;
 }
 
 function jsonError(status: number, error: string): Response {
@@ -59,6 +63,20 @@ async function proxyApi(
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/api/app/version" && request.method === "GET") {
+      const latestVersion = String(env.ANDROID_LATEST_VERSION || "1.0.0").trim();
+      const parsedVersionCode = Number(env.ANDROID_VERSION_CODE || 1);
+      const configuredApkUrl = String(env.ANDROID_APK_URL || "https://www.bonlist.site/downloads/BonList.apk").trim();
+      return new Response(JSON.stringify({
+        latestVersion,
+        versionCode: Number.isFinite(parsedVersionCode) && parsedVersionCode > 0 ? parsedVersionCode : 1,
+        apkUrl: configuredApkUrl,
+        releaseNotes: String(env.ANDROID_RELEASE_NOTES || "Current stable BonList Android release."),
+      }), {
+        headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+      });
+    }
 
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
       if (env.DB) {

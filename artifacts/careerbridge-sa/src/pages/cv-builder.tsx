@@ -14,6 +14,7 @@ import {
   AlertCircle,
   ArrowRight,
   Award,
+  Bold,
   Briefcase,
   Check,
   CheckCircle2,
@@ -33,9 +34,13 @@ import {
   HelpCircle,
   History,
   Info,
+  Italic,
   Layers,
   LayoutTemplate,
   ListChecks,
+  List,
+  ListOrdered,
+  Link2,
   Lock,
   Mail,
   Maximize2,
@@ -72,6 +77,8 @@ import { authFetch, readProfile as readAuthProfile } from "@/lib/auth-session";
 import { ensureCvProfile } from "@/lib/cv-profile";
 import { calculateCvCompletion } from "@/lib/cv-completion";
 import { buildParseUploadBody, parseUploadErrorMessage } from "@/lib/cv-parse-upload";
+import { getNativeCv, NATIVE_CV_STORE_UPDATED, saveNativeCv } from "@/lib/native-cv-store";
+import { isAndroidApp } from "@/lib/platform";
 import {
   buildGeneratedCv as buildGeneratedCvLocally,
   extractCvDataFromText,
@@ -1183,10 +1190,13 @@ const COLOR_THEMES = [
 ];
 
 const FONT_OPTIONS = [
+  { id: "inter", label: "Inter", family: "Inter, var(--font-sans), ui-sans-serif, system-ui, sans-serif" },
+  { id: "roboto", label: "Roboto", family: "Roboto, Arial, sans-serif" },
   { id: "lato", label: "Lato (Enhancv Signature)", family: "'Lato', sans-serif" },
   { id: "rubik", label: "Rubik (Modern Geometric)", family: "'Rubik', sans-serif" },
   { id: "sans", label: "Inter / Figtree (Clean UI)", family: "var(--font-sans), ui-sans-serif, system-ui, sans-serif" },
   { id: "merriweather", label: "Merriweather (Ivy League Serif)", family: "'Merriweather', Georgia, serif" },
+  { id: "garamond", label: "Garamond", family: "Garamond, 'Times New Roman', serif" },
   { id: "raleway", label: "Raleway (Sophisticated)", family: "'Raleway', sans-serif" },
   { id: "playfair", label: "Playfair Display (Executive Editorial)", family: "'Playfair Display', Georgia, serif" },
   { id: "mono", label: "Technical Mono (System Stack)", family: "ui-monospace, SFMono-Regular, Menlo, monospace" },
@@ -1778,6 +1788,8 @@ export default function CvBuilderPage() {
   const [canvasPageWidthPx, setCanvasPageWidthPx] = useState(794);
   const [currentCanvasPage, setCurrentCanvasPage] = useState(1);
   const [documentLocale, setDocumentLocale] = useState("en-GB");
+  const [draggedCustomSection, setDraggedCustomSection] = useState<number | null>(null);
+  const activeTextTargetRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
   const [cv, setCv] = useState<GeneratedCvResponse | null>(null);
   const [documentTitle, setDocumentTitle] = useState(`CV of ${profile?.name || "NSUKU CLIFORD MASAKA"}`);
@@ -1787,7 +1799,7 @@ export default function CvBuilderPage() {
   currentCvRef.current = cv;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [autoSaveStatus, setAutoSaveStatus] = useState<"saved" | "saving" | "error">("saved");
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"saved" | "unsaved" | "error">("unsaved");
   const autoSaveSignatureRef = useRef("");
   const autoSaveInitializedRef = useRef(false);
   const [error, setError] = useState("");
@@ -1799,7 +1811,7 @@ export default function CvBuilderPage() {
   }, [cv?.document.fullName, profile?.name]);
 
   // Styling & Customization (Enhancv Clone Architecture with Custom Brand Colors)
-  const [selectedTemplate, setSelectedTemplate] = useState<string>("double_column");
+  const [selectedTemplate, setSelectedTemplate] = useState<string>("serif_classic");
   const [selectedColor, setSelectedColor] = useState(COLOR_THEMES[0]!);
   const [selectedFont, setSelectedFont] = useState(FONT_OPTIONS[0]!);
   const [fontSize, setFontSize] = useState<number>(10.5); // pt
@@ -1970,6 +1982,7 @@ export default function CvBuilderPage() {
   const [intakeTab, setIntakeTab] = useState<"manual" | "upload">(() =>
     readIntakeSession<string>(CV_INTAKE_TAB_KEY, "manual") === "upload" ? "upload" : "manual",
   );
+  const [manualWizardStep, setManualWizardStep] = useState(0);
   const [generatingFromIntake, setGeneratingFromIntake] = useState(false);
   const [intakePasteText, setIntakePasteText] = useState("");
   const [showPasteInsideUpload, setShowPasteInsideUpload] = useState(false);
@@ -2911,14 +2924,23 @@ export default function CvBuilderPage() {
     const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     const isIntakeRequested = searchParams?.get("intake") === "1";
     const requestedDocumentId = searchParams?.get("documentId");
-    if (requestedDocumentId && /^\d+$/.test(requestedDocumentId)) {
+    if (requestedDocumentId && /^-?\d+$/.test(requestedDocumentId)) {
       setLoading(true);
       setIsIntakeModalOpen(false);
-      void authFetch("/api/career/cv/documents/" + encodeURIComponent(requestedDocumentId))
-        .then(async (response) => {
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || "Could not load this saved CV.");
-          const loaded = data as GeneratedCvResponse;
+      void (async () => {
+        try {
+          const requestedId = Number(requestedDocumentId);
+          let loaded: GeneratedCvResponse;
+          if (requestedId < 0 && isAndroidApp()) {
+            const local = await getNativeCv(requestedId);
+            if (!local) throw new Error("This offline CV is no longer available on this device.");
+            loaded = local as unknown as GeneratedCvResponse;
+          } else {
+            const response = await authFetch("/api/career/cv/documents/" + encodeURIComponent(requestedDocumentId));
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Could not load this saved CV.");
+            loaded = data as GeneratedCvResponse;
+          }
           setCv(loaded);
           persistGeneratedCv(loaded);
           setCurrentVersionName(loaded.title || "My Master CV");
@@ -2941,9 +2963,12 @@ export default function CvBuilderPage() {
           if (searchParams?.get("print") === "1") {
             window.setTimeout(() => handleDirectDownload("print"), 900);
           }
-        })
-        .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load this saved CV."))
-        .finally(() => setLoading(false));
+        } catch (loadError) {
+          setError(loadError instanceof Error ? loadError.message : "Could not load this saved CV.");
+        } finally {
+          setLoading(false);
+        }
+      })();
       return;
     }
     if (isIntakeRequested) {
@@ -3313,10 +3338,25 @@ export default function CvBuilderPage() {
     if (!cv) return;
     setSaving(true);
     setError("");
+    const title = customTitle || documentTitle.trim() || ("CV of " + (cv.document.fullName || "Candidate"));
+    const payload = buildDocumentSavePayload(cv.document, title);
+    const saveOffline = async () => {
+      const local = await saveNativeCv({ ...cv, title }, true, { title, preferences: payload.preferences });
+      const saved = local as unknown as GeneratedCvResponse;
+      setCv(saved);
+      persistGeneratedCv(saved);
+      autoSaveSignatureRef.current = savePayloadSignature(payload);
+      autoSaveInitializedRef.current = true;
+      setAutoSaveStatus("saved");
+      setMessage("Saved on this device · Pending Sync");
+      setTimeout(() => setMessage(""), 5000);
+    };
     try {
+      if (isAndroidApp() && !navigator.onLine) {
+        await saveOffline();
+        return;
+      }
       await ensureCvProfile();
-      const title = customTitle || documentTitle.trim() || ("CV of " + (cv.document.fullName || "Candidate"));
-      const payload = buildDocumentSavePayload(cv.document, title);
       const isExistingDocument = Number(cv.id) > 0;
       let res = await authFetch(
         isExistingDocument ? "/api/career/cv/documents/" + cv.id : "/api/career/cv/documents",
@@ -3333,9 +3373,14 @@ export default function CvBuilderPage() {
       autoSaveSignatureRef.current = savePayloadSignature(payload);
       autoSaveInitializedRef.current = true;
       setAutoSaveStatus("saved");
-      setMessage("CV saved successfully to BonList Cloud!");
+      if (isAndroidApp()) await saveNativeCv(saved, false, { title, preferences: payload.preferences });
+      setMessage(isAndroidApp() ? "CV saved to your BonList account and available offline." : "CV saved successfully to BonList Cloud!");
       setTimeout(() => setMessage(""), 3500);
     } catch (err) {
+      if (isAndroidApp() && !navigator.onLine) {
+        await saveOffline();
+        return;
+      }
       setError(err instanceof Error ? err.message : "Could not save CV");
     } finally {
       setSaving(false);
@@ -3351,45 +3396,77 @@ export default function CvBuilderPage() {
     persistGeneratedCv(updatedCv);
   };
 
+  const applyTextFormat = (format: "bold" | "italic" | "bullet" | "numbered" | "link") => {
+    const target = activeTextTargetRef.current;
+    if (!target || !cv) return;
+    const start = target.selectionStart ?? 0;
+    const selectedEnd = target.selectionEnd ?? start;
+    const lineEnd = target.value.indexOf("\n", start);
+    const end = selectedEnd === start ? (lineEnd < 0 ? target.value.length : lineEnd) : selectedEnd;
+    const selected = target.value.slice(start, end);
+    if (!selected) return;
+    let replacement = selected;
+    if (format === "bold") replacement = `**${selected}**`;
+    if (format === "italic") replacement = `_${selected}_`;
+    if (format === "bullet") replacement = selected.split("\n").map((line) => `• ${line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")}`).join("\n");
+    if (format === "numbered") replacement = selected.split("\n").map((line, index) => `${index + 1}. ${line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")}`).join("\n");
+    if (format === "link") {
+      const url = window.prompt("Enter a link URL (https://…)", "https://");
+      if (!url || !/^https?:\/\//i.test(url.trim())) return;
+      replacement = `[${selected}](${url.trim()})`;
+    }
+    target.setRangeText(replacement, start, end, "select");
+    target.dispatchEvent(new Event("input", { bubbles: true }));
+    target.focus();
+  };
+
+  const moveCustomSection = (from: number, to: number) => {
+    if (!cv || from === to) return;
+    const sections = [...(cv.document.sections || [])];
+    if (from < 0 || to < 0 || from >= sections.length || to >= sections.length) return;
+    const [moved] = sections.splice(from, 1);
+    if (moved) sections.splice(to, 0, moved);
+    updateDocumentField("sections", sections);
+    setDraggedCustomSection(null);
+  };
+
   useEffect(() => {
-    if (!cv || isIntakeModalOpen || !Number.isFinite(Number(cv.id))) return;
+    if (!cv || isIntakeModalOpen) return;
     const title = documentTitle.trim() || ("CV of " + (cv.document.fullName || "Candidate"));
     const payload = buildDocumentSavePayload(cv.document, title);
     const signature = savePayloadSignature(payload);
     if (!autoSaveInitializedRef.current) {
       autoSaveInitializedRef.current = true;
       autoSaveSignatureRef.current = signature;
+      setAutoSaveStatus(Number(cv.id) > 0 ? "saved" : "unsaved");
+      if (isAndroidApp() && Number(cv.id) > 0) {
+        void saveNativeCv({ ...cv, title }, false, { title, preferences: payload.preferences });
+      }
       return;
     }
-    if (signature === autoSaveSignatureRef.current) return;
-    setAutoSaveStatus("saving");
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        try {
-          await ensureCvProfile();
-          const isExistingDocument = Number(cv.id) > 0;
-          let response = await authFetch(
-            isExistingDocument ? "/api/career/cv/documents/" + cv.id : "/api/career/cv/documents",
-            { method: isExistingDocument ? "PUT" : "POST", body: JSON.stringify(payload) },
-          );
-          if (isExistingDocument && response.status === 404) {
-            response = await authFetch("/api/career/cv/documents", { method: "POST", body: JSON.stringify(payload) });
-          }
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || "Autosave failed");
-          const saved = { ...cv, ...data } as GeneratedCvResponse;
-          setCv((current) => current ? { ...current, ...saved } : saved);
-          persistGeneratedCv(saved);
-          autoSaveSignatureRef.current = signature;
-          setAutoSaveStatus("saved");
-        } catch (saveError) {
-          console.error("CV autosave failed", saveError);
-          setAutoSaveStatus("error");
-        }
-      })();
-    }, 1000);
-    return () => window.clearTimeout(timer);
+    if (signature !== autoSaveSignatureRef.current) {
+      setAutoSaveStatus("unsaved");
+      if (isAndroidApp() && Number(cv.id) !== 0) {
+        void saveNativeCv({ ...cv, title }, true, { title, preferences: payload.preferences });
+      }
+    }
   }, [cv, documentTitle, selectedTemplate, selectedColor.id, selectedFont.id, fontSize, lineSpacing, marginSize, isIntakeModalOpen]);
+
+  useEffect(() => {
+    if (!isAndroidApp()) return;
+    const reconcileLocalId = () => {
+      const current = currentCvRef.current;
+      const localId = Number(current?.id);
+      if (!current || localId >= 0) return;
+      void getNativeCv(localId).then((saved) => {
+        if (saved?.id && saved.id > 0 && currentCvRef.current?.id === localId) {
+          setCv(saved as unknown as GeneratedCvResponse);
+        }
+      });
+    };
+    window.addEventListener(NATIVE_CV_STORE_UPDATED, reconcileLocalId);
+    return () => window.removeEventListener(NATIVE_CV_STORE_UPDATED, reconcileLocalId);
+  }, []);
 
   // Smart Bullet Improvement
   const handleOpenEnhanceBullet = async (expIdx: number, bulletIdx: number, bulletText: string) => {
@@ -4550,6 +4627,19 @@ export default function CvBuilderPage() {
   }, [cv, activeNavPanel, isPreviewMode]);
 
   const meta = resolveTemplate(selectedTemplate);
+  const liveAtsMetrics = (() => {
+    if (!cv) return null;
+    const bullets = cv.document.experiences.flatMap((experience) => experience.bullets || []);
+    const actionVerbPattern = /^(?:achieved|analyzed|automated|built|collaborated|coordinated|created|delivered|designed|developed|directed|established|improved|increased|implemented|launched|led|managed|negotiated|optimized|organized|reduced|resolved|streamlined|trained|transformed)\b/i;
+    const metricPattern = /(?:\b\d+(?:\.\d+)?\s?%|\b\d+(?:,\d{3})*\+?\b|\bR\s?\d|\b\d+\s?(?:hours?|days?|weeks?|months?|years?)\b)/i;
+    const actionCount = bullets.filter((bullet) => actionVerbPattern.test(bullet.trim())).length;
+    const metricCount = bullets.filter((bullet) => metricPattern.test(bullet)).length;
+    const rawKeywords = `${cv.document.headline || ""} ${jobDescription || ""}`.toLowerCase().match(/[a-z][a-z0-9+#.-]{3,}/g) || [];
+    const keywords = [...new Set(rawKeywords)].filter((word) => !["with", "from", "that", "this", "your", "role", "job", "work", "years", "experience"].includes(word)).slice(0, 10);
+    const body = [cv.document.summary, ...bullets].join(" ").toLowerCase();
+    const matchedKeywords = keywords.filter((word) => body.includes(word));
+    return { actionCount, metricCount, bullets: bullets.length, keywords, matchedKeywords };
+  })();
 
   const filteredTemplates = TEMPLATE_CATALOG.filter((t) => {
     if (templateFilter === "double") return t.columns === "double";
@@ -4587,9 +4677,9 @@ export default function CvBuilderPage() {
             <button type="button" onClick={() => documentTitleInputRef.current?.focus()} className="shrink-0 text-gray-400 hover:text-gray-600" aria-label="Edit CV title">
               <Pencil size={14} />
             </button>
-            <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${autoSaveStatus === "error" ? "bg-red-50 text-red-700" : autoSaveStatus === "saving" || saving ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-emerald-700"}`}>
+            <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${autoSaveStatus === "error" ? "bg-red-50 text-red-700" : saving ? "bg-slate-100 text-slate-600" : autoSaveStatus === "unsaved" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>
               {autoSaveStatus === "saved" && !saving ? <Check size={11} /> : null}
-              {saving || autoSaveStatus === "saving" ? "Saving…" : autoSaveStatus === "error" ? "Save failed" : "Saved"}
+              {saving ? "Saving…" : autoSaveStatus === "error" ? "Save failed" : autoSaveStatus === "unsaved" ? "Unsaved changes" : "Saved to account"}
             </span>
           </div>
 
@@ -5008,12 +5098,52 @@ export default function CvBuilderPage() {
                     <span>Add New Employment Entry</span>
                   </button>
                 </div>
+                <div className="border-t border-border pt-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-foreground">Custom sections</span>
+                    <button type="button" disabled={!cv} onClick={() => {
+                      if (!cv) return;
+                      const heading = window.prompt("Name this CV section", "Certifications");
+                      if (!heading?.trim()) return;
+                      updateDocumentField("sections", [...(cv.document.sections || []), { heading: heading.trim(), items: [""] }]);
+                    }} className="inline-flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-1 font-semibold text-primary disabled:opacity-50"><Plus size={12} /> Add</button>
+                  </div>
+                  {(cv?.document.sections || []).map((section, index) => (
+                    <div key={`${section.heading}-${index}`} draggable onDragStart={() => setDraggedCustomSection(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => draggedCustomSection !== null && moveCustomSection(draggedCustomSection, index)} className="flex cursor-grab items-center gap-2 rounded-lg border border-border bg-card p-2 active:cursor-grabbing">
+                      <span aria-hidden="true" className="text-muted-foreground">⠿</span>
+                      <span className="min-w-0 flex-1 truncate font-medium">{section.heading || "Untitled section"}</span>
+                      <button type="button" title="Remove section" onClick={() => updateDocumentField("sections", (cv?.document.sections || []).filter((_, sectionIndex) => sectionIndex !== index))} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><X size={13} /></button>
+                    </div>
+                  ))}
+                  {!cv?.document.sections?.length ? <p className="text-[11px] text-muted-foreground">Add sections for projects, languages, certifications, or other details.</p> : null}
+                </div>
               </div>
             )}
 
             {/* PANEL 4: AI ASSISTANT & STRATEGIC POSITIONING */}
             {activeNavPanel === "ai" && (
               <div className="space-y-4 text-xs">
+                {liveAtsMetrics ? (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3.5 text-emerald-950">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 font-bold"><Target size={14} /> Live ATS optimization</div>
+                      <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold">Updates as you edit</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                      <div className="rounded-xl bg-white/80 p-2"><strong className="block text-base">{liveAtsMetrics.actionCount}/{liveAtsMetrics.bullets}</strong><span className="text-[9px] text-emerald-800">Action-led</span></div>
+                      <div className="rounded-xl bg-white/80 p-2"><strong className="block text-base">{liveAtsMetrics.metricCount}/{liveAtsMetrics.bullets}</strong><span className="text-[9px] text-emerald-800">With metrics</span></div>
+                      <div className="rounded-xl bg-white/80 p-2"><strong className="block text-base">{liveAtsMetrics.matchedKeywords.length}/{liveAtsMetrics.keywords.length || 0}</strong><span className="text-[9px] text-emerald-800">Role keywords</span></div>
+                    </div>
+                    <p className="mt-3 text-[10px] leading-relaxed text-emerald-900">
+                      {liveAtsMetrics.bullets === 0
+                        ? "Add experience bullets to get live suggestions for action verbs and measurable results."
+                        : liveAtsMetrics.actionCount < liveAtsMetrics.bullets
+                          ? "Start each achievement with a specific action verb; add scope and outcomes where you can verify them."
+                          : "Strong action verbs detected. Add measurable outcomes and role keywords where supported by your experience."}
+                    </p>
+                    {liveAtsMetrics.keywords.length ? <div className="mt-2 flex flex-wrap gap-1">{liveAtsMetrics.keywords.map((keyword) => <span key={keyword} className={`rounded-full px-2 py-0.5 text-[9px] ${liveAtsMetrics.matchedKeywords.includes(keyword) ? "bg-emerald-200 text-emerald-900" : "bg-white text-slate-600"}`}>{keyword}</span>)}</div> : <p className="mt-2 text-[10px] text-emerald-800">Set a target title or add a job description to check keyword coverage.</p>}
+                  </div>
+                ) : null}
                 {/* Isolated AI Reviewer Feedback Channel */}
                 {aiFeedback &&
                   (aiFeedback.summaryFeedback ||
@@ -5190,12 +5320,32 @@ export default function CvBuilderPage() {
         <main
           ref={canvasRef}
           tabIndex={-1}
+          onFocusCapture={(event) => {
+            const target = event.target;
+            if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) activeTextTargetRef.current = target;
+          }}
           onScroll={(event) => {
             const pageHeight = (canvasPageWidthPx / 210) * 297 * Math.min(zoomLevel / 100, canvasFitScale);
             if (pageHeight > 0) setCurrentCanvasPage(Math.min(a4PageCount, Math.max(1, Math.floor((event.currentTarget.scrollTop + 16) / pageHeight) + 1)));
           }}
           className="relative min-h-0 min-w-0 flex h-full flex-1 flex-col items-center overflow-y-auto bg-[#f0f2f5] p-4 sm:p-8"
         >
+          {cv && !isPreviewMode ? (
+            <div className="no-print sticky top-0 z-20 mb-3 flex max-w-full items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-sm backdrop-blur" role="toolbar" aria-label="Text formatting">
+              <span className="px-2 text-[10px] font-semibold text-slate-500">Format selection</span>
+              {[
+                { label: "Bold", icon: Bold, format: "bold" as const },
+                { label: "Italic", icon: Italic, format: "italic" as const },
+                { label: "Bullets", icon: List, format: "bullet" as const },
+                { label: "Numbered list", icon: ListOrdered, format: "numbered" as const },
+                { label: "Hyperlink", icon: Link2, format: "link" as const },
+              ].map((item) => (
+                <button key={item.format} type="button" title={item.label} aria-label={item.label} onMouseDown={(event) => event.preventDefault()} onClick={() => applyTextFormat(item.format)} className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                  <item.icon size={14} /><span className="hidden sm:inline">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
             <div className="cv-a4-viewport">
@@ -6026,6 +6176,32 @@ export default function CvBuilderPage() {
                   </>
                 );
 
+                const customSectionsSection = (cv.document.sections || []).map((section, sectionIndex) => (
+                  <section key={`${section.heading}-${sectionIndex}`} className="relative space-y-2 rounded-xl p-1 transition hover:bg-slate-50/50">
+                    <div className="flex items-center gap-2">
+                      <input type="text" value={section.heading} onChange={(event) => {
+                        const sections = [...(cv.document.sections || [])];
+                        sections[sectionIndex] = { ...section, heading: event.target.value };
+                        updateDocumentField("sections", sections);
+                      }} className="min-w-0 flex-1 bg-transparent text-xs font-bold uppercase tracking-wider focus:outline-none focus:ring-1 focus:ring-primary/30" placeholder="Section heading" />
+                      <button type="button" className="no-print text-[10px] font-semibold text-primary" onClick={() => {
+                        const sections = [...(cv.document.sections || [])];
+                        sections[sectionIndex] = { ...section, items: [...(section.items || []), ""] };
+                        updateDocumentField("sections", sections);
+                      }}>+ Item</button>
+                    </div>
+                    {(section.items || []).map((item, itemIndex) => (
+                      <AutoGrowTextarea key={itemIndex} value={item} onChange={(event) => {
+                        const sections = [...(cv.document.sections || [])];
+                        const items = [...(sections[sectionIndex]?.items || [])];
+                        items[itemIndex] = event.target.value;
+                        sections[sectionIndex] = { ...section, items };
+                        updateDocumentField("sections", sections);
+                      }} className="w-full resize-none bg-transparent text-xs leading-snug text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary/30" placeholder="Add a verified detail" />
+                    ))}
+                  </section>
+                ));
+
                 return (
                   <article
                     ref={printRef}
@@ -6407,6 +6583,8 @@ export default function CvBuilderPage() {
                         {referencesSection}
                       </div>
                     )}
+
+                    {customSectionsSection}
 
                     {/* Footer Note with POPIA Notice — never print marketing footer */}
                     {showPopiaNotice && cv.document.footerNote ? (
@@ -6865,11 +7043,11 @@ export default function CvBuilderPage() {
                   <Sparkles size={20} />
                 </span>
                 <div>
-                  <h2 id="cv-intake-title" className="text-base sm:text-lg font-bold text-foreground">
+                  <h2 id="cv-intake-title" className="text-xl font-bold text-foreground md:text-2xl">
                     Welcome to the CV Builder
                   </h2>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Step 1: add your details · Step 2: choose a template · Step 3: generate &amp; edit
+                    Step 1: add details · Step 2: generate &amp; edit
                   </p>
                 </div>
               </div>
@@ -6890,11 +7068,33 @@ export default function CvBuilderPage() {
               </div>
             ) : null}
 
+            {intakeTab === "manual" && (
+              <div className="space-y-3 rounded-2xl border border-border bg-secondary/20 p-3 sm:p-4" aria-label="Manual CV setup progress">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-base font-bold text-foreground md:text-sm">{["Personal & Contact", "Professional Summary", "Work Experience", "Education & Qualifications", "Skills & Competencies"][manualWizardStep]}</p>
+                    <p className="text-sm text-muted-foreground md:text-xs">Step {manualWizardStep + 1} of 5</p>
+                  </div>
+                  <span className="text-sm font-semibold text-primary md:text-xs">{Math.round(((manualWizardStep + 1) / 5) * 100)}%</span>
+                </div>
+                <div className="flex items-center gap-1.5" aria-hidden="true">
+                  {[0, 1, 2, 3, 4].map((step) => (
+                    <div key={step} className={`h-1.5 flex-1 rounded-full transition-colors ${step <= manualWizardStep ? "bg-primary" : "bg-border"}`} />
+                  ))}
+                </div>
+                <div className="grid grid-cols-5 gap-1 text-center">
+                  {["Personal", "Summary", "Experience", "Education", "Skills"].map((label, step) => (
+                    <span key={label} className={`truncate text-[10px] sm:text-xs ${step === manualWizardStep ? "font-bold text-primary" : "text-muted-foreground"}`}>{label}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Step 1: Mode Selection Tabs */}
-            <div className="grid grid-cols-2 gap-2 rounded-2xl bg-secondary/50 p-1.5 text-xs font-bold">
+            <div className="grid grid-cols-2 gap-2 rounded-2xl bg-secondary/50 p-1.5 text-sm font-bold md:text-xs">
               <button
                 type="button"
-                onClick={() => setIntakeTab("manual")}
+                onClick={() => { setIntakeTab("manual"); setManualWizardStep(0); }}
                 className={`flex items-center justify-center gap-2 rounded-xl py-2.5 transition ${
                   intakeTab === "manual"
                     ? "bg-card text-foreground shadow-xs ring-1 ring-border"
@@ -6928,7 +7128,7 @@ export default function CvBuilderPage() {
             {/* TAB CONTENT: OPTION 1 (MANUAL) vs OPTION 2 (UPLOAD) */}
             {intakeTab === "manual" ? (
               /* OPTION 1: MANUAL ENTRY FORM */
-              <div className="space-y-5 text-xs">
+              <div className="manual-form-wizard space-y-5 text-base md:text-sm [&_input]:min-h-[44px] [&_input]:text-base md:[&_input]:text-sm [&_textarea]:min-h-[88px] [&_textarea]:text-base md:[&_textarea]:text-sm [&_button]:min-h-[44px]">
                 {/* Pre-fill Helper Bar */}
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-secondary/30 p-3">
                   <span className="text-[11px] text-muted-foreground">
@@ -6947,6 +7147,7 @@ export default function CvBuilderPage() {
                   </div>
                 </div>
 
+                {manualWizardStep === 0 && (<div className="space-y-5">
                 {/* 1. Personal & Contact Details */}
                 <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
                   <h3 className="font-bold text-foreground text-xs uppercase tracking-wider text-primary">
@@ -7040,6 +7241,9 @@ export default function CvBuilderPage() {
                   </div>
                 </div>
 
+                </div>)}
+
+                {manualWizardStep === 1 && (<div className="space-y-5">
                 {/* 2. Professional Summary */}
                 <div className="rounded-2xl border border-border bg-card p-4 space-y-2">
                   <h3 className="font-bold text-foreground text-xs uppercase tracking-wider text-primary">
@@ -7054,6 +7258,9 @@ export default function CvBuilderPage() {
                   />
                 </div>
 
+                </div>)}
+
+                {manualWizardStep === 2 && (<div className="space-y-5">
                 {/* 3. Work Experience */}
                 <div className="rounded-2xl border border-border bg-card p-4 space-y-4">
                   <div className="flex items-center justify-between">
@@ -7181,6 +7388,9 @@ export default function CvBuilderPage() {
                   </div>
                 </div>
 
+                </div>)}
+
+                {manualWizardStep === 3 && (<div className="space-y-5">
                 {/* 4. Education & Qualifications */}
                 <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
                   <div className="flex items-center justify-between">
@@ -7252,6 +7462,9 @@ export default function CvBuilderPage() {
                   </div>
                 </div>
 
+                </div>)}
+
+                {manualWizardStep === 4 && (<div className="space-y-5">
                 {/* 5. Skills & Core Competencies */}
                 <div className="rounded-2xl border border-border bg-card p-4 space-y-2">
                   <h3 className="font-bold text-foreground text-xs uppercase tracking-wider text-primary">
@@ -7269,6 +7482,9 @@ export default function CvBuilderPage() {
                   </p>
                 </div>
 
+                </div>)}
+
+                {manualWizardStep === 3 && (<div className="space-y-5">
                 {/* 6. Key Projects */}
                 <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
                   <div className="flex items-center justify-between">
@@ -7432,6 +7648,9 @@ export default function CvBuilderPage() {
                   </div>
                 </div>
 
+                </div>)}
+
+                {manualWizardStep === 4 && (<div className="space-y-5">
                 {/* 8. Languages */}
                 <div className="rounded-2xl border border-border bg-card p-4 space-y-2">
                   <h3 className="font-bold text-foreground text-xs uppercase tracking-wider text-primary">
@@ -7465,6 +7684,7 @@ export default function CvBuilderPage() {
                     Enter &quot;Available upon request&quot; or provide specific contact details (one referee per line).
                   </p>
                 </div>
+                </div>)}
               </div>
             ) : (
               /* OPTION 2: UPLOAD CV */
@@ -7647,35 +7867,6 @@ export default function CvBuilderPage() {
               </div>
             )}
 
-            {/* STEP 2: CHOOSE FROM MODERN ATS TEMPLATES */}
-            <div className="space-y-3 border-t border-border pt-4">
-              <div className="flex items-baseline justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-foreground">
-                    Choose Your Modern ATS-Friendly Template
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    All layouts are pre-tested to parse 100% cleanly in Workday, Taleo, and Greenhouse.
-                  </p>
-                </div>
-                <span className="text-xs font-semibold text-primary">
-                  {TEMPLATE_CATALOG.find((t) => t.id === selectedTemplate)?.name || "Corporate Professional"} Selected
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {TEMPLATE_CATALOG.map((tpl) => (
-                  <TemplateThumbnail
-                    key={tpl.id}
-                    tpl={tpl}
-                    selected={selectedTemplate === tpl.id}
-                    onSelect={() => handleTemplateChange(tpl.id)}
-                    doc={cv?.document}
-                  />
-                ))}
-              </div>
-            </div>
-
             {/* ACTION FOOTER — sticky so Generate is always reachable */}
             </div>
             <div className="shrink-0 border-t border-border bg-card px-5 py-4 sm:px-7">
@@ -7703,15 +7894,26 @@ export default function CvBuilderPage() {
                 >
                   {cv ? "Back to workspace" : "Close"}
                 </button>
-                <button
-                  type="button"
-                  disabled={generatingFromIntake}
-                  onClick={() => void handleGenerateFromIntake()}
-                  className="rounded-xl bg-primary px-6 py-2.5 text-xs font-bold text-primary-foreground shadow-sm hover:brightness-105 transition disabled:opacity-50 flex items-center gap-1.5"
-                >
-                  <Sparkles size={14} />
-                  <span>{generatingFromIntake ? "Generating Modern ATS CV…" : "Generate Modern ATS CV"}</span>
-                </button>
+                {intakeTab === "manual" && manualWizardStep > 0 && (
+                  <button type="button" onClick={() => setManualWizardStep((step) => Math.max(0, step - 1))} className="min-h-[44px] rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary md:text-xs">
+                    ← Back
+                  </button>
+                )}
+                {intakeTab === "manual" && manualWizardStep < 4 ? (
+                  <button type="button" onClick={() => setManualWizardStep((step) => Math.min(4, step + 1))} className="min-h-[44px] rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700 md:text-xs">
+                    Next Step <ChevronRight size={15} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={generatingFromIntake}
+                    onClick={() => void handleGenerateFromIntake()}
+                    className="min-h-[44px] rounded-xl bg-primary px-6 py-2.5 text-sm font-bold text-primary-foreground shadow-sm hover:brightness-105 transition disabled:opacity-50 flex items-center gap-1.5 md:text-xs"
+                  >
+                    <Sparkles size={14} />
+                    <span>{generatingFromIntake ? "Generating Modern ATS CV…" : "Generate / Finish CV"}</span>
+                  </button>
+                )}
               </div>
               </div>
             </div>
@@ -8549,6 +8751,12 @@ function generateSemanticHtml(
 
   const contactBits = [doc.location, doc.phone, doc.email, doc.linkedin, doc.website].filter(Boolean).join(" | ");
   const contactLine = doc.contactLine || contactBits;
+  const formatCvText = (raw: string) => {
+    let safe = String(raw || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#39;");
+    safe = safe.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    safe = safe.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/_([^_]+)_/g, "<em>$1</em>");
+    return safe.replace(/\r?\n/g, "<br>");
+  };
 
   const headerHtml = isAnalystClean
     ? `<header style="display:flex;justify-content:space-between;gap:1.5rem;align-items:flex-start;border-bottom:1px dashed #cbd5e1;padding-bottom:12px;">
@@ -8612,7 +8820,7 @@ function generateSemanticHtml(
   ${doc.summary ? `
   <section>
     <h2>${isEditorialGold ? "Profile" : isSerifClassic ? "PROFILE" : isCorporateBlue ? "SUMMARY" : "Professional Summary"}</h2>
-    <p>${doc.summary}</p>
+    <p>${formatCvText(doc.summary)}</p>
   </section>` : ""}
 
   ${doc.experiences && doc.experiences.length > 0 ? `
@@ -8627,7 +8835,7 @@ function generateSemanticHtml(
           <span class="dates">${exp.startDate} – ${exp.endDate}</span>
         </div>
         <ul>
-          ${exp.bullets.map((b) => `<li>${b}</li>`).join("")}
+          ${exp.bullets.map((b) => `<li>${formatCvText(b)}</li>`).join("")}
         </ul>
       </div>
     `,
@@ -8645,7 +8853,7 @@ function generateSemanticHtml(
         <div class="role-header">${proj.title}${proj.subtitle ? ` <span class="company">· ${proj.subtitle}</span>` : ""}${proj.link ? ` <a href="${proj.link}" target="_blank" style="font-size: 8.5pt; color: ${color.primary}; text-decoration: underline;">[Link]</a>` : ""}</div>
         ${proj.bullets && proj.bullets.length > 0 ? `
         <ul>
-          ${proj.bullets.map((b) => `<li>${b}</li>`).join("")}
+          ${proj.bullets.map((b) => `<li>${formatCvText(b)}</li>`).join("")}
         </ul>` : ""}
       </div>
     `,
@@ -8712,6 +8920,12 @@ function generateSemanticHtml(
       )
       .join("")}
   </section>` : ""}
+
+  ${(doc.sections || []).map((section) => `
+  <section>
+    <h2>${formatCvText(section.heading)}</h2>
+    <ul>${(section.items || []).filter(Boolean).map((item) => `<li>${formatCvText(item)}</li>`).join("")}</ul>
+  </section>`).join("")}
 </body>
 </html>`;
 }

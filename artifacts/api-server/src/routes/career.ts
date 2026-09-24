@@ -1584,32 +1584,13 @@ router.post("/career/cv/generate", async (req: AuthedUserRequest, res) => {
     extracted,
   });
 
-  const version = (previous?.version || 0) + 1;
   const title = `${profile.name} · ${document.headline} CV (${document.structureLabel})`;
-
-  const [saved] = await db
-    .insert(generatedCvsTable)
-    .values({
-      profileId,
-      diagnosticId: diagnosticRow?.id,
-      structure: document.structure,
-      title,
-      contentJson: JSON.stringify(document),
-      version,
-    })
-    .returning();
-
-  req.log.info(
-    { profileId, cvId: saved.id, structure: document.structure, version },
-    "CV generated",
-  );
-
-  res.status(201).json({
-    id: saved.id,
-    version: saved.version,
+  res.status(200).json({
+    id: 0,
+    version: 1,
     structure: document.structure,
-    title: saved.title,
-    createdAt: saved.createdAt.toISOString(),
+    title,
+    createdAt: new Date().toISOString(),
     document,
     cv_content: {
       personal: {
@@ -1626,8 +1607,8 @@ router.post("/career/cv/generate", async (req: AuthedUserRequest, res) => {
     },
     ai_feedback: document.aiFeedback,
     message: regenerate
-      ? `New CV ready using the ${document.structureLabel} structure.`
-      : "Your improved CV is ready.",
+      ? `Preview ready using the ${document.structureLabel} structure. Select Save CV to add it to your account.`
+      : "Preview ready. Select Save CV to add it to your account.",
   });
 });
 

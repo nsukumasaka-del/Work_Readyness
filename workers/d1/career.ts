@@ -860,24 +860,17 @@ async function handleGenerate(request: Request, env: D1Env, user: UserRow): Prom
     structure: normalizeStructure(clean(input.structure) || "professional"),
   });
   const title = clean(input.title).slice(0, 180) || ("CV of " + document.fullName);
-  const inserted = await env.DB.prepare(
-    "INSERT INTO generated_cvs (user_id, profile_id, version, structure, title, content_json, updated_at, completion_score, preferences_json) " +
-    "VALUES (?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM generated_cvs WHERE profile_id = ?), ?, ?, ?, datetime('now'), ?, '{}')",
-  ).bind(user.id, profile.id, profile.id, document.structure, title, JSON.stringify(document), completionScore(document as unknown as Record<string, unknown>)).run();
-  const saved = await env.DB.prepare("SELECT * FROM generated_cvs WHERE id = ? AND user_id = ?")
-    .bind(Number(inserted.meta.last_row_id || 0), user.id).first<GeneratedCvRow>();
-  if (!saved) return error(500, "Could not save the generated CV.");
   return json({
-    id: saved.id,
-    version: saved.version,
+    id: 0,
+    version: 1,
     structure: document.structure,
-    title: `${document.fullName} · ${document.headline} CV (${document.structureLabel})`,
-    createdAt: saved.created_at,
+    title,
+    createdAt: new Date().toISOString(),
     document,
     cv_content: extracted || { personal: { fullName: document.fullName, email: document.email }, summary: document.summary, experiences: document.experiences, education: document.education, skills: document.skills },
     ai_feedback: document.aiFeedback,
-    message: "Your improved CV is ready.",
-  }, 201);
+    message: "Preview generated. Select Save CV to add this document to your account.",
+  }, 200);
 }
 
 async function handleSave(request: Request, env: D1Env, user: UserRow): Promise<Response> {

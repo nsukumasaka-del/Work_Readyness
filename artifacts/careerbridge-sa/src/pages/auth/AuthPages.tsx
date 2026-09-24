@@ -923,7 +923,7 @@ export function AuthCallbackPage() {
   );
 }
 
-export function SecuritySettingsPage() {
+export function SecuritySettingsPage({ embedded = false }: { embedded?: boolean }) {
   const [, setLocation] = useLocation();
   const [data, setData] = useState<Record<string, any> | null>(null);
   const [error, setError] = useState('');
@@ -1017,13 +1017,13 @@ export function SecuritySettingsPage() {
 
   if (!data) {
     return (
-      <div className="mx-auto max-w-2xl px-5 py-16 text-sm text-muted-foreground">Loading security settings…</div>
+      <div className={`${embedded ? "" : "mx-auto max-w-2xl px-5 py-16"} text-sm text-muted-foreground`}>Loading security settings…</div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-5 py-10 sm:py-14">
-      <h1 className="text-2xl font-semibold tracking-tight">Security</h1>
+    <div className={`${embedded ? "" : "mx-auto max-w-2xl px-5 py-10 sm:py-14"}`}>
+      <h1 className="text-xl font-semibold tracking-tight">Security & sign-in</h1>
       <p className="mt-2 text-sm text-muted-foreground">Manage how you sign in to BonList.</p>
 
       <div className="mt-8 space-y-4">

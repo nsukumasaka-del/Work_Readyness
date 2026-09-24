@@ -496,6 +496,30 @@
   border-radius: 2px;
 }
 
+/* Manual intake wizard: keep mobile inputs readable and tap friendly. */
+.manual-form-wizard input,
+.manual-form-wizard textarea,
+.manual-form-wizard select,
+.manual-form-wizard button {
+  min-height: 44px;
+  font-size: 16px;
+}
+.manual-form-wizard h3 {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+@media (min-width: 768px) {
+  .manual-form-wizard input,
+  .manual-form-wizard textarea,
+  .manual-form-wizard select,
+  .manual-form-wizard button {
+    font-size: 0.875rem;
+  }
+  .manual-form-wizard h3 {
+    font-size: 1.25rem;
+  }
+}
+
 .cv-page-sheet header input[type="text"] {
   box-sizing: border-box;
   min-width: 0;

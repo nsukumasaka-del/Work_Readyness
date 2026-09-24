@@ -39,6 +39,16 @@ export function getApiBase(): string {
     .replace(/\/+$/, "");
   if (fromEnv) return fromEnv;
 
+  // A bundled Capacitor app has a local WebView origin, so relative API paths
+  // would otherwise target capacitor://localhost instead of the BonList Worker.
+  if (typeof window !== "undefined") {
+    try {
+      if (window.Capacitor?.isNativePlatform?.()) return "https://www.bonlist.site";
+    } catch {
+      // Fall through to the relative URL for browser builds.
+    }
+  }
+
   return "";
 }
 

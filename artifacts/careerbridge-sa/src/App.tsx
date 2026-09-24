@@ -48,6 +48,7 @@ import PricingPage from '@/pages/pricing';
 import ProgrammePage from '@/pages/programme';
 import CvBuilderPage, { generateCv, persistGeneratedCv } from '@/pages/cv-builder';
 import CvDashboardPage from '@/pages/CvDashboard';
+import { AppUpdatePrompt, UpdatesPage } from '@/pages/UpdatesPage';
 import { SmokeyAgent } from '@/components/smokey-agent';
 import {
   defaultEntitlement,
@@ -60,6 +61,7 @@ import { buildParseUploadBody, readFileAsDataUrl } from '@/lib/cv-parse-upload';
 import { isNativeApp } from '@/lib/platform';
 import { describeApiMisconfiguration } from '@/lib/api-base';
 import { triggerAndroidApkDownload } from '@/lib/download-apk';
+import { startNativeCvSync } from '@/lib/native-cv-store';
 import {
   clearAuthSession,
   dismissSecurityNudgeLocal,
@@ -209,21 +211,10 @@ function HeaderAuthActions({
   onLogout: () => void;
   compact?: boolean;
 }) {
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   if (profileReady && profile) {
     return (
       <div className={`flex items-center ${compact ? 'w-full flex-col gap-2' : 'gap-1.5 xl:gap-2'}`}>
-        {isAdmin ? (
-          <Link
-            href="/admin"
-            className={`rounded-xl border border-primary/20 bg-secondary px-2.5 py-2 text-sm font-semibold text-primary hover:border-primary/40 xl:px-3 ${
-              compact ? 'w-full text-center' : ''
-            }`}
-            data-testid="link-header-admin-console"
-          >
-            <span className="xl:hidden">Admin</span>
-            <span className="hidden xl:inline">Admin console</span>
-          </Link>
-        ) : null}
         <Link
           href="/dashboard"
           className={`rounded-xl px-2.5 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground ${compact ? 'w-full border border-border text-center' : 'hidden sm:inline-flex'}`}
@@ -231,29 +222,35 @@ function HeaderAuthActions({
         >
           My Resumes
         </Link>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setProfileMenuOpen((open) => !open)}
+            className={`inline-flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2 text-sm font-medium text-foreground hover:border-primary/30 xl:px-3 ${compact ? 'w-full justify-center py-2.5' : ''}`}
+            data-testid="button-header-account-menu"
+            aria-expanded={profileMenuOpen}
+            aria-haspopup="menu"
+          >
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-secondary text-xs font-bold text-primary">{profile.name.charAt(0).toUpperCase()}</span>
+            <span className={compact ? 'max-w-[14rem] truncate font-medium' : 'hidden max-w-[7rem] truncate sm:inline xl:max-w-[9rem]'}>{compact ? profile.name : profile.name.split(' ')[0]}</span>
+            <ChevronDown size={14} className="text-muted-foreground" />
+          </button>
+          {profileMenuOpen ? (
+            <div role="menu" className={`absolute right-0 top-full z-[70] mt-2 w-56 rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl ${compact ? 'left-0 right-0 w-full' : ''}`}>
+              <Link role="menuitem" href="/profile" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted" data-testid="link-profile-menu-account">Profile & account settings</Link>
+              <Link role="menuitem" href="/settings/security" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted" data-testid="link-profile-menu-security">Security settings</Link>
+              {isAdmin ? <Link role="menuitem" href="/admin" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm font-semibold text-primary hover:bg-muted" data-testid="link-profile-menu-admin">Admin Console</Link> : null}
+            </div>
+          ) : null}
+        </div>
         <Link
-          href="/profile"
-          className={`inline-flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2 text-sm font-medium text-foreground hover:border-primary/30 xl:px-3 ${
-            compact ? 'w-full justify-center py-2.5' : ''
-          }`}
-          data-testid="link-header-account"
-          title="Candidate profile"
-        >
-          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-secondary text-xs font-bold text-primary">
-            {profile.name.charAt(0).toUpperCase()}
-          </span>
-          <span className={compact ? 'max-w-[14rem] truncate font-medium' : 'hidden max-w-[7rem] truncate sm:inline xl:max-w-[9rem]'}>
-            {compact ? profile.name : profile.name.split(' ')[0]}
-          </span>
-        </Link>
-        <Link
-          href="/settings/security"
+          href="/settings/updates"
           className={`rounded-xl px-2.5 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground xl:px-3 ${
             compact ? 'w-full border border-border text-center' : 'hidden sm:inline'
           }`}
-          data-testid="link-header-security"
+          data-testid="link-header-updates"
         >
-          Security
+          Updates
         </Link>
         <button
           type="button"
@@ -1601,6 +1598,19 @@ function Home() {
   const [, setLocation] = useLocation();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileReady, setProfileReady] = useState(false);
+  const [entitlement, setEntitlement] = useState<Entitlement>(defaultEntitlement());
+  const [latestReport, setLatestReport] = useState<DiagnosticReport | null>(() => {
+    try {
+      const stored = sessionStorage.getItem(REPORT_KEY) || sessionStorage.getItem('bonlist-report');
+      return stored ? reportForCurrentViewer(JSON.parse(stored) as DiagnosticReport) : null;
+    } catch { return null; }
+  });
+  const [reportUpdatedAt, setReportUpdatedAt] = useState<Date | null>(() => {
+    try {
+      const stored = sessionStorage.getItem('bonlist-report-updated-at');
+      return stored ? new Date(stored) : null;
+    } catch { return null; }
+  });
   const [fileName, setFileName] = useState('');
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [role, setRole] = useState('');
@@ -1608,7 +1618,7 @@ function Home() {
   const [scanStep, setScanStep] = useState(0);
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewError, setReviewError] = useState('');
-  const hasReport = hasCvReport();
+  const hasReport = Boolean(latestReport);
 
   useEffect(() => {
     const sync = () => {
@@ -1622,6 +1632,35 @@ function Home() {
     window.addEventListener('careerbridge-profile-updated', sync);
     return () => window.removeEventListener('careerbridge-profile-updated', sync);
   }, []);
+
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    void startNativeCvSync().then((cleanup) => { stop = cleanup; });
+    return () => stop?.();
+  }, []);
+
+  useEffect(() => {
+    const refreshReport = () => {
+      try {
+        const stored = sessionStorage.getItem(REPORT_KEY) || sessionStorage.getItem('bonlist-report');
+        setLatestReport(stored ? reportForCurrentViewer(JSON.parse(stored) as DiagnosticReport) : null);
+        const timestamp = sessionStorage.getItem('bonlist-report-updated-at');
+        setReportUpdatedAt(timestamp ? new Date(timestamp) : null);
+      } catch { setLatestReport(null); setReportUpdatedAt(null); }
+    };
+    window.addEventListener('careerbridge-report-updated', refreshReport);
+    return () => window.removeEventListener('careerbridge-report-updated', refreshReport);
+  }, []);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    const refreshEntitlement = () => {
+      void fetchEntitlement(profile.id).then(setEntitlement).catch(() => setEntitlement(defaultEntitlement(profile.id)));
+    };
+    refreshEntitlement();
+    window.addEventListener('careerbridge-entitlement-updated', refreshEntitlement);
+    return () => window.removeEventListener('careerbridge-entitlement-updated', refreshEntitlement);
+  }, [profile?.id]);
 
   useEffect(() => {
     if (!isReviewing) {
@@ -1666,6 +1705,10 @@ function Home() {
       } catch {
         // ignore
       }
+      const completedAt = new Date();
+      sessionStorage.setItem('bonlist-report-updated-at', completedAt.toISOString());
+      setLatestReport(reportForCurrentViewer(payload as DiagnosticReport));
+      setReportUpdatedAt(completedAt);
       window.dispatchEvent(new Event('careerbridge-report-updated'));
       setLocation('/diagnostic');
     } catch (err) {
@@ -1685,171 +1728,124 @@ function Home() {
 
   if (profile) {
     const firstName = profile.name.split(' ')[0] || 'there';
-    const resumeTools = [
+    const paidPlanActive = entitlement.plan !== 'free'
+      || entitlement.subscription?.status === 'active'
+      || entitlement.programme?.status === 'active';
+    const profileFields = [profile.name, profile.email, profile.phone, profile.targetRole, profile.location, latestReport?.summary];
+    const profileCompletion = Math.round((profileFields.filter((value) => Boolean(value?.trim())).length / profileFields.length) * 100);
+    const matches = (latestReport?.relatedJobs ?? []).slice(0, 4);
+    const updateLabel = reportUpdatedAt && !Number.isNaN(reportUpdatedAt.getTime())
+      ? (() => {
+          const minutes = Math.max(0, Math.floor((Date.now() - reportUpdatedAt.getTime()) / 60_000));
+          if (minutes < 1) return 'Updated just now';
+          if (minutes < 60) return `Updated ${minutes} min ago`;
+          const hours = Math.floor(minutes / 60);
+          if (hours < 24) return `Updated ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+          const days = Math.floor(hours / 24);
+          return `Updated ${days} ${days === 1 ? 'day' : 'days'} ago`;
+        })()
+      : 'Run a CV review to see fresh matches';
+    const actionCards = [
       {
-        href: '/#cv-check',
-        title: 'Upload & review CV',
-        copy: 'Run an AI readiness check and get role matches.',
-        icon: FileCheck2,
-        tone: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-        testId: 'link-tools-cv-upload',
+        href: '/#cv-check', title: 'Free AI CV Review & Score',
+        copy: 'Instant AI score, ATS optimization check, career direction mapping, and authenticity feedback.',
+        action: 'Upload CV for Free Review', icon: FileCheck2, badge: 'FREE', tone: 'bg-emerald-500/10 text-emerald-700',
       },
       {
-        href: '/diagnostic',
-        title: 'CV review results',
-        copy: hasReport ? 'Open your latest readiness dashboard.' : 'Available after your first CV upload.',
-        icon: ClipboardCheck,
-        tone: 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
-        testId: 'link-tools-diagnostic',
+        href: '/cv-builder?intake=1', title: 'AI CV Builder & Templates',
+        copy: 'Build or edit ATS-compliant CVs with customizable templates tailored to your target role.',
+        action: 'Launch CV Builder', icon: Sparkles, badge: 'EDITABLE', tone: 'bg-sky-500/10 text-sky-700',
       },
       {
-        href: '/cv-builder?intake=1',
-        title: 'AI Resume Builder',
-        copy: 'Rewrite and generate an improved CV.',
-        icon: Sparkles,
-        tone: 'bg-primary/10 text-primary',
-        testId: 'link-tools-cv-builder',
-      },
-      {
-        href: '/cv-builder?panel=templates',
-        title: 'Resume templates',
-        copy: 'Pick a clean layout and export.',
-        icon: Layers,
-        tone: 'bg-amber-500/10 text-amber-800 dark:text-amber-200',
-        testId: 'link-tools-templates',
-      },
-    ] as const;
-    const jobTools = [
-      {
-        href: '/jobs',
-        title: 'Job matches',
-        copy: hasReport ? 'Open live listings matched to your CV.' : 'Unlock after a CV review.',
-        icon: BriefcaseBusiness,
-        tone: 'bg-blue-500/10 text-blue-700 dark:text-blue-300',
-        testId: 'link-tools-jobs',
-      },
-      {
-        href: '/interview',
-        title: 'Interview help',
-        copy: 'Practice answers tailored to your target role.',
-        icon: Bot,
-        tone: 'bg-teal-500/10 text-teal-700 dark:text-teal-300',
-        testId: 'link-tools-interview',
-      },
-      {
-        href: '/coaching',
-        title: 'Coaching',
-        copy: 'Book human support when you need a push.',
-        icon: HeartHandshake,
-        tone: 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
-        testId: 'link-tools-coaching',
-      },
-      {
-        href: '/programme',
-        title: 'Career programme',
-        copy: 'See accelerator progress and next steps.',
-        icon: BookOpen,
-        tone: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300',
-        testId: 'link-tools-programme',
-      },
-      {
-        href: '/pricing',
-        title: 'Plans & pricing',
-        copy: 'Explore plans and AI career tools.',
-        icon: ShieldCheck,
-        tone: 'bg-secondary text-primary',
-        testId: 'link-tools-pricing',
-      },
-      {
-        href: '/profile',
-        title: 'Your profile',
-        copy: 'Update location, target role, and contact details.',
-        icon: MapPin,
-        tone: 'bg-muted text-foreground',
-        testId: 'link-tools-profile',
+        href: '/jobs', title: 'Profile-Matched Jobs',
+        copy: 'See job listings matched to the profile and CV from your latest review.',
+        action: 'View Today’s Matches', icon: BriefcaseBusiness, badge: hasReport ? 'UPDATED' : 'GET STARTED', tone: 'bg-violet-500/10 text-violet-700',
       },
     ] as const;
 
     return (
-      <div>
-        <section className="sky-wash relative overflow-hidden">
-          <div className="mx-auto max-w-6xl px-5 pb-10 pt-12 md:px-8 md:pb-12 md:pt-16">
-            <img
-              src="/brand/bonlist-logo.png"
-              alt="BonList - Your Shortcut to Getting Hired."
-              className="h-16 w-auto max-w-[min(400px,92vw)] object-contain object-left sm:h-[4.5rem]"
-            />
-            <h1 className="display mt-5 max-w-2xl text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
-              Welcome back, {firstName}.
-            </h1>
-            <p className="mt-3 max-w-xl text-base leading-7 text-muted-foreground">
-              Choose a tool to keep moving — review your CV, improve it, or apply to matched roles.
-            </p>
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-6xl px-5 py-10 md:px-8 md:py-12">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-primary">Resume tools</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {resumeTools.map((tool) => (
-              <Link
-                key={tool.href + tool.title}
-                href={tool.href}
-                className="group flex items-start gap-3.5 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/35 hover:bg-secondary/40"
-                data-testid={tool.testId}
-              >
-                <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${tool.tone}`}>
-                  <tool.icon size={18} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-foreground group-hover:text-primary">{tool.title}</span>
-                    <ArrowRight size={14} className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
-                  </span>
-                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">{tool.copy}</span>
-                </span>
-              </Link>
-            ))}
-          </div>
-
-          <p className="mt-10 text-[11px] font-bold uppercase tracking-[0.16em] text-primary">Job search & support</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {jobTools.map((tool) => (
-              <Link
-                key={tool.href}
-                href={tool.href}
-                className="group flex items-start gap-3.5 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/35 hover:bg-secondary/40"
-                data-testid={tool.testId}
-              >
-                <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${tool.tone}`}>
-                  <tool.icon size={18} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-foreground group-hover:text-primary">{tool.title}</span>
-                    <ArrowRight size={14} className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
-                  </span>
-                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">{tool.copy}</span>
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
-
-        <section id="cv-check" className="mx-auto max-w-6xl px-5 pb-16 md:px-8 md:pb-20">
-          <div className="grid items-start gap-8 lg:grid-cols-[0.85fr_1.15fr]">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Quick action</p>
-              <h2 className="display mt-3 text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
-                Upload a CV for review
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                Fresh upload refreshes your readiness scores and live job matches.
-              </p>
+      <div className="min-h-screen bg-slate-50">
+        <section className="border-b border-border bg-white">
+          <div className="mx-auto max-w-7xl px-5 py-7 md:px-8 md:py-9">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Your career workspace</p>
+                <h1 className="display mt-2 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">Welcome back, {firstName}</h1>
+              </div>
+              <div className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${paidPlanActive ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
+                <span className={`h-2 w-2 rounded-full ${paidPlanActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                {paidPlanActive ? `Paid plan active · ${entitlement.planName || 'Premium'} features` : 'Free tier · Upgrade for premium job matching'}
+              </div>
             </div>
-            <form
+            <p className="mt-2 text-sm text-muted-foreground">Pick up where you left off and take the next step toward your target role.</p>
+          </div>
+        </section>
+
+        <main className="mx-auto max-w-7xl px-5 py-6 md:px-8 md:py-8">
+          <section aria-label="Quick actions" className="grid gap-4 md:grid-cols-3">
+            {actionCards.map((card) => (
+              <Link key={card.title} href={card.href} className="group flex min-h-48 flex-col rounded-2xl border border-border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md" data-testid={`dashboard-action-${card.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <span className={`grid h-11 w-11 place-items-center rounded-xl ${card.tone}`}><card.icon size={20} /></span>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold tracking-wide text-slate-600">{card.badge}</span>
+                </div>
+                <span className="mt-4 text-base font-semibold text-foreground group-hover:text-primary">{card.title}</span>
+                <span className="mt-1 flex-1 text-xs leading-5 text-muted-foreground">{card.copy}</span>
+                <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary">{card.action} <ArrowRight size={15} /></span>
+              </Link>
+            ))}
+          </section>
+
+          <section id="cv-check" className="mt-7 grid items-start gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+            <div className="space-y-5">
+              <article className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Next best action</p>
+                    <h2 className="mt-1 text-lg font-semibold text-foreground">Profile completeness</h2>
+                  </div>
+                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">{profileCompletion}% complete</span>
+                </div>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label="Profile completeness" aria-valuenow={profileCompletion} aria-valuemin={0} aria-valuemax={100}>
+                  <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${profileCompletion}%` }} />
+                </div>
+                <p className="mt-4 text-sm leading-6 text-muted-foreground">Upload an updated CV to refresh your profile review and job matches.</p>
+                <Link href="/#cv-check" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary">Update your CV <ArrowRight size={15} /></Link>
+              </article>
+
+              <article className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">From your latest CV review</p>
+                    <h2 className="mt-1 text-lg font-semibold text-foreground">Profile-matched jobs</h2>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{updateLabel}</span>
+                </div>
+                {matches.length ? (
+                  <div className="mt-4 divide-y divide-border">
+                    {matches.map((job: JobMatch) => (
+                      <Link key={job.id} href="/jobs" className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                        <span className="min-w-0"><span className="block truncate text-sm font-semibold text-foreground">{job.title}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{job.company || 'Company'}{job.location ? ` · ${job.location}` : ''}</span></span>
+                        <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">{job.match}% match</span>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">Upload your CV for a review to see the latest matching jobs here.</div>
+                )}
+                <Link href="/jobs" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary">See all matched jobs <ArrowRight size={15} /></Link>
+              </article>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Free CV review</p>
+                <h2 className="mt-1 text-lg font-semibold text-foreground">Upload your CV</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Get a CV score, ATS feedback, and role-fit guidance.</p>
+              </div>
+              <form
               onSubmit={submitDiagnostic}
-              className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8"
+              className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6"
             >
               {isReviewing ? (
                 <div className="space-y-5 py-4" data-testid="cv-scan-progress">
@@ -1963,9 +1959,25 @@ function Home() {
                   </button>
                 </>
               )}
-            </form>
-          </div>
-        </section>
+              </form>
+              <div className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+                <h3 className="text-sm font-semibold text-foreground">More career tools</h3>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {[
+                    { label: 'Interview Practice', href: '/interview', icon: Bot },
+                    { label: 'Career Guidance', href: '/coaching', icon: HeartHandshake },
+                    { label: 'My Saved CVs', href: '/dashboard', icon: FileText },
+                    { label: 'Subscription & Upgrade', href: '/pricing', icon: ShieldCheck },
+                  ].map((item) => (
+                    <Link key={item.href} href={item.href} className="flex min-h-14 items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-medium text-foreground transition hover:bg-secondary">
+                      <item.icon size={16} className="shrink-0 text-primary" />{item.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+      </main>
       </div>
     );
   }
@@ -2281,6 +2293,14 @@ function ProfilePage() {
           </p>
         </div>
       </form>
+      <section className="mt-8 rounded-3xl border border-border bg-card p-5 md:p-7" aria-labelledby="profile-security-heading">
+        <div className="mb-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Account settings</p>
+          <h2 id="profile-security-heading" className="mt-1 text-lg font-semibold text-foreground">Security</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Manage sign-in methods, two-factor authentication, passkeys, and active sessions.</p>
+        </div>
+        <SecuritySettingsPage embedded />
+      </section>
     </div>
   );
 }
@@ -3520,7 +3540,8 @@ function ProtectedApp() {
       <AppShell>
         <Switch>
           <Route path="/" component={Home} />
-          <Route path="/settings/security" component={SecuritySettingsPage} />
+          <Route path="/settings/security" component={() => <SecuritySettingsPage />} />
+          <Route path="/settings/updates" component={UpdatesPage} />
           <Route path="/security/admin-mfa" component={AdminMfaSetupPage} />
           <Route path="/profile" component={ProfilePage} />
           <Route path="/dashboard" component={CvDashboardPage} />
@@ -3577,6 +3598,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        <AppUpdatePrompt />
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
           <Router />
         </WouterRouter>

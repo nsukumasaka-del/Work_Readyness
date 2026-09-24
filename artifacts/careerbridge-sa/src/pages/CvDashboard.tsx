@@ -3,6 +3,8 @@ import { CalendarDays, Copy, Download, FileText, LoaderCircle, Pencil, Plus, Tra
 import { Link } from "wouter";
 import { authFetch } from "@/lib/auth-session";
 import { calculateCvCompletion } from "@/lib/cv-completion";
+import { isAndroidApp } from "@/lib/platform";
+import { listNativeCvs, NATIVE_CV_STORE_UPDATED, removeNativeCv, saveNativeCv, type NativeCvRecord } from "@/lib/native-cv-store";
 
 type CvDocumentCard = {
   id: number;
@@ -12,6 +14,10 @@ type CvDocumentCard = {
   updatedAt: string;
   completionScore: number;
   document: { fullName?: string; headline?: string; summary?: string; skills?: string[] };
+  localId?: number;
+  offlineAvailable?: boolean;
+  pendingSync?: boolean;
+  preferences?: Record<string, unknown>;
 };
 
 function dateLabel(value: string) {
@@ -28,19 +34,48 @@ export default function CvDashboardPage() {
   const loadDocuments = useCallback(async () => {
     setLoading(true);
     setError("");
+    const localDocs = isAndroidApp() ? await listNativeCvs() as CvDocumentCard[] : [];
     try {
       const response = await authFetch("/api/career/cv/documents");
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not load your saved CVs.");
-      setDocuments(Array.isArray(data.documents) ? data.documents : []);
+      const remoteDocs = Array.isArray(data.documents) ? data.documents as CvDocumentCard[] : [];
+      if (isAndroidApp()) {
+        for (const document of remoteDocs) void saveNativeCv(document as unknown as NativeCvRecord, false);
+      }
+      const localByRemoteId = new Map(localDocs.filter((document) => document.id > 0).map((document) => [document.id, document]));
+      const remoteIds = new Set(remoteDocs.map((document) => Number(document.id)));
+      const mergedRemote = remoteDocs.map((document) => localByRemoteId.get(Number(document.id)) || document);
+      setDocuments([...mergedRemote, ...localDocs.filter((document) => document.id < 0 || !remoteIds.has(Number(document.id)))]);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Could not load your saved CVs.");
+      if (isAndroidApp() && localDocs.length) {
+        setDocuments(localDocs);
+        setError("Offline mode · Showing CVs saved on this device. Pending changes sync when you're online.");
+      } else {
+        setError(loadError instanceof Error ? loadError.message : "Could not load your saved CVs.");
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { void loadDocuments(); }, [loadDocuments]);
+
+  useEffect(() => {
+    if (!isAndroidApp()) return;
+    const refreshLocalStatus = () => {
+      void listNativeCvs().then((localDocs) => {
+        setDocuments((current) => {
+          const localById = new Map(localDocs.map((document) => [document.id, document]));
+          const remoteIds = new Set(current.map((document) => document.id));
+          const merged = current.map((document) => localById.get(document.id) || document);
+          return [...merged, ...localDocs.filter((document) => document.id < 0 || !remoteIds.has(document.id))];
+        });
+      });
+    };
+    window.addEventListener(NATIVE_CV_STORE_UPDATED, refreshLocalStatus);
+    return () => window.removeEventListener(NATIVE_CV_STORE_UPDATED, refreshLocalStatus);
+  }, []);
 
   const runDocumentAction = async (id: number, action: "duplicate" | "rename" | "delete") => {
     const document = documents.find((item) => item.id === id);
@@ -54,6 +89,19 @@ export default function CvDashboardPage() {
     setBusyId(id);
     setError("");
     try {
+      if (isAndroidApp() && (!navigator.onLine || id < 0)) {
+        if (action === "delete") {
+          await removeNativeCv(id);
+          setDocuments((current) => current.filter((item) => item.id !== id));
+        } else if (action === "rename") {
+          const local = await saveNativeCv({ ...document, title: nextTitle }, document.pendingSync !== false);
+          setDocuments((current) => current.map((item) => item.id === id ? { ...item, ...local } as CvDocumentCard : item));
+        } else {
+          const local = await saveNativeCv({ ...document, id: 0, title: `${document.title} copy` }, true);
+          setDocuments((current) => [local as CvDocumentCard, ...current]);
+        }
+        return;
+      }
       const response = await authFetch(
         action === "duplicate"
           ? "/api/career/cv/documents/" + id + "/duplicate"
@@ -65,8 +113,14 @@ export default function CvDashboardPage() {
       );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not update this CV.");
-      if (action === "delete") setDocuments((current) => current.filter((item) => item.id !== id));
-      else if (action === "rename") setDocuments((current) => current.map((item) => item.id === id ? { ...item, title: data.title, updatedAt: data.updatedAt, completionScore: data.completionScore } : item));
+      if (action === "delete") {
+        setDocuments((current) => current.filter((item) => item.id !== id));
+        if (isAndroidApp()) await removeNativeCv(id);
+      } else if (action === "rename") {
+        const renamed = { ...document, title: data.title, updatedAt: data.updatedAt, completionScore: data.completionScore };
+        setDocuments((current) => current.map((item) => item.id === id ? renamed : item));
+        if (isAndroidApp()) await saveNativeCv(renamed as unknown as NativeCvRecord, false);
+      }
       else await loadDocuments();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Could not update this CV.");
@@ -97,7 +151,7 @@ export default function CvDashboardPage() {
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
             <FileText size={32} className="mx-auto text-slate-400" />
             <h2 className="mt-3 text-lg font-semibold">No saved CVs yet</h2>
-            <p className="mt-1 text-sm text-slate-500">Create a CV and your work will be saved to your account as you edit.</p>
+            <p className="mt-1 text-sm text-slate-500">Create a CV, then choose Save CV when you want to keep it in your account.</p>
             <Link href="/cv-builder?intake=1" className="mt-5 inline-flex items-center gap-2 rounded-lg bg-[#00A884] px-4 py-2 text-sm font-semibold text-white">
               <Plus size={15} /> Start a CV
             </Link>
@@ -106,7 +160,8 @@ export default function CvDashboardPage() {
           <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {documents.map((item) => {
               const score = Number.isFinite(item.completionScore) ? item.completionScore : calculateCvCompletion(item.document);
-              const editorUrl = "/cv-builder?documentId=" + encodeURIComponent(String(item.id));
+              const editorId = item.localId ?? item.id;
+              const editorUrl = "/cv-builder?documentId=" + encodeURIComponent(String(editorId));
               return (
                 <article key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                   <div className="m-4 flex h-52 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-inner">
@@ -127,6 +182,12 @@ export default function CvDashboardPage() {
                       </div>
                       <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">{score}%</span>
                     </div>
+                    {isAndroidApp() && item.offlineAvailable ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <span className="rounded-full bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-700">Available Offline</span>
+                        {item.pendingSync ? <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800">Pending Sync</span> : null}
+                      </div>
+                    ) : null}
                     <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
                       <div className="h-full rounded-full bg-[#00A884]" style={{ width: Math.max(0, Math.min(100, score)) + "%" }} />
                     </div>

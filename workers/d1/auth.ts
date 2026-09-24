@@ -183,6 +183,10 @@ export function nameFromEmail(email: string): string {
     .slice(0, 80);
 }
 
+function normalizeEmail(value: unknown): string {
+  return String(value || "").trim().toLowerCase();
+}
+
 export function appOrigin(request: Request, env: D1Env): string {
   if (env.APP_BASE_URL?.trim()) return env.APP_BASE_URL.trim().replace(/\/+$/, "");
   return new URL(request.url).origin;
@@ -219,7 +223,7 @@ export async function findUserByEmail(db: D1Database, email: string): Promise<Us
       .prepare(
         "SELECT id, email, password_hash, name, email_verified, is_admin, created_at FROM users WHERE email = ? COLLATE NOCASE LIMIT 1",
       )
-      .bind(email.toLowerCase())
+      .bind(normalizeEmail(email))
       .first<UserRow>()) || null
   );
 }
@@ -356,9 +360,7 @@ async function issueSignupChallenge(
 export async function handleRegister(request: Request, env: D1Env): Promise<Response> {
 
   const body = await readJsonBody(request);
-  const email = String(body.email || "")
-    .trim()
-    .toLowerCase();
+  const email = normalizeEmail(body.email);
   const password = String(body.password || "");
   const rememberMe = body.rememberMe !== false;
   const name = String(body.name || "").trim() || nameFromEmail(email);
@@ -511,16 +513,22 @@ export async function handleResendSignup(request: Request, env: D1Env): Promise<
 export async function handleLogin(request: Request, env: D1Env): Promise<Response> {
 
   const body = await readJsonBody(request);
-  const email = String(body.email || "")
-    .trim()
-    .toLowerCase();
+  const email = normalizeEmail(body.email);
   const password = String(body.password || "");
   const rememberMe = body.rememberMe !== false;
 
   if (!email || !password) return error(400, "Email and password are required.");
 
-  const user = await findUserByEmail(env.DB, email);
-  if (!user || !(await verifyPassword(password, user.password_hash))) {
+  let user = await findUserByEmail(env.DB, email);
+  let passwordMatches = false;
+  if (user) {
+    try { passwordMatches = await verifyPassword(password, user.password_hash); }
+    catch (err) { console.warn("[auth] Stored password hash verification failed", err); }
+  }
+  if (!user || (!passwordMatches && !user.password_hash.startsWith("pbkdf2$"))) {
+    user = await importLegacyAccountAfterAuthentication(env, email, password);
+  }
+  if (!user) {
     return error(401, "Invalid email or password.");
   }
   if (user.email_verified === 0) {
@@ -536,6 +544,50 @@ export async function handleLogin(request: Request, env: D1Env): Promise<Respons
 
   await env.DB.prepare("UPDATE users SET updated_at = datetime('now') WHERE id = ?").bind(user.id).run();
   return buildLoginResponse(request, env, user, rememberMe);
+}
+
+/** Authenticate older accounts against the legacy API, then move them to D1. */
+async function importLegacyAccountAfterAuthentication(
+  env: D1Env,
+  email: string,
+  password: string,
+): Promise<UserRow | null> {
+  const upstream = String(env.API_UPSTREAM_URL || "").trim().replace(/\/+$/, "");
+  if (!upstream) return null;
+  try {
+    if (new URL(upstream).protocol !== "https:") return null;
+    const response = await fetch(`${upstream}/api/career/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ email, password, rememberMe: true }),
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as Record<string, unknown>;
+    const verifiedEmail = normalizeEmail(payload.email);
+    if (!verifiedEmail || verifiedEmail !== email || payload.requiresMfa) return null;
+
+    const id = randomId();
+    const name = String(payload.name || nameFromEmail(email)).trim() || nameFromEmail(email);
+    const passwordHash = await hashPassword(password);
+    const isAdmin = payload.isAdmin === true || payload.isPrimaryAdmin === true ? 1 : 0;
+    try {
+      await env.DB.prepare(
+        `INSERT INTO users (id, email, password_hash, name, email_verified, is_admin, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 1, ?, datetime('now'), datetime('now'))`,
+      ).bind(id, email, passwordHash, name, isAdmin).run();
+    } catch {
+      const raced = await findUserByEmail(env.DB, email);
+      if (!raced) throw new Error("Legacy account import failed.");
+      await env.DB.prepare(
+        "UPDATE users SET password_hash = ?, email_verified = 1, updated_at = datetime('now') WHERE id = ?",
+      ).bind(passwordHash, raced.id).run();
+    }
+    return findUserByEmail(env.DB, email);
+  } catch (err) {
+    console.warn("[auth] Legacy account migration unavailable", err);
+    return null;
+  }
 }
 
 export async function handleMe(request: Request, env: D1Env): Promise<Response> {

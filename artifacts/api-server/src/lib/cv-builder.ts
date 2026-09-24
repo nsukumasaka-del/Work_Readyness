@@ -2536,6 +2536,13 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   const languageLines: string[] = [];
   const referenceLines: string[] = [];
   const reviewerNoteLines: string[] = [];
+  const assignedSectionLineKeys = new Set<string>();
+  const assignSectionLine = (bucket: string[], line: string) => {
+    const key = normalizeTextKey(line);
+    if (key && assignedSectionLineKeys.has(key)) return;
+    if (key) assignedSectionLineKeys.add(key);
+    bucket.push(line);
+  };
 
   const isPageMarker = (line: string) => /^--\s*\d+\s*of\s*\d+\s*--$/i.test(line.trim());
 
@@ -2628,25 +2635,25 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     }
 
     if (currentSection === "summary") {
-      summaryLines.push(line);
+      assignSectionLine(summaryLines, line);
     } else if (currentSection === "impact") {
-      impactLines.push(line);
+      assignSectionLine(impactLines, line);
     } else if (currentSection === "experience") {
-      experienceLines.push(line);
+      assignSectionLine(experienceLines, line);
     } else if (currentSection === "education") {
-      educationLines.push(line);
+      assignSectionLine(educationLines, line);
     } else if (currentSection === "skills") {
-      skillsLines.push(line);
+      assignSectionLine(skillsLines, line);
     } else if (currentSection === "systems") {
-      systemsLines.push(line);
+      assignSectionLine(systemsLines, line);
     } else if (currentSection === "projects") {
-      projectLines.push(line);
+      assignSectionLine(projectLines, line);
     } else if (currentSection === "certifications") {
-      certLines.push(line);
+      assignSectionLine(certLines, line);
     } else if (currentSection === "languages") {
-      languageLines.push(line);
+      assignSectionLine(languageLines, line);
     } else if (currentSection === "references") {
-      referenceLines.push(line);
+      assignSectionLine(referenceLines, line);
     }
   }
 
@@ -2979,7 +2986,9 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       !isPageMarker(s) &&
       !isGarbagePersonalToken(s),
     );
-  const uniqueValues = (values: string[]) => Array.from(new Map(values.map((value) => [value.toLocaleLowerCase(), value])).values());
+  const uniqueValues = (values: string[]) => {
+    return uniqueTextValues(values);
+  };
   const finalSkills = uniqueValues(parseCompetencyLines(skillsLines)).slice(0, 40);
   const isStandaloneTool = (skill: string) => /^(?:(?:microsoft|ms|google|oracle|salesforce)\s+)?(?:excel|word|outlook|powerpoint|power bi|office(?: 365)?|teams|sharepoint|sap|crm|tms|navis|radix(?: go)?|vft|ft|tp portal|spotlight tracking|sql|python|jira|react)$/i.test(skill.trim());
   const toolsAndSoftware = uniqueValues([
@@ -3312,6 +3321,19 @@ export function selectProfessionalBullets(bullets: string[], limit = MAX_BULLETS
     .map((b) => polishBulletText(b));
 }
 
+function normalizeTextKey(text: string): string {
+  return String(text || "").toLocaleLowerCase().replace(/[^a-z0-9]/g, "").trim();
+}
+
+function uniqueTextValues(values: string[]): string[] {
+  const unique = new Map<string, string>();
+  for (const value of values || []) {
+    const key = normalizeTextKey(value);
+    if (key && !unique.has(key)) unique.set(key, value.trim());
+  }
+  return Array.from(unique.values());
+}
+
 function preserveSourceBullets(bullets: string[]): string[] {
   const seen = new Set<string>();
   const preserved: string[] = [];
@@ -3326,7 +3348,8 @@ function preserveSourceBullets(bullets: string[]): string[] {
         .replace(/[\s\-–—]+$/, "")
         .trim();
       if (bullet.length < 4 || isGarbagePersonalToken(bullet)) continue;
-      const key = bullet.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+      const key = normalizeTextKey(bullet);
+      if (!key) continue;
       if (seen.has(key)) continue;
       seen.add(key);
       preserved.push(bullet);
@@ -3335,9 +3358,15 @@ function preserveSourceBullets(bullets: string[]): string[] {
   return preserved;
 }
 export function condenseExperiences(experiences: CvExperienceItem[]): CvExperienceItem[] {
+  const seenBullets = new Set<string>();
   return (experiences || []).map((exp) => ({
     ...exp,
-    bullets: preserveSourceBullets(exp.bullets),
+    bullets: preserveSourceBullets(exp.bullets).filter((bullet) => {
+      const key = normalizeTextKey(bullet);
+      if (!key || seenBullets.has(key)) return false;
+      seenBullets.add(key);
+      return true;
+    }),
   }));
 }
 
@@ -3398,9 +3427,9 @@ export function buildGeneratedCv({
   // Skills: ZERO fabrication - if not present, keep empty array
   const skills: string[] =
     extracted?.skills && extracted.skills.length > 0
-      ? extracted.skills
+      ? uniqueTextValues(extracted.skills)
       : extracted?.cv_content?.skills && extracted.cv_content.skills.length > 0
-        ? extracted.cv_content.skills
+        ? uniqueTextValues(extracted.cv_content.skills)
         : [];
 
   // Projects
@@ -3422,17 +3451,17 @@ export function buildGeneratedCv({
   // Languages
   const languages: string[] =
     extracted?.languages && extracted.languages.length > 0
-      ? extracted.languages
+      ? uniqueTextValues(extracted.languages)
       : extracted?.cv_content?.languages && extracted.cv_content.languages.length > 0
-        ? extracted.cv_content.languages
+        ? uniqueTextValues(extracted.cv_content.languages)
         : [];
 
   // References
   const references: string[] =
     extracted?.references && extracted.references.length > 0
-      ? extracted.references
+      ? uniqueTextValues(extracted.references)
       : extracted?.cv_content?.references && extracted.cv_content.references.length > 0
-        ? extracted.cv_content.references
+        ? uniqueTextValues(extracted.cv_content.references)
         : [];
   const referenceDetails: CvReferenceDetail[] =
     extracted?.referenceDetails && extracted.referenceDetails.length > 0

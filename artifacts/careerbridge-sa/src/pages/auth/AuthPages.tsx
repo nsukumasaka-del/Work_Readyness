@@ -829,7 +829,13 @@ export function ForgotPasswordPage() {
 
 export function ResetPasswordPage() {
   const [location, setLocation] = useLocation();
-  const token = useMemo(() => new URLSearchParams(location.split('?')[1] || '').get('token') || '', [location]);
+  const token = useMemo(() => {
+    const locationToken = new URLSearchParams(location.split('?')[1] || '').get('token');
+    const browserToken = typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('token')
+      : null;
+    return browserToken || locationToken || '';
+  }, [location]);
   const [password, setPassword] = useState('');
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);

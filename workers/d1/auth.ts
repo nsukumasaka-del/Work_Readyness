@@ -617,7 +617,7 @@ export async function handleForgotPassword(request: Request, env: D1Env): Promis
 export async function handleResetPassword(request: Request, env: D1Env): Promise<Response> {
   const body = await readJsonBody(request);
   const rawToken = String(body.token || "").trim();
-  const password = String(body.password || "");
+  const password = String(body.password ?? body.newPassword ?? "");
 
   if (!rawToken) return error(400, "Reset token is required.");
   if (password.length < 8) return error(400, "Password must be at least 8 characters.");
@@ -643,14 +643,27 @@ export async function handleResetPassword(request: Request, env: D1Env): Promise
   if (!user) return error(400, "This reset link is invalid.");
 
   const passwordHash = await hashPassword(password);
-  await env.DB.prepare("UPDATE users SET password_hash = ?, email_verified = 1, updated_at = datetime('now') WHERE id = ?")
-    .bind(passwordHash, user.id)
-    .run();
-  await env.DB.prepare("UPDATE auth_challenges SET consumed_at = datetime('now') WHERE id = ?")
-    .bind(challenge.id)
-    .run();
-  // Revoke existing sessions after password change.
-  await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id).run();
+  // Recheck and consume the one-time token in the same atomic batch as the
+  // password update. This avoids reporting failure after a partial update and
+  // prevents two concurrent submissions from both using the same reset link.
+  const results = await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE users
+       SET password_hash = ?, email_verified = 1, updated_at = datetime('now')
+       WHERE id = ? AND EXISTS (
+         SELECT 1 FROM auth_challenges
+         WHERE id = ? AND purpose = 'password_reset' AND consumed_at IS NULL
+           AND julianday(expires_at) > julianday('now')
+       )`,
+    ).bind(passwordHash, user.id, challenge.id),
+    env.DB.prepare(
+      "UPDATE auth_challenges SET consumed_at = datetime('now') WHERE id = ? AND consumed_at IS NULL AND changes() = 1",
+    ).bind(challenge.id),
+    env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND changes() = 1").bind(user.id),
+  ]);
+  if (Number(results[0]?.meta?.changes || 0) !== 1 || Number(results[1]?.meta?.changes || 0) !== 1) {
+    return error(400, "This reset link is invalid, expired, or already used. Request a new one.");
+  }
 
   return json({ ok: true, message: "Password updated. You can sign in now." });
 }

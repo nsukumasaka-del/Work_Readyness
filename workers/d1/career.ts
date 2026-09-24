@@ -98,6 +98,29 @@ function clean(value: unknown): string {
   return String(value ?? "").replace(/\u0000/g, "").trim();
 }
 
+function completionScore(document: Record<string, unknown>): number {
+  const experiences = Array.isArray(document.experiences) ? document.experiences : [];
+  const education = Array.isArray(document.education) ? document.education : [];
+  const skills = Array.isArray(document.skills) ? document.skills : [];
+  const extras = ["toolsAndSoftware", "certifications", "projects", "languages"]
+    .some((key) => Array.isArray(document[key]) && (document[key] as unknown[]).length > 0);
+  const hasName = Boolean(clean(document.fullName));
+  const hasContact = Boolean(clean(document.email) || clean(document.phone));
+  return Math.min(100,
+    (hasName && hasContact ? 25 : hasName || hasContact ? 12 : 0) +
+    (clean(document.summary) ? 20 : 0) +
+    (experiences.length ? 25 : 0) +
+    (education.length ? 15 : 0) +
+    (skills.length || extras ? 15 : 0),
+  );
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
 /**
  * Best-effort extraction for the small class of uncompressed PDFs that can
  * reach the Worker when browser PDF.js cannot load the file. Normal PDFs are
@@ -163,6 +186,123 @@ async function currentProfile(
   );
 }
 
+type GeneratedCvRow = {
+  id: number;
+  user_id: string;
+  profile_id: number;
+  version: number;
+  structure: string;
+  title: string;
+  content_json: string;
+  created_at: string;
+  updated_at: string;
+  completion_score: number;
+  preferences_json: string;
+};
+
+function publicGeneratedCv(row: GeneratedCvRow) {
+  const document = JSON.parse(row.content_json) as Record<string, unknown>;
+  let preferences: Record<string, unknown> = {};
+  try { preferences = jsonObject(JSON.parse(row.preferences_json || "{}")); } catch { /* use defaults */ }
+  return {
+    id: row.id,
+    version: row.version,
+    structure: row.structure,
+    title: row.title,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at || row.created_at,
+    completionScore: completionScore(document),
+    preferences,
+    document,
+  };
+}
+
+async function handleCvDocuments(request: Request, env: D1Env, user: UserRow, path: string): Promise<Response> {
+  const method = request.method.toUpperCase();
+  const basePath = "/api/career/cv/documents";
+  const profile = await currentProfile(env, user);
+  if (!profile) return error(404, "Create your CV profile before managing documents.");
+
+  if (path === basePath && method === "GET") {
+    const rows = await env.DB.prepare(
+      "SELECT * FROM generated_cvs WHERE user_id = ? ORDER BY updated_at DESC, id DESC",
+    ).bind(user.id).all<GeneratedCvRow>();
+    return json({ documents: (rows.results || []).map((row) => publicGeneratedCv(row)) });
+  }
+
+  if (path === basePath && method === "POST") {
+    const input = await body(request);
+    const document = jsonObject(input.document);
+    if (!clean(document.fullName) && !clean(document.headline)) return error(400, "Add CV details before saving a document.");
+    const title = clean(input.title).slice(0, 180) || (clean(document.fullName) || profile.name) + " CV";
+    const structure = clean(input.templateId || document.structure) || "professional";
+    const preferences = JSON.stringify(jsonObject(input.preferences));
+    const result = await env.DB.prepare(
+      "INSERT INTO generated_cvs (user_id, profile_id, version, structure, title, content_json, updated_at, completion_score, preferences_json) " +
+      "VALUES (?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM generated_cvs WHERE profile_id = ?), ?, ?, ?, datetime('now'), ?, ?)",
+    ).bind(user.id, profile.id, profile.id, structure, title, JSON.stringify(document), completionScore(document), preferences).run();
+    const row = await env.DB.prepare("SELECT * FROM generated_cvs WHERE id = ? AND user_id = ?")
+      .bind(Number(result.meta.last_row_id || 0), user.id).first<GeneratedCvRow>();
+    return row ? json(publicGeneratedCv(row), 201) : error(500, "Could not save this CV document.");
+  }
+
+  const suffix = path.slice(basePath.length).replace(/^\//, "");
+  const duplicateMatch = suffix.match(/^(\d+)\/duplicate$/);
+  const idMatch = suffix.match(/^(\d+)$/);
+  if (duplicateMatch && method === "POST") {
+    const source = await env.DB.prepare("SELECT * FROM generated_cvs WHERE id = ? AND user_id = ?")
+      .bind(Number(duplicateMatch[1]), user.id).first<GeneratedCvRow>();
+    if (!source) return error(404, "CV document not found.");
+    const input = await body(request);
+    const title = clean(input.title).slice(0, 180) || source.title + " (Copy)";
+    const result = await env.DB.prepare(
+      "INSERT INTO generated_cvs (user_id, profile_id, version, structure, title, content_json, updated_at, completion_score, preferences_json) " +
+      "VALUES (?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM generated_cvs WHERE profile_id = ?), ?, ?, ?, datetime('now'), ?, ?)",
+    ).bind(user.id, source.profile_id, source.profile_id, source.structure, title, source.content_json, source.completion_score, source.preferences_json || "{}").run();
+    const row = await env.DB.prepare("SELECT * FROM generated_cvs WHERE id = ? AND user_id = ?")
+      .bind(Number(result.meta.last_row_id || 0), user.id).first<GeneratedCvRow>();
+    return row ? json(publicGeneratedCv(row), 201) : error(500, "Could not duplicate this CV.");
+  }
+  if (!idMatch) return error(404, "CV document route not found.");
+  const id = Number(idMatch[1]);
+
+  if (method === "GET") {
+    const row = await env.DB.prepare("SELECT * FROM generated_cvs WHERE id = ? AND user_id = ?")
+      .bind(id, user.id).first<GeneratedCvRow>();
+    return row ? json(publicGeneratedCv(row)) : error(404, "CV document not found.");
+  }
+  if (method === "DELETE") {
+    const result = await env.DB.prepare("DELETE FROM generated_cvs WHERE id = ? AND user_id = ?")
+      .bind(id, user.id).run();
+    return Number(result.meta.changes || 0) ? json({ success: true }) : error(404, "CV document not found.");
+  }
+  if (method === "PATCH" || method === "PUT") {
+    const existing = await env.DB.prepare("SELECT * FROM generated_cvs WHERE id = ? AND user_id = ?")
+      .bind(id, user.id).first<GeneratedCvRow>();
+    if (!existing) return error(404, "CV document not found.");
+    const input = await body(request);
+    let contentJson = existing.content_json;
+    let document = JSON.parse(contentJson) as Record<string, unknown>;
+    if (input.document && typeof input.document === "object") {
+      document = jsonObject(input.document);
+      contentJson = JSON.stringify(document);
+    }
+    const title = clean(input.title).slice(0, 180) || existing.title;
+    const structure = clean(input.templateId || input.structure || document.structure || existing.structure) || existing.structure;
+    const preferencesJson = input.preferences && typeof input.preferences === "object"
+      ? JSON.stringify(jsonObject(input.preferences))
+      : existing.preferences_json || "{}";
+    await env.DB.prepare(
+      "UPDATE generated_cvs SET title = ?, structure = ?, content_json = ?, completion_score = ?, preferences_json = ?, updated_at = datetime('now') " +
+      "WHERE id = ? AND user_id = ?",
+    ).bind(title, structure, contentJson, completionScore(document), preferencesJson, id, user.id).run();
+    const updated = await env.DB.prepare("SELECT * FROM generated_cvs WHERE id = ? AND user_id = ?")
+      .bind(id, user.id).first<GeneratedCvRow>();
+    return updated ? json(publicGeneratedCv(updated)) : error(500, "Could not update this CV document.");
+  }
+  return error(405, "Method not allowed.");
+}
+
 async function saveProfile(
   request: Request,
   env: D1Env,
@@ -196,6 +336,10 @@ async function saveProfile(
       .bind(user.id, email, name, phone, location, targetRole)
       .run();
   }
+
+  await env.DB.prepare("UPDATE users SET name = ?, updated_at = datetime('now') WHERE id = ?")
+    .bind(name, user.id)
+    .run();
 
   const profile = await currentProfile(env, user);
   if (!profile) return error(500, "Could not save your BonList profile.");
@@ -715,12 +859,20 @@ async function handleGenerate(request: Request, env: D1Env, user: UserRow): Prom
     extracted: extracted as Parameters<typeof buildGeneratedCv>[0]["extracted"],
     structure: normalizeStructure(clean(input.structure) || "professional"),
   });
+  const title = clean(input.title).slice(0, 180) || ("CV of " + document.fullName);
+  const inserted = await env.DB.prepare(
+    "INSERT INTO generated_cvs (user_id, profile_id, version, structure, title, content_json, updated_at, completion_score, preferences_json) " +
+    "VALUES (?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM generated_cvs WHERE profile_id = ?), ?, ?, ?, datetime('now'), ?, '{}')",
+  ).bind(user.id, profile.id, profile.id, document.structure, title, JSON.stringify(document), completionScore(document as unknown as Record<string, unknown>)).run();
+  const saved = await env.DB.prepare("SELECT * FROM generated_cvs WHERE id = ? AND user_id = ?")
+    .bind(Number(inserted.meta.last_row_id || 0), user.id).first<GeneratedCvRow>();
+  if (!saved) return error(500, "Could not save the generated CV.");
   return json({
-    id: Date.now(),
-    version: 1,
+    id: saved.id,
+    version: saved.version,
     structure: document.structure,
     title: `${document.fullName} · ${document.headline} CV (${document.structureLabel})`,
-    createdAt: new Date().toISOString(),
+    createdAt: saved.created_at,
     document,
     cv_content: extracted || { personal: { fullName: document.fullName, email: document.email }, summary: document.summary, experiences: document.experiences, education: document.education, skills: document.skills },
     ai_feedback: document.aiFeedback,
@@ -762,21 +914,14 @@ async function handleSave(request: Request, env: D1Env, user: UserRow): Promise<
 
 async function handleLatestCv(request: Request, env: D1Env, user: UserRow): Promise<Response> {
   const row = await env.DB.prepare(
-    `SELECT id, structure, title, content_json, version, created_at
+    `SELECT *
      FROM generated_cvs WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
   )
     .bind(user.id)
-    .first<{ id: number; structure: string; title: string; content_json: string; version: number; created_at: string }>();
+    .first<GeneratedCvRow>();
   if (!row) return error(404, "No saved CV found yet.");
   try {
-    return json({
-      id: row.id,
-      structure: row.structure,
-      title: row.title,
-      version: row.version,
-      createdAt: row.created_at,
-      document: JSON.parse(row.content_json),
-    });
+    return json(publicGeneratedCv(row));
   } catch {
     return error(500, "Saved CV is invalid.");
   }
@@ -790,7 +935,8 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
     (method === "POST" && (path === "/api/career/profile" || path === "/api/career/cv/parse-upload" || path === "/api/career/diagnostic" || path === "/api/career/cv/generate")) ||
     (method === "POST" && path === "/api/career/cv/save") ||
     (method === "PATCH" && path === "/api/career/profile") ||
-    (method === "GET" && (path === "/api/career/diagnostic/latest" || path === "/api/career/cv/latest"));
+    (method === "GET" && (path === "/api/career/diagnostic/latest" || path === "/api/career/cv/latest")) ||
+    (path === "/api/career/cv/documents" || /^\/api\/career\/cv\/documents\/\d+(?:\/duplicate)?$/.test(path));
   if (!nativePath) return null;
   const user = await getAuthenticatedUser(request, env);
   if (!user && path === "/api/career/cv/parse-upload" && method === "POST") {
@@ -800,6 +946,9 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
     return handleGuestGenerate(request);
   }
   if (!user) return error(401, "Please sign in to continue.");
+  if (path === "/api/career/cv/documents" || path.startsWith("/api/career/cv/documents/")) {
+    return handleCvDocuments(request, env, user, path);
+  }
   if (path === "/api/career/profile") return handleProfile(request, env, user);
   if (path === "/api/career/cv/parse-upload") return handleParse(request, env, user);
   if (path === "/api/career/diagnostic") return handleDiagnostic(request, env, user);

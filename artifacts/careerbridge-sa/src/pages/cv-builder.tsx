@@ -70,6 +70,7 @@ import {
 import { readStoredProfile } from "@/lib/entitlements";
 import { authFetch, readProfile as readAuthProfile } from "@/lib/auth-session";
 import { ensureCvProfile } from "@/lib/cv-profile";
+import { calculateCvCompletion } from "@/lib/cv-completion";
 import { buildParseUploadBody, parseUploadErrorMessage } from "@/lib/cv-parse-upload";
 import {
   buildGeneratedCv as buildGeneratedCvLocally,
@@ -419,6 +420,15 @@ export interface GeneratedCvResponse {
   structure: string;
   title: string;
   createdAt: string;
+  updatedAt?: string;
+  completionScore?: number;
+  preferences?: {
+    color?: string;
+    font?: string;
+    fontSize?: number;
+    lineSpacing?: "tight" | "balanced" | "relaxed";
+    marginSize?: "compact" | "normal" | "wide";
+  };
   document: GeneratedCvDocument;
   cv_content?: CvContentData;
   ai_feedback?: AiFeedbackData;
@@ -1777,6 +1787,9 @@ export default function CvBuilderPage() {
   currentCvRef.current = cv;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"saved" | "saving" | "error">("saved");
+  const autoSaveSignatureRef = useRef("");
+  const autoSaveInitializedRef = useRef(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -2897,6 +2910,47 @@ export default function CvBuilderPage() {
 
     const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     const isIntakeRequested = searchParams?.get("intake") === "1";
+    const requestedDocumentId = searchParams?.get("documentId");
+    if (requestedDocumentId && /^\d+$/.test(requestedDocumentId)) {
+      setLoading(true);
+      setIsIntakeModalOpen(false);
+      void authFetch("/api/career/cv/documents/" + encodeURIComponent(requestedDocumentId))
+        .then(async (response) => {
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Could not load this saved CV.");
+          const loaded = data as GeneratedCvResponse;
+          setCv(loaded);
+          persistGeneratedCv(loaded);
+          setCurrentVersionName(loaded.title || "My Master CV");
+          documentTitleEditedRef.current = true;
+          setDocumentTitle(loaded.title || ("CV of " + (loaded.document.fullName || "Candidate")));
+          setSelectedTemplate(loaded.structure || "professional");
+          const preferences = loaded.preferences;
+          if (preferences?.color) {
+            const color = COLOR_THEMES.find((theme) => theme.id === preferences.color);
+            if (color) setSelectedColor(color);
+          }
+          if (preferences?.font) {
+            const font = FONT_OPTIONS.find((option) => option.id === preferences.font);
+            if (font) setSelectedFont(font);
+          }
+          if (preferences?.fontSize) setFontSize(preferences.fontSize);
+          if (preferences?.lineSpacing) setLineSpacing(preferences.lineSpacing);
+          if (preferences?.marginSize) setMarginSize(preferences.marginSize);
+          hasGeneratedRef.current = true;
+          if (searchParams?.get("print") === "1") {
+            window.setTimeout(() => handleDirectDownload("print"), 900);
+          }
+        })
+        .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load this saved CV."))
+        .finally(() => setLoading(false));
+      return;
+    }
+    if (isIntakeRequested) {
+      setIsIntakeModalOpen(true);
+      showTemplatesAfterGeneration();
+      return;
+    }
     if (hasGeneratedRef.current) {
       setIsIntakeModalOpen(false);
       if (isIntakeRequested) {
@@ -2946,6 +3000,41 @@ export default function CvBuilderPage() {
         window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
       }
       return;
+    }
+
+    if (!isIntakeRequested) {
+      setLoading(true);
+      void authFetch("/api/career/cv/latest")
+        .then(async (response) => {
+          if (response.status === 404) return null;
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Could not load your saved CV.");
+          return data as GeneratedCvResponse;
+        })
+        .then((loaded) => {
+          if (!loaded) return;
+          setCv(loaded);
+          persistGeneratedCv(loaded);
+          setCurrentVersionName(loaded.title || "My Master CV");
+          documentTitleEditedRef.current = true;
+          setDocumentTitle(loaded.title || ("CV of " + (loaded.document.fullName || "Candidate")));
+          setSelectedTemplate(loaded.structure || "professional");
+          const preferences = loaded.preferences;
+          if (preferences?.color) {
+            const color = COLOR_THEMES.find((theme) => theme.id === preferences.color);
+            if (color) setSelectedColor(color);
+          }
+          if (preferences?.font) {
+            const font = FONT_OPTIONS.find((option) => option.id === preferences.font);
+            if (font) setSelectedFont(font);
+          }
+          if (preferences?.fontSize) setFontSize(preferences.fontSize);
+          if (preferences?.lineSpacing) setLineSpacing(preferences.lineSpacing);
+          if (preferences?.marginSize) setMarginSize(preferences.marginSize);
+          hasGeneratedRef.current = true;
+        })
+        .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load your saved CV."))
+        .finally(() => setLoading(false));
     }
 
     // Only show intake automatically when the route explicitly requests it.
@@ -3205,31 +3294,45 @@ export default function CvBuilderPage() {
     void runQualityEvaluation(updatedDoc, jobDescription);
   };
 
+  const buildDocumentSavePayload = (document: GeneratedCvDocument, title: string) => ({
+    title,
+    templateId: selectedTemplate,
+    document,
+    preferences: {
+      color: selectedColor.id,
+      font: selectedFont.id,
+      fontSize,
+      lineSpacing,
+      marginSize,
+    },
+  });
+
+  const savePayloadSignature = (payload: ReturnType<typeof buildDocumentSavePayload>) => JSON.stringify(payload);
+
   const handleSaveCv = async (customTitle?: string) => {
     if (!cv) return;
     setSaving(true);
     setError("");
     try {
-      const ensured = await ensureCvProfile();
-      const res = await authFetch("/api/career/cv/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          profileId: ensured.id,
-          name: ensured.name,
-          email: ensured.email,
-          phone: ensured.phone,
-          location: ensured.location,
-          targetRole: ensured.targetRole,
-          document: cv.document,
-          title: customTitle,
-        }),
-      });
+      await ensureCvProfile();
+      const title = customTitle || documentTitle.trim() || ("CV of " + (cv.document.fullName || "Candidate"));
+      const payload = buildDocumentSavePayload(cv.document, title);
+      const isExistingDocument = Number(cv.id) > 0;
+      let res = await authFetch(
+        isExistingDocument ? "/api/career/cv/documents/" + cv.id : "/api/career/cv/documents",
+        { method: isExistingDocument ? "PUT" : "POST", body: JSON.stringify(payload) },
+      );
+      if (isExistingDocument && res.status === 404) {
+        res = await authFetch("/api/career/cv/documents", { method: "POST", body: JSON.stringify(payload) });
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save CV");
-      setCv(data);
-      persistGeneratedCv(data);
+      const saved = { ...cv, ...data } as GeneratedCvResponse;
+      setCv(saved);
+      persistGeneratedCv(saved);
+      autoSaveSignatureRef.current = savePayloadSignature(payload);
+      autoSaveInitializedRef.current = true;
+      setAutoSaveStatus("saved");
       setMessage("CV saved successfully to BonList Cloud!");
       setTimeout(() => setMessage(""), 3500);
     } catch (err) {
@@ -3247,6 +3350,46 @@ export default function CvBuilderPage() {
     setCv(updatedCv);
     persistGeneratedCv(updatedCv);
   };
+
+  useEffect(() => {
+    if (!cv || isIntakeModalOpen || !Number.isFinite(Number(cv.id))) return;
+    const title = documentTitle.trim() || ("CV of " + (cv.document.fullName || "Candidate"));
+    const payload = buildDocumentSavePayload(cv.document, title);
+    const signature = savePayloadSignature(payload);
+    if (!autoSaveInitializedRef.current) {
+      autoSaveInitializedRef.current = true;
+      autoSaveSignatureRef.current = signature;
+      return;
+    }
+    if (signature === autoSaveSignatureRef.current) return;
+    setAutoSaveStatus("saving");
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          await ensureCvProfile();
+          const isExistingDocument = Number(cv.id) > 0;
+          let response = await authFetch(
+            isExistingDocument ? "/api/career/cv/documents/" + cv.id : "/api/career/cv/documents",
+            { method: isExistingDocument ? "PUT" : "POST", body: JSON.stringify(payload) },
+          );
+          if (isExistingDocument && response.status === 404) {
+            response = await authFetch("/api/career/cv/documents", { method: "POST", body: JSON.stringify(payload) });
+          }
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Autosave failed");
+          const saved = { ...cv, ...data } as GeneratedCvResponse;
+          setCv((current) => current ? { ...current, ...saved } : saved);
+          persistGeneratedCv(saved);
+          autoSaveSignatureRef.current = signature;
+          setAutoSaveStatus("saved");
+        } catch (saveError) {
+          console.error("CV autosave failed", saveError);
+          setAutoSaveStatus("error");
+        }
+      })();
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [cv, documentTitle, selectedTemplate, selectedColor.id, selectedFont.id, fontSize, lineSpacing, marginSize, isIntakeModalOpen]);
 
   // Smart Bullet Improvement
   const handleOpenEnhanceBullet = async (expIdx: number, bulletIdx: number, bulletText: string) => {
@@ -4444,7 +4587,10 @@ export default function CvBuilderPage() {
             <button type="button" onClick={() => documentTitleInputRef.current?.focus()} className="shrink-0 text-gray-400 hover:text-gray-600" aria-label="Edit CV title">
               <Pencil size={14} />
             </button>
-            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Saved</span>
+            <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${autoSaveStatus === "error" ? "bg-red-50 text-red-700" : autoSaveStatus === "saving" || saving ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-emerald-700"}`}>
+              {autoSaveStatus === "saved" && !saving ? <Check size={11} /> : null}
+              {saving || autoSaveStatus === "saving" ? "Saving…" : autoSaveStatus === "error" ? "Save failed" : "Saved"}
+            </span>
           </div>
 
           <div className="flex min-w-0 items-center justify-end gap-1.5">
@@ -4750,6 +4896,17 @@ export default function CvBuilderPage() {
             {/* PANEL 3: CONTENT & SECTIONS */}
             {activeNavPanel === "sections" && (
               <div className="space-y-4 text-xs">
+                {cv ? (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-emerald-900">CV completion</span>
+                      <span className="font-bold text-emerald-800">{calculateCvCompletion(cv.document)}%</span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white">
+                      <div className="h-full rounded-full bg-[#00A884]" style={{ width: calculateCvCompletion(cv.document) + "%" }} />
+                    </div>
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-2 gap-2 border-b border-border pb-4">
                   <button type="button" onClick={() => { setIntakeTab("upload"); setShowPasteInsideUpload(false); setIsIntakeModalOpen(true); }} className="rounded-lg bg-primary px-2.5 py-2 font-semibold text-primary-foreground hover:opacity-90">
                     Upload / Replace CV

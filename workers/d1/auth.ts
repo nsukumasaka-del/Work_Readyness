@@ -142,15 +142,17 @@ function readSessionToken(request: Request): string | null {
   return readBearer(request) || parseCookies(request.headers.get("cookie"))[SESSION_COOKIE] || null;
 }
 
-export function sessionCookie(token: string, expiresAt: Date, secure: boolean, request?: Request): string {
+export function sessionCookie(token: string, expiresAt: Date, secure: boolean, request?: Request, rememberMe = true): string {
   const parts = [
     `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
     "Path=/",
     "HttpOnly",
     "SameSite=Lax",
-    `Expires=${expiresAt.toUTCString()}`,
-    `Max-Age=${SESSION_DAYS * 24 * 60 * 60}`,
   ];
+  if (rememberMe) {
+    parts.push(`Expires=${expiresAt.toUTCString()}`);
+    parts.push(`Max-Age=${Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000))}`);
+  }
   const domain = request ? cookieDomainForRequest(request) : null;
   if (domain) parts.push(`Domain=${domain}`);
   if (secure) parts.push("Secure");
@@ -226,10 +228,11 @@ async function buildLoginResponse(
   request: Request,
   env: D1Env,
   user: UserRow,
+  rememberMe = true,
 ): Promise<Response> {
-  const { token, expiresAt } = await createSession(env.DB, user.id);
+  const { token, expiresAt } = await createSession(env.DB, user.id, rememberMe ? SESSION_DAYS : 1);
   const headers = new Headers();
-  headers.append("Set-Cookie", sessionCookie(token, expiresAt, isSecureRequest(request), request));
+  headers.append("Set-Cookie", sessionCookie(token, expiresAt, isSecureRequest(request), request, rememberMe));
 
   // Admin dashboards use the same D1 session token (no external auth host).
   const adminToken = user.is_admin ? token : undefined;
@@ -244,10 +247,10 @@ async function buildLoginResponse(
   );
 }
 
-export async function createSession(db: D1Database, userId: string): Promise<{ token: string; expiresAt: Date }> {
+export async function createSession(db: D1Database, userId: string, durationDays = SESSION_DAYS): Promise<{ token: string; expiresAt: Date }> {
   const id = randomId();
   const token = randomToken(32);
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000);
   await db
     .prepare(
       "INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
@@ -357,6 +360,7 @@ export async function handleRegister(request: Request, env: D1Env): Promise<Resp
     .trim()
     .toLowerCase();
   const password = String(body.password || "");
+  const rememberMe = body.rememberMe !== false;
   const name = String(body.name || "").trim() || nameFromEmail(email);
 
   if (!email || !email.includes("@")) return error(400, "A valid email is required.");
@@ -433,8 +437,8 @@ export async function handleVerifySignup(request: Request, env: D1Env): Promise<
   const userId = randomId();
   try {
     await env.DB.prepare(
-      `INSERT INTO users (id, email, password_hash, name, email_verified, is_admin, created_at)
-       VALUES (?, ?, ?, ?, 1, 0, datetime('now'))`,
+      `INSERT INTO users (id, email, password_hash, name, email_verified, is_admin, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, 0, datetime('now'), datetime('now'))`,
     )
       .bind(userId, challenge.email.toLowerCase(), challenge.password_hash, challenge.name || nameFromEmail(challenge.email))
       .run();
@@ -524,12 +528,13 @@ export async function handleLogin(request: Request, env: D1Env): Promise<Respons
 
   if (!user.password_hash.startsWith("pbkdf2$")) {
     const upgradedHash = await hashPassword(password);
-    await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+    await env.DB.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?")
       .bind(upgradedHash, user.id)
       .run();
   }
 
-  return buildLoginResponse(request, env, user);
+  await env.DB.prepare("UPDATE users SET updated_at = datetime('now') WHERE id = ?").bind(user.id).run();
+  return buildLoginResponse(request, env, user, rememberMe);
 }
 
 export async function handleMe(request: Request, env: D1Env): Promise<Response> {
@@ -637,7 +642,7 @@ export async function handleResetPassword(request: Request, env: D1Env): Promise
   if (!user) return error(400, "This reset link is invalid.");
 
   const passwordHash = await hashPassword(password);
-  await env.DB.prepare("UPDATE users SET password_hash = ?, email_verified = 1 WHERE id = ?")
+  await env.DB.prepare("UPDATE users SET password_hash = ?, email_verified = 1, updated_at = datetime('now') WHERE id = ?")
     .bind(passwordHash, user.id)
     .run();
   await env.DB.prepare("UPDATE auth_challenges SET consumed_at = datetime('now') WHERE id = ?")

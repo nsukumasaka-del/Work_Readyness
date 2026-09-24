@@ -47,6 +47,7 @@ import { AdminRoute, trackPageVisit } from '@/pages/admin';
 import PricingPage from '@/pages/pricing';
 import ProgrammePage from '@/pages/programme';
 import CvBuilderPage, { generateCv, persistGeneratedCv } from '@/pages/cv-builder';
+import CvDashboardPage from '@/pages/CvDashboard';
 import { SmokeyAgent } from '@/components/smokey-agent';
 import {
   defaultEntitlement,
@@ -223,6 +224,13 @@ function HeaderAuthActions({
             <span className="hidden xl:inline">Admin console</span>
           </Link>
         ) : null}
+        <Link
+          href="/dashboard"
+          className={`rounded-xl px-2.5 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground ${compact ? 'w-full border border-border text-center' : 'hidden sm:inline-flex'}`}
+          data-testid="link-header-my-resumes"
+        >
+          My Resumes
+        </Link>
         <Link
           href="/profile"
           className={`inline-flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2 text-sm font-medium text-foreground hover:border-primary/30 xl:px-3 ${
@@ -1166,6 +1174,11 @@ function AppShell({ children }: { children: ReactNode }) {
               <span className="hidden md:inline">Download APK</span>
               <Download size={13} className="md:hidden" />
             </button>
+            ) : null}
+            {isCvBuilder ? (
+              <Link href="/dashboard" className="hidden shrink-0 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 sm:inline-flex" data-testid="link-header-my-resumes">
+                My Resumes
+              </Link>
             ) : null}
             {isCvBuilder ? (
               <Link href="/profile" className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-card text-sm font-bold text-primary hover:border-primary/40" title="Your profile" aria-label="Your profile">
@@ -3510,6 +3523,8 @@ function ProtectedApp() {
           <Route path="/settings/security" component={SecuritySettingsPage} />
           <Route path="/security/admin-mfa" component={AdminMfaSetupPage} />
           <Route path="/profile" component={ProfilePage} />
+          <Route path="/dashboard" component={CvDashboardPage} />
+          <Route path="/my-resumes" component={CvDashboardPage} />
           <Route path="/diagnostic" component={DiagnosticPage} />
           <Route path="/jobs/:id" component={JobDetailPage} />
           <Route path="/jobs" component={JobsPage} />

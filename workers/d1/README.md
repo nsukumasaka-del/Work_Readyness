@@ -38,6 +38,12 @@ npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0002_
 npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0005_auth_identities.sql
 ```
 
+CV documents use the existing D1 `users`, `career_profiles`, and `generated_cvs` tables. Apply the document autosave/dashboard extension once to an existing database:
+
+```bash
+npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0010_cv_documents.sql
+```
+
 ## Email (Resend only)
 
 ```bash

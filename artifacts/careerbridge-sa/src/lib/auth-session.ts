@@ -117,17 +117,21 @@ export function persistAdminAccess(adminToken?: string, isAdmin?: boolean) {
   removeStoredValue(ADMIN_FLAG_KEY);
 }
 
-export function persistSessionToken(token?: string) {
+export function persistSessionToken(token?: string, rememberMe = true) {
   if (token) {
-    writeStoredValue(SESSION_KEY, token);
+    try { sessionStorage.setItem(SESSION_KEY, token); } catch { /* session can remain available from local storage */ }
+    try {
+      if (rememberMe) localStorage.setItem(SESSION_KEY, token);
+      else localStorage.removeItem(SESSION_KEY);
+    } catch { /* Keep authentication usable for this tab when storage is blocked. */ }
     return;
   }
   removeStoredValue(SESSION_KEY);
 }
 
-export async function completeAuthSession(payload: AuthSessionPayload) {
+export async function completeAuthSession(payload: AuthSessionPayload, rememberMe = true) {
   persistProfile(payload);
-  persistSessionToken(payload.sessionToken);
+  persistSessionToken(payload.sessionToken, rememberMe);
   persistAdminAccess(payload.adminToken, Boolean(payload.isAdmin));
   if (payload.showSecurityNudge) {
     writeStoredValue(NUDGE_KEY, '1');

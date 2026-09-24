@@ -478,6 +478,7 @@ export function LoginPage() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState(
     oauthError
       ? oauthError === 'oauth_config'
@@ -503,12 +504,12 @@ export function LoginPage() {
       .catch(() => undefined);
   }, []);
 
-  const finish = async (payload: Record<string, any>) => {
+  const finish = async (payload: Record<string, any>, remember = rememberMe) => {
     if (payload.requiresMfa && payload.mfaToken) {
       setMfaToken(payload.mfaToken);
       return;
     }
-    await completeAuthSession(payload as any);
+    await completeAuthSession(payload as any, remember);
     afterAuthNavigate(setLocation, payload, returnTo);
   };
 
@@ -519,7 +520,7 @@ export function LoginPage() {
     try {
       const response = await authFetch('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ email: email.trim(), password, rememberMe }),
       });
       const payload = await readApiJson(response);
       if (!response.ok) throw new Error(payload.error || 'Login failed');
@@ -546,7 +547,7 @@ export function LoginPage() {
       });
       const payload = await readApiJson(response);
       if (!response.ok) throw new Error(payload.error || 'Verification failed');
-      await completeAuthSession(payload as any);
+      await completeAuthSession(payload as any, rememberMe);
       afterAuthNavigate(setLocation, payload, returnTo);
     } catch (err) {
       setError(friendlyClientError(err, 'That code was incorrect.'));
@@ -718,6 +719,10 @@ export function LoginPage() {
             placeholder="Your password"
             testId="input-login-password"
           />
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} className="h-4 w-4 rounded border-border accent-primary" />
+            Remember me on this device
+          </label>
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
           <button type="submit" className="btn-primary w-full" disabled={loading} data-testid="button-login-submit">
             {loading ? 'Signing in…' : 'Sign in'} <ArrowRight size={15} />

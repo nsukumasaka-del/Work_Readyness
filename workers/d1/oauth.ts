@@ -364,8 +364,8 @@ async function upsertOAuthUser(
     const passwordHash = await hashPassword(`oauth:${randomToken(32)}`);
     await db
       .prepare(
-        `INSERT INTO users (id, email, password_hash, name, email_verified, is_admin, created_at)
-         VALUES (?, ?, ?, ?, 1, 0, datetime('now'))`,
+        `INSERT INTO users (id, email, password_hash, name, email_verified, is_admin, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 1, 0, datetime('now'), datetime('now'))`,
       )
       .bind(id, profile.email, passwordHash, profile.name)
       .run();

@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL DEFAULT '',
   email_verified INTEGER NOT NULL DEFAULT 0,
   is_admin INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email);
@@ -100,6 +101,9 @@ CREATE TABLE IF NOT EXISTS generated_cvs (
   title TEXT NOT NULL,
   content_json TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  completion_score INTEGER NOT NULL DEFAULT 0,
+  preferences_json TEXT NOT NULL DEFAULT '{}',
   UNIQUE (profile_id, version)
 );
 

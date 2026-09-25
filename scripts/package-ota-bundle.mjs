@@ -29,6 +29,9 @@ addTree(publicDir);
 const otaDir = resolve(publicDir, "ota");
 mkdirSync(otaDir, { recursive: true });
 const bundle = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 8 } });
+if (bundle.length < 4 || bundle[0] !== 0x50 || bundle[1] !== 0x4b || !zip.file("index.html")) {
+  throw new Error("The OTA bundle is not a valid ZIP or is missing index.html; refusing to publish an unusable update.");
+}
 writeFileSync(resolve(otaDir, "latest.zip"), bundle);
 const manifest = {
   bundleVersion: meta.bundleVersion,

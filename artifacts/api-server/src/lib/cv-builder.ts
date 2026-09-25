@@ -2381,7 +2381,7 @@ function validateExtractedCvData(data: ExtractedCvData, fileName?: string, sourc
     competencies: [],
   };
 }
-export function extractCvDataFromText(rawText: string, fileName?: string): ExtractedCvData {
+function extractCvDataFromTextInternal(rawText: string, fileName?: string): ExtractedCvData {
   // Some Word-exported PDFs map bullet and en-dash glyphs to U+FFFD in the
   // text layer. Recover those structural characters before sanitization strips
   // them, otherwise date ranges stop matching and bullet lists collapse.
@@ -2400,6 +2400,8 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
 
   // 1. Personal Contact Extraction
   // Email
+  // Global metadata pass: contact information is commonly placed in a side
+  // column or midway through a visual CV, outside the first header lines.
   const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i);
   const email = emailMatch ? emailMatch[0].trim() : "";
 
@@ -2572,7 +2574,10 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     /^(?:\d+\s*(?:of|\/)\s*\d+|\.{3,}|[_=*-]{4,})$/.test(line.trim()) ||
     line.trim().length > 180;
   const isKnownSectionHeading = (line: string) =>
-    /^(?:personal(?:\s+(?:details|information))?|contact(?:\s+details)?|professional\s+summary|summary|profile|about me|professional statement|executive summary|career objective|biography|key impact(?:\s+at\s+.+)?|key achievements|selected achievements|career highlights|highlights|work history|employment history|career history|professional experience|work experience|relevant experience|previous employment|experience|education(?:\s+and\s+qualifications)?|qualifications|academic history|tertiary education|academic background|studies|education\s*&\s*training|academic qualifications|professional skills|skills(?:\s+and\s+competencies)?|core competencies|competencies|tools\s*&\s*technologies|tools and technologies|technical skills|key skills|technologies|software\s*&\s*tools|expertise|core skills|hard\s*&\s*soft skills|systems|projects|key projects|portfolio|notable projects|personal projects|selected projects|certifications|certificates|licenses(?:\s+and\s+certifications)?|accreditations|courses(?:\s*&\s*certifications)?|professional certifications|languages(?:\s+(?:spoken|skills|proficiency))?|references|referees|testimonials)\s*:?$/i.test(line.trim());
+    /^(?:personal(?:\s+(?:details|information))?|contact(?:\s+details)?|professional\s+summary|summary|profile|about me|professional statement|executive summary|career objective|biography|key impact(?:\s+at\s+.+)?|key achievements|selected achievements|career highlights|highlights|work history|employment history|career history|professional experience|work experience|relevant experience|previous employment|experience|education(?:\s*(?:and|&)\s*qualifications)?|qualifications|academic history|tertiary education|academic background|studies|education\s*&\s*training|academic qualifications|professional skills|skills(?:\s*(?:and|&)\s*competencies)?|core competencies|competencies|tools\s*&\s*technologies|tools and technologies|technical skills|key skills|technologies|software\s*&\s*tools|expertise|core skills|hard\s*&\s*soft skills|systems|projects|key projects|portfolio|notable projects|personal projects|selected projects|certifications?(?:\s*[,/&]\s*(?:licen[cs]es?|languages?))?|certificates|licen[cs]es?(?:\s*[,/&]\s*(?:certifications?|languages?))?|accreditations|courses(?:\s*&\s*certifications)?|professional certifications|languages?(?:\s*(?:spoken|skills|proficiency))?|references|referees|testimonials)\s*:?$/i.test(line.trim());
+  const credentialLineRe = /\b(?:driver'?s?\s+licen[cs]e|code\s*(?:8|10|b|c1)\b|\bPDP\b|\bPSIRA\b|\bmatric\b|\bdiploma\b|\bB\.?Sc\.?\b|\bcertificat(?:e|ion)\b|\blicen[cs]e\b|\blicen[cs]ed\b)\b/i;
+  const languageNames = ["English", "Zulu", "isiZulu", "Xhosa", "isiXhosa", "Sotho", "Sesotho", "Afrikaans", "Tswana", "Setswana", "Sepedi", "Northern Sotho", "Venda", "Tshivenda", "Tsonga", "itsonga", "Swati", "siSwati", "Ndebele", "isiNdebele"];
+  const languageNameRe = new RegExp(`\\b(?:${languageNames.join("|")})\\b`, "ig");
   const isReferenceDataLine = (line: string) => {
     const value = line.trim();
     if (!value || isDocumentEndOrNoise(value)) return false;
@@ -2655,6 +2660,9 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     ) {
       currentSection = "summary";
       continue;
+    } else if (/^(?=.*\bcertifications?\b|.*\blicen[cs]es?\b)(?=.*\blanguages?\b).{1,120}$/i.test(line) && looksLikeSectionTitle(line)) {
+      currentSection = "certifications_languages";
+      continue;
     } else if (
       looksLikeSectionTitle(line) &&
       /^(?:key impact(?:\s+at\s+.+)?|key achievements|selected achievements|career highlights|highlights)\s*:?\s*$/i.test(lower)
@@ -2670,7 +2678,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       continue;
     } else if (
       looksLikeSectionTitle(line) &&
-      /^(?:education(?:\s+and\s+qualifications)?|qualifications|academic history|tertiary education|academic background|studies|education\s+&\s+training|academic qualifications)\s*:?\s*$/i.test(
+      /^(?:education(?:\s*(?:and|&)\s*qualifications)?|qualifications|academic history|tertiary education|academic background|studies|education\s+&\s+training|academic qualifications)\s*:?\s*$/i.test(
         lower,
       )
     ) {
@@ -2678,7 +2686,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       continue;
     } else if (
       looksLikeSectionTitle(line) &&
-      /^(?:professional\s+skills|skills(?:\s+and\s+competencies)?|core competencies|competencies|tools & technologies|tools and technologies|technical skills|key skills|technologies|software & tools|expertise|core skills|hard & soft skills|systems)\s*:?\s*$/i.test(
+      /^(?:professional\s+skills|skills(?:\s*(?:and|&)\s*competencies)?|core competencies|competencies|tools & technologies|tools and technologies|technical skills|key skills|technologies|software & tools|expertise|core skills|hard & soft skills|systems)\s*:?\s*$/i.test(
         lower,
       )
     ) {
@@ -2724,6 +2732,17 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
       assignSectionLine(projectLines, line);
     } else if (currentSection === "certifications") {
       assignSectionLine(certLines, line);
+    } else if (currentSection === "certifications_languages") {
+      const items = line.split(/\s*(?:[|•·,;]|\t+|\s{2,})\s*/).map((item) => item.trim()).filter(Boolean);
+      for (const item of items) {
+        if (languageNameRe.test(item) && item.length < 80) {
+          assignSectionLine(languageLines, item);
+          languageNameRe.lastIndex = 0;
+        } else {
+          languageNameRe.lastIndex = 0;
+          assignSectionLine(certLines, item);
+        }
+      }
     } else if (currentSection === "languages") {
       assignSectionLine(languageLines, line);
     }
@@ -3067,10 +3086,15 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
   ]).slice(0, 60);
   const toolsAndSoftware: string[] = [];
 
-  // Parse Certifications
+  // Parse Certifications. This global fallback recovers credentials printed
+  // in sidebars or compound headers even when no dedicated section exists.
   const certifications: CvCertificationItem[] = [];
-  if (certLines.length > 0) {
-    for (const cLine of certLines) {
+  const globalCredentialLines = lines.filter((line) =>
+    line.length <= 160 && credentialLineRe.test(line) && !isKnownSectionHeading(line),
+  );
+  const certificationCandidates = uniqueTextValues([...certLines, ...globalCredentialLines]);
+  if (certificationCandidates.length > 0) {
+    for (const cLine of certificationCandidates) {
       const clean = cLine.replace(/^[\s•\-\*▪▫►]+/, "").trim();
       if (clean.length > 3) {
         const parts = clean.split(/[|—–,]/).map((p) => p.trim());
@@ -3147,8 +3171,16 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
 
   // Parse Languages — keep proficiency phrases intact
   let languages: string[] = [];
-  if (languageLines.length > 0) {
-    const rawLang = languageLines
+  {
+    // Search the whole document, but only accept compact lines to avoid
+    // mistaking ordinary prose mentions for a declared spoken language.
+    const globalLanguageLines = lines.flatMap((line) => {
+      if (line.length > 100) return [];
+      const matches = line.match(languageNameRe) || [];
+      languageNameRe.lastIndex = 0;
+      return matches;
+    });
+    const rawLang = [...languageLines, ...globalLanguageLines]
       .map((l) => l.replace(/^[\s•\-\*▪▫►]+/, "").trim())
       .filter((l) => l.length > 1 && l.length < 80 && !/^(languages|language skills|proficiency)$/i.test(l) && !isPageMarker(l));
     if (rawLang.length > 0) {
@@ -3166,7 +3198,7 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
     const phoneMatch = line.match(/(?:\+27(?:\s*\(0\))?[\s-]*|\b0)(?:\(?\d{2,3}\)?[\s-]*){2,4}\d{2,4}/);
     const phone = phoneMatch?.[0]?.replace(/[\s-]+/g, " ").trim();
     const withoutPhone = phoneMatch ? line.replace(phoneMatch[0], "").trim() : line;
-    const parts = withoutPhone.split(/\s+(?:—|–|-|\||•)(?:\s+|$)/).map((part) => part.trim()).filter(Boolean);
+    const parts = withoutPhone.split(/\s*(?:[|•·—–]|\t+|\s{2,})\s*/).map((part) => part.trim()).filter(Boolean);
     const name = parts[0] || withoutPhone;
     const descriptorParts = (parts.slice(1).join(" ").match(/[^,]+/g) || []).map((part) => part.trim()).filter(Boolean);
     return {
@@ -3265,6 +3297,41 @@ export function extractCvDataFromText(rawText: string, fileName?: string): Extra
 
   // Run the source corroboration and final shape checks before returning data.
   return validateExtractedCvData(verifyExtractedDataAgainstRawText(initialExtracted, text), fileName, text);
+}
+
+/**
+ * Fault-tolerant ingestion boundary. A malformed or unexpected text layer must
+ * not escape into the upload UI as an exception; return the standard empty
+ * extraction structure so users can retry or paste their CV text.
+ */
+export function extractCvDataFromText(rawText: string, fileName?: string): ExtractedCvData {
+  try {
+    return extractCvDataFromTextInternal(typeof rawText === "string" ? rawText : String(rawText ?? ""), fileName);
+  } catch (error) {
+    console.error("CV text extraction failed; returning an empty structured result.", error);
+    try {
+      return extractCvDataFromTextInternal("", fileName);
+    } catch (fallbackError) {
+      console.error("CV text extraction fallback failed.", fallbackError);
+      const personal = { fullName: "", email: "", phone: "", location: "", professionalTitle: "" };
+      const content: CvContentData = {
+        personal, summary: "", experiences: [], education: [], skills: [], toolsAndSoftware: [],
+        certifications: [], languages: [], projects: [], references: [], referenceDetails: [],
+      };
+      return {
+        cv_content: content,
+        ai_feedback: { internalTips: [], missingKeywords: [], jobBoardAdvice: [], flaggedPhrases: [], strengths: [], improvements: [] },
+        ...content,
+        personal,
+        verificationBreakdown: {
+          personal: { verified: false, missingFields: ["fullName", "email", "phone", "location"] },
+          experience: { count: 0, verifiedDates: true, verifiedCompanies: false },
+          education: { count: 0, verified: false },
+          skills: { count: 0 },
+        },
+      };
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

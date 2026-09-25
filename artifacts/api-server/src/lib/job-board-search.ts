@@ -27,6 +27,7 @@ type SearchInput = {
   limit?: number;
   experienceRoles?: string[];
   expertise?: string[];
+  credentials?: string[];
   languages?: string[];
   yearsExperience?: number;
   adzunaAppId?: string;
@@ -551,7 +552,7 @@ function jobTerms(value: string): string[] {
     .map((word) => aliases[word] || word))];
 }
 
-function candidateMatch(
+export function candidateMatch(
   job: LiveJobListing,
   role: string,
   experienceRoles: string[],
@@ -559,13 +560,39 @@ function candidateMatch(
   location?: string,
   languages: string[] = [],
   yearsExperience?: number,
+  credentials: string[] = [],
 ): { score: number; breakdown: { skills: number; titleDomain: number; seniority: number; location: number } } {
+  const noFit = () => ({ score: 0, breakdown: { skills: 0, titleDomain: 0, seniority: 0, location: 0 } });
   const titleText = job.title.toLowerCase();
   const listedLanguages = languages.join(" ").toLowerCase();
   for (const language of ["german", "french", "dutch", "spanish", "portuguese", "italian", "arabic", "mandarin"]) {
     if (new RegExp(`\\b${language}\\b`, "i").test(titleText)
-      && !listedLanguages.includes(language)) return { score: 0, breakdown: { skills: 0, titleDomain: 0, seniority: 0, location: 0 } };
+      && !listedLanguages.includes(language)) return noFit();
   }
+  const candidateEvidence = [...expertise, ...credentials].join(" ");
+  const regulatedRoleGuards = [
+    {
+      job: /\b(?:professional|registered|enrolled)?\s*nurse\b|\bnursing specialist\b|\bnurse practitioner\b|\bmidwi(?:fe|ves)\b/i,
+      credential: /\bSANC\b|South African Nursing Council|registered (?:professional )?nurse|nursing council registration/i,
+    },
+    {
+      job: /\bprofessional accountant\b|\bchartered accountant\b|\bregistered auditor\b|\bCA\s*\(?SA\)?\b/i,
+      credential: /\bSAICA\b|\bSAIPA\b|\bCA\s*\(?SA\)?\b|\bACCA\b|\bCIMA\b|\bAGA\s*\(?SA\)?\b|registered auditor|IRBA/i,
+    },
+    {
+      job: /\bprofessional engineer\b|\bregistered engineer\b|\bPr\.?\s*Eng\.?\b|\bECSA registration\b/i,
+      credential: /\bECSA\b|\bPr\.?\s*Eng\.?\b|registered professional engineer/i,
+    },
+  ];
+  if (regulatedRoleGuards.some(({ job: regulated, credential }) => regulated.test(`${job.title} ${job.description}`) && !credential.test(candidateEvidence))) return noFit();
+  const requiredCredentialGroups = [
+    { required: /\bSANC\b|South African Nursing Council|registered (?:professional )?nurse/i, candidate: /\bSANC\b|South African Nursing Council|registered (?:professional )?nurse|nursing council registration/i },
+    { required: /\bSAICA\b|\bSAIPA\b|\bACCA\b|\bCIMA\b|\bIRBA\b|\bCA\s*\(?SA\)?\b|\bAGA\s*\(?SA\)?\b/i, candidate: /\bSAICA\b|\bSAIPA\b|\bACCA\b|\bCIMA\b|\bIRBA\b|\bCA\s*\(?SA\)?\b|\bAGA\s*\(?SA\)?\b|registered auditor/i },
+    { required: /\bECSA\b|\bPr\.?\s*Eng\.?\b/i, candidate: /\bECSA\b|\bPr\.?\s*Eng\.?\b|registered professional engineer/i },
+    { required: /(?:valid|current|code [A-E])[^.]{0,35}\bdriver'?s? licen[cs]e\b|\bdriver'?s? licen[cs]e\b[^.]{0,35}(?:required|essential|mandatory)/i, candidate: /driver'?s? licen[cs]e|code [A-E]\b/i },
+  ];
+  const jobRequirementText = `${job.title} ${job.description}`;
+  if (requiredCredentialGroups.some(({ required, candidate }) => required.test(jobRequirementText) && !candidate.test(candidateEvidence))) return noFit();
   const wantedLocation = location?.toLowerCase().trim();
   if (wantedLocation && !["south africa", "all south africa", "hybrid"].includes(wantedLocation)) {
     const listedLocation = job.location.toLowerCase();
@@ -577,7 +604,7 @@ function candidateMatch(
     };
     if (!listedLocation.includes(wantedLocation)
       && !(aliases[wantedLocation] ?? []).some((alias) => listedLocation.includes(alias))
-      && locationFitScore(location, job.location) === 0) return { score: 0, breakdown: { skills: 0, titleDomain: 0, seniority: 0, location: 0 } };
+      && locationFitScore(location, job.location) === 0) return noFit();
   }
   const titleTerms = new Set(jobTerms(job.title));
   const evidenceTerms = new Set(jobTerms(`${job.title} ${job.description} ${job.sector}`));
@@ -588,24 +615,29 @@ function candidateMatch(
   const historyTerms = experienceRoles.flatMap(jobTerms);
   const targetTitleFit = overlap(targetTerms, titleTerms);
   const historyDomainFit = overlap(historyTerms, evidenceTerms);
-  const titleDomain = Math.round(Math.min(1, Math.max(targetTitleFit, historyDomainFit * 0.9)) * 100);
-  const skills = expertise.length
-    ? Math.round(overlap(expertise.flatMap(jobTerms), evidenceTerms) * 100)
-    : Math.round(Math.max(targetTitleFit, historyDomainFit) * 75);
+  const titleDomain = Math.round(Math.min(1, Math.max(targetTitleFit * 0.75, targetTitleFit * 0.45 + historyDomainFit * 0.55)) * 100);
+  const candidateSkillTerms = [...new Set(expertise.flatMap(jobTerms))];
+  const skills = candidateSkillTerms.length
+    ? Math.round(overlap(candidateSkillTerms, evidenceTerms) * 100)
+    : 0;
   const seniorTerms = `${job.title} ${job.description}`.toLowerCase();
-  const candidateSenior = experienceRoles.some((item) => /\b(head|director|executive|senior manager|chief|lead)\b/i.test(item)) || (yearsExperience ?? 0) >= 8;
-  const listingSenior = /\b(head|director|executive|chief|senior manager|team manager)\b/i.test(seniorTerms);
+  const candidateLeadership = experienceRoles.some((item) => /\b(head|director|executive|senior manager|chief|team lead|supervisor)\b/i.test(item));
+  const candidateBaseSeniority = yearsExperience === undefined
+    ? (experienceRoles.length ? 52 : 35)
+    : yearsExperience <= 1 ? 38 : yearsExperience <= 3 ? 58 : yearsExperience <= 7 ? 76 : 90;
+  let seniority = candidateLeadership ? Math.max(candidateBaseSeniority, 88) : candidateBaseSeniority;
+  const listingSenior = /\b(head|director|executive|chief|senior manager|team manager|senior lead)\b/i.test(seniorTerms);
   const listingJunior = /\b(entry[- ]level|graduate|junior|trainee|intern(ship)?)\b/i.test(seniorTerms);
-  let seniority = 78;
-  if (listingSenior && !candidateSenior) seniority = 28;
-  else if (listingJunior && candidateSenior) seniority = 38;
-  else if (listingSenior === candidateSenior && (listingSenior || candidateSenior)) seniority = 92;
+  if (listingSenior) seniority = candidateLeadership || (yearsExperience ?? 0) >= 7 ? Math.max(seniority, 88) : Math.min(seniority, 30);
+  else if (listingJunior) seniority = candidateLeadership || (yearsExperience ?? 0) >= 7 ? 35 : Math.max(seniority, 78);
   const requiredYears = seniorTerms.match(/\b(\d+)\s*(?:\+|to|-)?\s*(?:years?|yrs?)\b/i);
   if (requiredYears && yearsExperience !== undefined) {
     const minimum = Number(requiredYears[1]);
     if (minimum > yearsExperience + 3) seniority = Math.min(seniority, 35);
     else if (yearsExperience < minimum) seniority = Math.min(seniority, 55);
     else seniority = Math.max(seniority, 88);
+  } else if (requiredYears && yearsExperience === undefined) {
+    seniority = Math.min(seniority, Number(requiredYears[1]) >= 5 ? 28 : 45);
   }
   const locationScore = locationFitScore(location, job.location);
   if (titleDomain < 20 || locationScore === 0) return { score: 0, breakdown: { skills, titleDomain, seniority, location: locationScore } };
@@ -618,7 +650,7 @@ function candidateMatch(
 function locationFitScore(wanted?: string, listed = ""): number {
   const target = wanted?.toLowerCase().trim();
   const actual = listed.toLowerCase();
-  if (!target || ["south africa", "all south africa"].includes(target)) return 75;
+  if (!target || ["south africa", "all south africa"].includes(target)) return 50;
   if (actual.includes(target)) return 100;
   const nearby: Record<string, string[]> = {
     gauteng: ["johannesburg", "kempton park", "benoni", "pretoria", "sandton", "midrand", "germiston", "edenvale"],
@@ -636,6 +668,7 @@ function locationFitScore(wanted?: string, listed = ""): number {
 }
 
 const ROLE_QUERY_ALIASES: Array<{ match: RegExp; titles: string[] }> = [
+  { match: /site agent|site manager|construction|foreman|civil|quantity surveyor|built environment/i, titles: ["Site Agent", "Construction Site Manager", "Civil Project Manager"] },
   { match: /freight|import|export|logistic|transport/i, titles: ["Freight Controller", "Import/Export Operations Controller", "Road Freight Coordinator"] },
   { match: /aviation|airline|airport|cabin|passenger/i, titles: ["Aviation Customer Service Agent", "Airport Passenger Services Agent", "Airline Operations Coordinator"] },
   { match: /customer service|customer support|call.?centre/i, titles: ["Customer Service Representative", "Client Support Specialist", "Customer Care Agent"] },
@@ -833,9 +866,9 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   const deduped = new Map<string, LiveJobListing>();
   const addMatches = (jobs: LiveJobListing[]) => {
     for (const job of jobs) {
-      const fit = candidateMatch(job, role, input.experienceRoles ?? [], expertise, location, input.languages, input.yearsExperience);
+      const fit = candidateMatch(job, role, input.experienceRoles ?? [], expertise, location, input.languages, input.yearsExperience, input.credentials ?? []);
       const match = fit.score;
-      if (match < 48) continue;
+      if (match < 40) continue;
       const key = job.company !== "Hiring company"
         ? `${job.title.toLowerCase()}|${job.company.toLowerCase()}|${job.location.toLowerCase()}`
         : job.url.toLowerCase();

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { searchTrustedJobBoards } from "./job-board-search";
+import { candidateMatch, searchTrustedJobBoards, type LiveJobListing } from "./job-board-search";
+
+const listing = (title: string, description: string, location = "Johannesburg"): LiveJobListing => ({
+  id: 1, title, company: "Test employer", location, sector: "Professional services",
+  salary: "See listing", match: 50, posted: "Today", tags: [], source: "Test", url: "https://example.test/job",
+  description,
+});
 
 test("fills six location-matched listings from recognized boards after priority boards", async () => {
   const originalFetch = globalThis.fetch;
@@ -57,4 +63,34 @@ test("returns an honest empty result when no board has an individual listing", a
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("blocks regulated nursing and accountant listings without matching credentials", () => {
+  const nurseJob = listing("Professional Nurse Specialist", "Active SANC registration and nursing qualification are required.");
+  const accountantJob = listing("Professional Accountant", "SAICA or SAIPA registration is essential for this role.");
+
+  assert.equal(candidateMatch(nurseJob, "Professional Nurse Specialist", [], ["customer service"], "Gauteng", [], 8).score, 0);
+  assert.equal(candidateMatch(nurseJob, "Professional Nurse Specialist", ["Professional Nurse"], ["patient care"], "Gauteng", [], 8).score, 0);
+  assert.equal(candidateMatch(accountantJob, "Professional Accountant", [], ["Excel", "account management"], "Gauteng", [], 8).score, 0);
+  assert(candidateMatch(nurseJob, "Professional Nurse Specialist", [], ["patient care"], "Gauteng", [], 8, ["SANC registration"]).score > 0);
+  assert(candidateMatch(accountantJob, "Professional Accountant", [], ["financial reporting"], "Gauteng", [], 8, ["SAIPA professional accountant"]).score > 0);
+});
+
+test("calculates different role and seniority subscores from each listing", () => {
+  const candidate = {
+    role: "Site Agent",
+    history: ["Site Agent", "Assistant Site Manager"],
+    skills: ["construction", "site safety", "project scheduling", "civil engineering"],
+  };
+  const seniorListing = candidateMatch(
+    listing("Senior Construction Site Manager", "Construction site management, civil works, contractor coordination; 8 years experience required."),
+    candidate.role, candidate.history, candidate.skills, "Gauteng", [], 4,
+  );
+  const juniorListing = candidateMatch(
+    listing("Junior Site Agent", "Entry-level site operations and construction scheduling."),
+    candidate.role, candidate.history, candidate.skills, "Gauteng", [], 4,
+  );
+
+  assert.notEqual(seniorListing.breakdown.seniority, juniorListing.breakdown.seniority);
+  assert.notEqual(seniorListing.breakdown.titleDomain, juniorListing.breakdown.titleDomain);
 });

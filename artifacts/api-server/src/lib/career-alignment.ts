@@ -28,6 +28,7 @@ export interface CareerAlignmentReport {
 }
 
 const SECTOR_CUES: Array<{ label: string; pattern: RegExp }> = [
+  { label: "Construction, Built Environment & Site Operations", pattern: /site agent|site manager|construction|built environment|foreman|civil|quantity surveyor|site supervisor|(?:project manager|project management).{0,40}(?:site|civil|contractor|built environment)|(?:site|civil|contractor|built environment).{0,40}(?:project manager|project management)/i },
   { label: "Road freight and imports", pattern: /freight|logistic|import|export|brokerage|transport|customs|shipping/i },
   { label: "Aviation and passenger services", pattern: /aviation|airline|airport|passenger|cabin|check.?in|reservation/i },
   { label: "Customer service and account support", pattern: /customer|client|service|support|account|call.?centre|help.?desk/i },
@@ -36,6 +37,7 @@ const SECTOR_CUES: Array<{ label: string; pattern: RegExp }> = [
 ];
 
 const ROLE_REQUIREMENTS: Array<{ pattern: RegExp; skills: string[] }> = [
+  { pattern: /construction|site agent|site manager|foreman|civil|quantity surveyor|built environment/i, skills: ["construction site operations", "health and safety compliance", "project scheduling", "quality control", "contractor coordination"] },
   { pattern: /freight|import|export|logistic|transport/i, skills: ["freight brokerage", "import/export documentation", "customs compliance", "rate negotiation", "shipment tracking", "Excel", "TMS"] },
   { pattern: /aviation|airline|airport|passenger/i, skills: ["passenger handling", "check-in and boarding", "reservation systems", "airline operations", "customer service"] },
   { pattern: /customer|support|call.?centre|account/i, skills: ["CRM", "customer issue resolution", "service-level targets", "account management", "written communication"] },

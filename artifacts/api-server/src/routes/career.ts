@@ -241,6 +241,7 @@ const seededJobs = [
 
 function inferSector(role?: string): string {
   const value = (role || "").toLowerCase();
+  if (/site agent|site manager|construction|built environment|foreman|civil|quantity surveyor|site supervisor/.test(value)) return "Construction, Built Environment & Site Operations";
   if (/engineer|developer|software|tech|data/.test(value)) return "Technology";
   if (/ops|operations|coordinator|logistics/.test(value)) return "Operations";
   if (/finance|accountant|analyst|fp&a/.test(value)) return "Finance";
@@ -1039,6 +1040,10 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
         ...(extractedCandidate?.skills ?? []),
         ...(extractedCandidate?.toolsAndSoftware ?? []),
       ].slice(0, 60),
+      credentials: [
+        ...(extractedCandidate?.certifications ?? []).map((item) => item.name),
+        ...(extractedCandidate?.education ?? []).flatMap((item) => [item.degree, item.details || ""]),
+      ].filter(Boolean),
       yearsExperience: estimateCareerYears(extractedCandidate?.experiences),
       languages: extractedCandidate?.languages ?? [],
     });

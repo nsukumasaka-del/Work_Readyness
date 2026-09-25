@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { MessageCircle, Send, Sparkles, X } from 'lucide-react';
 import { useAskSmokey } from '@workspace/api-client-react';
+import { useLocation } from 'wouter';
 
 type ChatMessage = {
   id: string;
@@ -16,6 +17,8 @@ const defaultSuggestions = [
 
 export function SmokeyAgent() {
   const ask = useAskSmokey();
+  const [location] = useLocation();
+  const isCvBuilder = location.startsWith('/cv-builder');
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [suggestions, setSuggestions] = useState(defaultSuggestions);
@@ -91,7 +94,7 @@ export function SmokeyAgent() {
   };
 
   return (
-    <div className="fixed bottom-[max(1rem,var(--safe-bottom))] right-[max(1rem,var(--safe-right))] z-[60] flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3">
+    <div className={`fixed ${isCvBuilder ? 'bottom-[calc(5rem+var(--safe-bottom))]' : 'bottom-[max(1rem,var(--safe-bottom))]'} right-[max(1rem,var(--safe-right))] z-[60] flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 md:bottom-[max(1rem,var(--safe-bottom))]`}>
       {open && (
         <div className="flex h-[min(560px,72vh)] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-xl">
           <div className="flex items-center justify-between bg-primary px-4 py-3 text-primary-foreground">
@@ -175,12 +178,12 @@ export function SmokeyAgent() {
 
       <button
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-lg hover:brightness-105"
+        className="inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg hover:brightness-105 sm:px-4"
         data-testid="button-ask-smokey"
         aria-label="Ask Smokey"
       >
         <MessageCircle size={18} />
-        Ask Smokey
+        <span className="hidden sm:inline">Ask Smokey</span>
       </button>
     </div>
   );

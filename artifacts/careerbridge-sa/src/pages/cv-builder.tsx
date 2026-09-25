@@ -1996,7 +1996,9 @@ export default function CvBuilderPage() {
   const [fontSize, setFontSize] = useState<number>(10.5); // pt
   const [lineSpacing, setLineSpacing] = useState<"tight" | "balanced" | "relaxed">("balanced");
   const [marginSize, setMarginSize] = useState<"compact" | "normal" | "wide">("normal");
-  const [zoomLevel, setZoomLevel] = useState<number>(100); // 80, 90, 100, 110
+  const [zoomLevel, setZoomLevel] = useState<number>(() =>
+    typeof window !== "undefined" && window.innerWidth < 768 ? 75 : 100,
+  );
   const [bgPattern, setBgPattern] = useState<string>("none");
   const [templateFilter, setTemplateFilter] = useState<string>("all");
   const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
@@ -4838,16 +4840,20 @@ export default function CvBuilderPage() {
   const scrollToCanvasPage = (requestedPage: number) => {
     const page = Math.max(1, Math.min(a4PageCount, requestedPage));
     setCurrentCanvasPage(page);
-    const scale = Math.min(zoomLevel / 100, canvasFitScale);
+    const scale = zoomLevel / 100;
     const pageHeight = (canvasPageWidthPx / 210) * 297 * scale;
     canvasRef.current?.scrollTo({ top: Math.max(0, (page - 1) * pageHeight), behavior: "smooth" });
   };
 
+  const handleZoomIn = () => setZoomLevel((previous) => Math.min(200, previous + 15));
+  const handleZoomOut = () => setZoomLevel((previous) => Math.max(40, previous - 15));
+  const handleFitCanvas = () => setZoomLevel(Math.max(40, Math.min(100, Math.round(canvasFitScale * 100))));
+
   return (
     <div className="cv-builder relative flex h-[calc(100dvh-3.5rem)] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
       {commandHeaderHost ? createPortal(
-        <div className="flex h-full min-w-0 flex-1 items-center justify-between gap-3 px-3">
-          <div className="flex min-w-0 items-center gap-2">
+        <div className="flex h-full min-w-0 flex-1 items-center justify-between gap-1 overflow-hidden px-2 sm:gap-3 sm:px-3">
+          <div className="flex min-w-0 items-center gap-1 sm:gap-2">
             <input
               ref={documentTitleInputRef}
               type="text"
@@ -4855,18 +4861,19 @@ export default function CvBuilderPage() {
               value={documentTitle}
               onChange={(event) => { documentTitleEditedRef.current = true; setDocumentTitle(event.target.value); }}
               onBlur={() => { if (!documentTitle.trim()) setDocumentTitle(`CV of ${cv?.document.fullName || profile?.name || "Candidate"}`); }}
-              className="w-56 max-w-[28vw] truncate rounded px-2 py-1 text-sm font-semibold text-slate-800 outline-none transition-all hover:bg-gray-100 focus:bg-white focus:ring-1 focus:ring-blue-500"
+              className="w-[min(34vw,140px)] max-w-[140px] truncate rounded px-1 py-1 text-xs font-semibold text-slate-800 outline-none transition-all hover:bg-gray-100 focus:bg-white focus:ring-1 focus:ring-blue-500 sm:w-56 sm:max-w-xs sm:px-2 sm:text-sm"
             />
-            <button type="button" onClick={() => documentTitleInputRef.current?.focus()} className="shrink-0 text-gray-400 hover:text-gray-600" aria-label="Edit CV title">
+            <button type="button" onClick={() => documentTitleInputRef.current?.focus()} className="hidden shrink-0 text-gray-400 hover:text-gray-600 sm:block" aria-label="Edit CV title">
               <Pencil size={14} />
             </button>
             <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${autoSaveStatus === "error" ? "bg-red-50 text-red-700" : saving ? "bg-slate-100 text-slate-600" : autoSaveStatus === "unsaved" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>
               {autoSaveStatus === "saved" && !saving ? <Check size={11} /> : null}
-              {saving ? "Saving…" : autoSaveStatus === "error" ? "Save failed" : autoSaveStatus === "unsaved" ? "Unsaved changes" : "Saved to account"}
+              <span className="sm:hidden">{saving ? "Saving" : autoSaveStatus === "error" ? "Error" : autoSaveStatus === "unsaved" ? "Unsaved" : "Saved"}</span>
+              <span className="hidden sm:inline">{saving ? "Saving…" : autoSaveStatus === "error" ? "Save failed" : autoSaveStatus === "unsaved" ? "Unsaved changes" : "Saved to account"}</span>
             </span>
           </div>
 
-          <div className="flex min-w-0 items-center justify-end gap-1.5">
+          <div className="flex min-w-0 shrink-0 items-center justify-end gap-0.5 sm:gap-1.5">
             <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40" title="Print CV">
               <Printer size={15} /><span className="hidden lg:inline">Print</span>
             </button>
@@ -4923,7 +4930,7 @@ export default function CvBuilderPage() {
       {/* 2. ENHANCV-STYLE WORKSPACE (LEFT ICON RAIL + FLYOUT PANEL + A4 CANVAS + RIGHT DRAWERS) */}
       <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
         {/* DARK STUDIO TOOL DOCK */}
-        <nav className="no-print z-30 flex h-full w-[65px] shrink-0 flex-col items-center justify-start border-r border-slate-800 bg-[#121629] py-3 text-white" aria-label="CV studio tools">
+        <nav className="no-print z-30 hidden h-full w-[65px] shrink-0 flex-col items-center justify-start border-r border-slate-800 bg-[#121629] py-3 text-white md:flex" aria-label="CV studio tools">
           <div className="flex w-full flex-col items-center gap-5">
             <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "templates" ? null : "templates")} aria-expanded={activeNavPanel === "templates"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "templates" ? "text-white" : "text-slate-300 hover:text-white"}`}>
               <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "templates" ? "bg-blue-600" : "hover:bg-white/10"}`}><LayoutTemplate size={18} /></span>
@@ -4940,9 +4947,21 @@ export default function CvBuilderPage() {
           </div>
           <div className="text-[8px] font-semibold tracking-widest text-slate-500 [writing-mode:vertical-rl]">BONLIST STUDIO</div>
         </nav>
+        <nav className="no-print absolute inset-x-0 bottom-0 z-50 flex h-16 items-center justify-around border-t border-slate-700 bg-[#121629] px-2 pb-[max(0.25rem,var(--safe-bottom))] text-white md:hidden" aria-label="CV studio tools">
+          {([
+            { id: "templates" as const, label: "Templates", Icon: LayoutTemplate },
+            { id: "design" as const, label: "Formatting", Icon: Type },
+            { id: "sections" as const, label: "Content", Icon: ListChecks },
+          ]).map(({ id, label, Icon }) => (
+            <button key={id} type="button" onClick={() => setActiveNavPanel(activeNavPanel === id ? null : id)} aria-expanded={activeNavPanel === id} className={`flex min-w-[76px] flex-col items-center justify-center gap-1 rounded-xl px-3 py-1.5 text-[10px] font-medium ${activeNavPanel === id ? "text-white" : "text-slate-300"}`}>
+              <span className={`grid h-8 w-10 place-items-center rounded-lg ${activeNavPanel === id ? "bg-blue-600" : ""}`}><Icon size={17} /></span>
+              {label}
+            </button>
+          ))}
+        </nav>
         {/* LEFT EXPANDABLE DRAWER PANEL (340px) */}
         {activeNavPanel && (
-          <aside className="no-print absolute bottom-0 left-[65px] top-0 z-20 w-[min(20rem,calc(100vw-65px))] min-w-0 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-5 shadow-lg animate-in slide-in-from-left duration-200 md:relative md:left-auto md:z-10 md:h-full md:w-80 md:shrink-0">
+          <aside className="no-print fixed inset-x-0 bottom-16 top-auto z-40 max-h-[72dvh] w-full min-w-0 shrink-0 overflow-y-auto rounded-t-2xl border border-slate-200 bg-white p-4 pb-6 shadow-xl animate-in slide-in-from-bottom duration-200 md:relative md:inset-auto md:z-10 md:h-full md:max-h-none md:w-80 md:shrink-0 md:rounded-none md:border-y-0 md:border-l-0 md:p-5 md:shadow-lg md:animate-in md:slide-in-from-left">
             <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
               <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 {activeNavPanel === "templates" && "Layout & Templates"}
@@ -5508,10 +5527,10 @@ export default function CvBuilderPage() {
             if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) activeTextTargetRef.current = target;
           }}
           onScroll={(event) => {
-            const pageHeight = (canvasPageWidthPx / 210) * 297 * Math.min(zoomLevel / 100, canvasFitScale);
+            const pageHeight = (canvasPageWidthPx / 210) * 297 * (zoomLevel / 100);
             if (pageHeight > 0) setCurrentCanvasPage(Math.min(a4PageCount, Math.max(1, Math.floor((event.currentTarget.scrollTop + 16) / pageHeight) + 1)));
           }}
-          className="relative min-h-0 min-w-0 flex h-full flex-1 flex-col items-center overflow-y-auto bg-[#f0f2f5] p-4 sm:p-8"
+          className="relative min-h-0 min-w-0 flex h-full flex-1 flex-col items-center overflow-auto bg-[#f0f2f5] px-3 pb-24 pt-4 sm:p-8 md:pb-8"
         >
           {cv && !isPreviewMode ? (
             <div className="no-print sticky top-0 z-20 mb-3 flex max-w-full items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-sm backdrop-blur" role="toolbar" aria-label="Text formatting">
@@ -5535,15 +5554,15 @@ export default function CvBuilderPage() {
                 <div
                 className="cv-zoom-outer"
                 style={{
-                   width: `${Math.ceil(canvasPageWidthPx * Math.min(zoomLevel / 100, canvasFitScale))}px`,
+                   width: `${Math.ceil(canvasPageWidthPx * (zoomLevel / 100))}px`,
                    height: a4StackHeightPx
-                     ? `${Math.ceil(a4StackHeightPx * Math.min(zoomLevel / 100, canvasFitScale))}px`
+                     ? `${Math.ceil(a4StackHeightPx * (zoomLevel / 100))}px`
                      : undefined,
                 }}
               >
                 <div
                   style={{
-                    transform: `scale(${Math.min(zoomLevel / 100, canvasFitScale)})`,
+                    transform: `scale(${zoomLevel / 100})`,
                     transformOrigin: "top left",
                     transition: "transform 0.15s ease-out",
                   }}
@@ -6830,15 +6849,16 @@ export default function CvBuilderPage() {
           )}
           {cv && (
             <>
-              <div className="no-print absolute bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-xs text-slate-600 shadow-md backdrop-blur">
+              <div className="no-print absolute bottom-20 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-xs text-slate-600 shadow-md backdrop-blur md:bottom-4">
                 <button type="button" onClick={() => scrollToCanvasPage(currentCanvasPage - 1)} disabled={currentCanvasPage <= 1} className="px-1 font-semibold hover:text-slate-950 disabled:opacity-30" aria-label="Previous page">‹</button>
                 <span className="min-w-12 text-center font-medium">{currentCanvasPage} / {a4PageCount}</span>
                 <button type="button" onClick={() => scrollToCanvasPage(currentCanvasPage + 1)} disabled={currentCanvasPage >= a4PageCount} className="px-1 font-semibold hover:text-slate-950 disabled:opacity-30" aria-label="Next page">›</button>
               </div>
-              <div className="no-print absolute bottom-4 right-4 z-40 flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 p-1 text-slate-600 shadow-md backdrop-blur">
-                <button type="button" onClick={() => setZoomLevel((value) => Math.max(70, value - 10))} className="grid h-7 w-7 place-items-center rounded-full hover:bg-slate-100" title="Zoom out"><ZoomOut size={14} /></button>
-                <span className="min-w-9 text-center text-[10px] font-semibold">{zoomLevel}%</span>
-                <button type="button" onClick={() => setZoomLevel((value) => Math.min(130, value + 10))} className="grid h-7 w-7 place-items-center rounded-full hover:bg-slate-100" title="Zoom in"><ZoomIn size={14} /></button>
+              <div className="no-print absolute bottom-20 left-3 z-40 flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 p-1 text-slate-600 shadow-md backdrop-blur md:bottom-4 md:left-auto md:right-4">
+                <button type="button" onClick={handleZoomOut} className="grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100" title="Zoom out" aria-label="Zoom out"><ZoomOut size={15} /></button>
+                <span className="min-w-10 text-center text-[10px] font-semibold">{zoomLevel}%</span>
+                <button type="button" onClick={handleZoomIn} className="grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100" title="Zoom in" aria-label="Zoom in"><ZoomIn size={15} /></button>
+                <button type="button" onClick={handleFitCanvas} className="rounded-full px-2 py-1 text-[10px] font-semibold hover:bg-slate-100" title="Fit canvas to screen">Fit</button>
               </div>
             </>
           )}

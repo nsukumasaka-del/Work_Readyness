@@ -825,6 +825,7 @@ export interface CvContentData {
   education: CvEducationItem[];
   skills: string[];
   toolsAndSoftware?: string[];
+  competencies?: string[];
   certifications?: CvCertificationItem[];
   languages?: string[];
   projects?: CvProjectItem[];

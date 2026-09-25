@@ -1618,11 +1618,13 @@ function Home() {
   });
   const [fileName, setFileName] = useState('');
   const [cvFile, setCvFile] = useState<File | null>(null);
+  const [isCvDragging, setIsCvDragging] = useState(false);
   const [role, setRole] = useState('');
   const [locationArea, setLocationArea] = useState('');
   const [scanStep, setScanStep] = useState(0);
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewError, setReviewError] = useState('');
+  const cvFileInputRef = useRef<HTMLInputElement | null>(null);
   const hasReport = Boolean(latestReport);
 
   useEffect(() => {
@@ -1723,6 +1725,41 @@ function Home() {
     }
   };
 
+  const selectDiagnosticFile = (file: File | null) => {
+    if (!file) return;
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
+    const allowedExtensions = ['pdf', 'docx', 'txt'];
+    const allowedMimeTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'application/octet-stream',
+    ];
+    if (!allowedExtensions.includes(extension) || (file.type && !allowedMimeTypes.includes(file.type))) {
+      setCvFile(null);
+      setFileName('');
+      setReviewError('Choose a PDF, Word (.docx), or text (.txt) CV file.');
+      if (cvFileInputRef.current) cvFileInputRef.current.value = '';
+      return;
+    }
+    setCvFile(file);
+    setFileName(file.name);
+    setReviewError('');
+  };
+
+  const openDiagnosticUpload = (event?: { preventDefault: () => void }) => {
+    event?.preventDefault();
+    document.getElementById('upload-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    cvFileInputRef.current?.click();
+  };
+
+  const scrollToDiagnosticUpload = (event?: { preventDefault: () => void }) => {
+    event?.preventDefault();
+    document.getElementById('upload-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.getElementById('upload-section')?.classList.add('ring-2', 'ring-primary/30');
+    window.setTimeout(() => document.getElementById('upload-section')?.classList.remove('ring-2', 'ring-primary/30'), 1400);
+  };
+
     if (!profileReady) {
     return (
       <div className="mx-auto max-w-6xl px-5 py-20 text-center text-sm text-muted-foreground md:px-8">
@@ -1752,7 +1789,7 @@ function Home() {
       : 'Run a CV review to see fresh matches';
     const actionCards = [
       {
-        href: '/#cv-check', title: 'Free AI CV Review & Score',
+        href: '/#upload-section', title: 'Free AI CV Review & Score',
         copy: 'Instant AI score, ATS optimization check, career direction mapping, and authenticity feedback.',
         action: 'Upload CV for Free Review', icon: FileCheck2, badge: 'FREE', tone: 'bg-emerald-500/10 text-emerald-700',
       },
@@ -1789,7 +1826,7 @@ function Home() {
         <main className="mx-auto max-w-7xl px-5 py-6 md:px-8 md:py-8">
           <section aria-label="Quick actions" className="grid gap-4 md:grid-cols-3">
             {actionCards.map((card) => (
-              <Link key={card.title} href={card.href} className="group flex min-h-48 flex-col rounded-2xl border border-border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md" data-testid={`dashboard-action-${card.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`}>
+              <Link key={card.title} href={card.href} onClick={card.title === 'Free AI CV Review & Score' ? openDiagnosticUpload : undefined} className="group flex min-h-48 flex-col rounded-2xl border border-border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md" data-testid={`dashboard-action-${card.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`}>
                 <div className="flex items-start justify-between gap-3">
                   <span className={`grid h-11 w-11 place-items-center rounded-xl ${card.tone}`}><card.icon size={20} /></span>
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold tracking-wide text-slate-600">{card.badge}</span>
@@ -1815,7 +1852,7 @@ function Home() {
                   <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${profileCompletion}%` }} />
                 </div>
                 <p className="mt-4 text-sm leading-6 text-muted-foreground">Upload an updated CV to refresh your profile review and job matches.</p>
-                <Link href="/#cv-check" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary">Update your CV <ArrowRight size={15} /></Link>
+                <button type="button" onClick={scrollToDiagnosticUpload} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:text-primary/80">Update your CV <ArrowRight size={15} /></button>
               </article>
 
               <article className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6">
@@ -1850,6 +1887,7 @@ function Home() {
               </div>
               <form
               onSubmit={submitDiagnostic}
+              id="upload-section"
               className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6"
             >
               {isReviewing ? (
@@ -1887,24 +1925,30 @@ function Home() {
                 </div>
               ) : (
                 <>
-                  <label className="block">
+                  <label
+                    className="block"
+                    onDragOver={(event) => { event.preventDefault(); setIsCvDragging(true); }}
+                    onDragEnter={(event) => { event.preventDefault(); setIsCvDragging(true); }}
+                    onDragLeave={(event) => { event.preventDefault(); setIsCvDragging(false); }}
+                    onDrop={(event) => { event.preventDefault(); setIsCvDragging(false); selectDiagnosticFile(event.dataTransfer.files?.[0] ?? null); }}
+                  >
                     <span className="mb-2 block text-xs font-semibold text-foreground">Upload your current CV</span>
                     <span
-                      className={`flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed px-4 py-4 ${
-                        fileName
+                      className={`flex min-h-16 cursor-pointer items-center gap-3 rounded-2xl border border-dashed px-4 py-4 transition-colors ${
+                        isCvDragging
+                          ? 'border-primary bg-primary/10 ring-2 ring-primary/20'
+                          : fileName
                           ? 'border-primary/50 bg-secondary'
                           : 'border-border bg-muted/50 hover:border-primary/40'
                       }`}
                     >
                       <input
                         type="file"
+                        ref={cvFileInputRef}
                         accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                         className="sr-only"
                         onChange={(event) => {
-                          const file = event.target.files?.[0] ?? null;
-                          setCvFile(file);
-                          setFileName(file?.name ?? '');
-                          setReviewError('');
+                          selectDiagnosticFile(event.target.files?.[0] ?? null);
                         }}
                         data-testid="input-cv-file"
                       />

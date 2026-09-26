@@ -53,7 +53,7 @@ const processes = [
       ...sharedEnv,
       PORT: process.env.WEB_PORT || "19678",
       BASE_PATH: process.env.BASE_PATH || "/",
-      API_PROXY_TARGET: process.env.API_PROXY_TARGET || "http://127.0.0.1:8080",
+      API_PROXY_TARGET: process.env.API_PROXY_TARGET || "https://www.bonlist.site",
     },
   },
 ];

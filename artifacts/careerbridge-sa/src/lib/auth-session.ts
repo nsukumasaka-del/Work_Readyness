@@ -173,7 +173,7 @@ export async function readApiJson(response: Response): Promise<Record<string, an
   const text = await response.text();
   if (response.status === 405) {
     throw new Error(
-      'BonList API is not reachable on this site (HTTP 405). The website is online, but the API server is not connected. Start the API locally with pnpm dev, or set API_UPSTREAM_URL on Cloudflare to your API host.',
+      'BonList API route is unavailable (HTTP 405). Please try again shortly or contact support if the problem continues.',
     );
   }
   if (!text.trim()) {

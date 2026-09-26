@@ -1,7 +1,7 @@
 # BonList — Cloudflare Worker (static SPA + D1 auth on the edge)
 #
 # Auth, email (Resend), and OAuth run 100% on Cloudflare Workers + D1.
-# Optional: API_UPSTREAM_URL for legacy non-auth /api routes during migration.
+# API routes are handled by this Worker; no legacy API origin is configured.
 #
 # Deploy: pnpm run cf:deploy
 
@@ -29,9 +29,6 @@ PRIMARY_ADMIN_EMAIL = "nsukumasaka@gmail.com"
 PRIMARY_ADMIN_NAME = "Ntokozo Sukumasaka"
 # Used for password-reset links + OAuth redirect_uri base.
 APP_BASE_URL = "https://www.bonlist.site"
-# Legacy proxy for non-auth career APIs (CV diagnostic, jobs) during edge migration.
-# Auth/email/OAuth do NOT use this. Remove when those routes run on Workers.
-API_UPSTREAM_URL = "https://bonlist-api-yj0d.onrender.com"
 # Android update metadata must match the versionCode/versionName in the published APK.
 ANDROID_LATEST_VERSION = "1.1.0"
 ANDROID_VERSION_CODE = "2"

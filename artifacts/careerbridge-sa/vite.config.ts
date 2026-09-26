@@ -6,7 +6,6 @@ import { defineConfig } from 'vite';
 
 const rawPort = process.env.PORT || '19678';
 const port = Number(rawPort);
-const apiPort = Number(process.env.API_PORT || '8080');
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
@@ -50,7 +49,7 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: process.env.API_PROXY_TARGET || `http://127.0.0.1:${apiPort}`,
+        target: process.env.API_PROXY_TARGET || 'https://www.bonlist.site',
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {

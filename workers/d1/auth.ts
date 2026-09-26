@@ -28,8 +28,6 @@ const RESET_HOURS = 1;
 
 export type D1Env = MailEnv & {
   DB: D1Database;
-  /** Optional legacy proxy for non-auth /api routes until fully on Workers. */
-  API_UPSTREAM_URL?: string;
   ADZUNA_APP_ID?: string;
   ADZUNA_APP_KEY?: string;
   /** Optional Gemini API key used to enrich CV Review career advisories. */
@@ -528,10 +526,7 @@ export async function handleLogin(request: Request, env: D1Env): Promise<Respons
     try { passwordMatches = await verifyPassword(password, user.password_hash); }
     catch (err) { console.warn("[auth] Stored password hash verification failed", err); }
   }
-  if (!user || (!passwordMatches && !user.password_hash.startsWith("pbkdf2$"))) {
-    user = await importLegacyAccountAfterAuthentication(env, email, password);
-  }
-  if (!user) {
+  if (!user || !passwordMatches) {
     return error(401, "Invalid email or password.");
   }
   if (user.email_verified === 0) {
@@ -547,50 +542,6 @@ export async function handleLogin(request: Request, env: D1Env): Promise<Respons
 
   await env.DB.prepare("UPDATE users SET updated_at = datetime('now') WHERE id = ?").bind(user.id).run();
   return buildLoginResponse(request, env, user, rememberMe);
-}
-
-/** Authenticate older accounts against the legacy API, then move them to D1. */
-async function importLegacyAccountAfterAuthentication(
-  env: D1Env,
-  email: string,
-  password: string,
-): Promise<UserRow | null> {
-  const upstream = String(env.API_UPSTREAM_URL || "").trim().replace(/\/+$/, "");
-  if (!upstream) return null;
-  try {
-    if (new URL(upstream).protocol !== "https:") return null;
-    const response = await fetch(`${upstream}/api/career/login`, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ email, password, rememberMe: true }),
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!response.ok) return null;
-    const payload = await response.json() as Record<string, unknown>;
-    const verifiedEmail = normalizeEmail(payload.email);
-    if (!verifiedEmail || verifiedEmail !== email || payload.requiresMfa) return null;
-
-    const id = randomId();
-    const name = String(payload.name || nameFromEmail(email)).trim() || nameFromEmail(email);
-    const passwordHash = await hashPassword(password);
-    const isAdmin = payload.isAdmin === true || payload.isPrimaryAdmin === true ? 1 : 0;
-    try {
-      await env.DB.prepare(
-        `INSERT INTO users (id, email, password_hash, name, email_verified, is_admin, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 1, ?, datetime('now'), datetime('now'))`,
-      ).bind(id, email, passwordHash, name, isAdmin).run();
-    } catch {
-      const raced = await findUserByEmail(env.DB, email);
-      if (!raced) throw new Error("Legacy account import failed.");
-      await env.DB.prepare(
-        "UPDATE users SET password_hash = ?, email_verified = 1, updated_at = datetime('now') WHERE id = ?",
-      ).bind(passwordHash, raced.id).run();
-    }
-    return findUserByEmail(env.DB, email);
-  } catch (err) {
-    console.warn("[auth] Legacy account migration unavailable", err);
-    return null;
-  }
 }
 
 export async function handleMe(request: Request, env: D1Env): Promise<Response> {

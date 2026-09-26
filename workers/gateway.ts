@@ -1,13 +1,18 @@
 /**
  * Cloudflare Worker gateway for BonList (edge-native).
  * - Auth (/api/auth/*, career auth aliases) → Cloudflare D1 + Resend
- * - Other /api/* → optional legacy upstream only if API_UPSTREAM_URL is set
+ * - Career, auth, and platform /api/* → Cloudflare-native handlers
  * - Everything else → static SPA assets
  */
 import { handleD1Auth, type D1Env } from "./d1/auth";
 import { handleD1Career } from "./d1/career";
 import { handleCvTools } from "./d1/cv-tools";
 import { handlePlatformTools } from "./d1/platform-tools";
+import {
+  generateSmokeyReply,
+  streamSmokeyReply,
+  type GeminiChatTurn,
+} from "../artifacts/api-server/src/lib/ai/gemini-client";
 
 export interface Env extends D1Env {
   ASSETS: Fetcher;
@@ -15,6 +20,125 @@ export interface Env extends D1Env {
   ANDROID_VERSION_CODE?: string;
   ANDROID_APK_URL?: string;
   ANDROID_RELEASE_NOTES?: string;
+}
+
+const SMOKEY_SUGGESTIONS = [
+  "How can I improve my CV?",
+  "Help me prepare for an interview.",
+  "Which roles match my experience?",
+];
+
+function text(value: unknown, maxLength = 1_200): string {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function textList(value: unknown, maxCount = 12): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+        .map((item) => item.trim().slice(0, 160))
+        .slice(0, maxCount)
+    : [];
+}
+
+async function handleSmokeyChat(request: Request, env: Env): Promise<Response> {
+  let input: Record<string, unknown>;
+  try {
+    const parsed: unknown = await request.json();
+    input = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return jsonError(400, "Send a valid JSON chat message.");
+  }
+
+  const message = text(input.message, 2_000);
+  if (!message) return jsonError(400, "Enter a message for Smokey.");
+  const apiKey = String(env.GEMINI_API_KEY || "").trim();
+  if (!apiKey) return jsonError(503, "Smokey is temporarily unavailable. Please try again later.");
+
+  const history: GeminiChatTurn[] = Array.isArray(input.history)
+    ? input.history.slice(-16).flatMap((turn): GeminiChatTurn[] => {
+        if (!turn || typeof turn !== "object") return [];
+        const item = turn as Record<string, unknown>;
+        const role = item.role === "model" || item.role === "assistant" || item.role === "smokey"
+          ? "model"
+          : item.role === "user" ? "user" : null;
+        const turnText = text(item.text, 2_000);
+        return role && turnText ? [{ role, parts: [{ text: turnText }] }] : [];
+      })
+    : [];
+
+  const role = text(input.role, 120);
+  const cv = input.cvDocument && typeof input.cvDocument === "object"
+    ? input.cvDocument as Record<string, unknown>
+    : {};
+  const content = cv.content && typeof cv.content === "object"
+    ? cv.content as Record<string, unknown>
+    : cv;
+  const experiences = Array.isArray(content.experiences)
+    ? content.experiences
+    : Array.isArray(content.workExperience) ? content.workExperience : [];
+  const context = JSON.stringify({
+    targetRole: role,
+    summary: text(content.summary || content.professionalSummary),
+    skills: textList(content.skills),
+    systems: textList(content.toolsAndSoftware),
+    experience: experiences.slice(0, 5).flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const item = entry as Record<string, unknown>;
+      return [{
+        role: text(item.role || item.jobTitle, 120),
+        company: text(item.company, 120),
+        highlights: textList(item.bullets || item.responsibilities, 4),
+      }];
+    }),
+  });
+  const chatInput = {
+    apiKey,
+    model: env.GEMINI_MODEL || undefined,
+    message,
+    history,
+    context,
+  };
+
+  if (input.stream === false) {
+    try {
+      const reply = await generateSmokeyReply(chatInput);
+      if (!reply.trim()) return jsonError(502, "Smokey could not prepare a response. Please try again.");
+      return new Response(JSON.stringify({ success: true, reply, suggestions: SMOKEY_SUGGESTIONS }), {
+        headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+      });
+    } catch (error) {
+      console.error("[smokey] Gemini chat failed", error);
+      return jsonError(502, "Smokey is currently taking a quick breather. Please try again in a moment.");
+    }
+  }
+
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (data: Record<string, unknown>) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      controller.enqueue(encoder.encode(": connected\n\n"));
+      try {
+        for await (const chunk of streamSmokeyReply(chatInput)) send({ text: chunk });
+        send({ done: true });
+      } catch (error) {
+        console.error("[smokey] Gemini stream failed", error);
+        send({ error: "Smokey lost the connection. Please try again." });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+  return new Response(body, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+      "x-accel-buffering": "no",
+    },
+  });
 }
 
 function jsonError(status: number, error: string): Response {
@@ -106,39 +230,6 @@ async function serveOtaAsset(request: Request, env: Env): Promise<Response> {
   return new Response(request.method === "HEAD" ? null : body, { status: 200, headers });
 }
 
-async function proxyApi(
-  request: Request,
-  upstreamBase: string,
-): Promise<Response> {
-  const incoming = new URL(request.url);
-  const target = new URL(incoming.pathname + incoming.search, upstreamBase);
-
-  const headers = new Headers(request.headers);
-  headers.delete("host");
-  headers.set("x-forwarded-host", incoming.host);
-  headers.set("x-forwarded-proto", incoming.protocol.replace(":", ""));
-
-  const init: RequestInit = {
-    method: request.method,
-    headers,
-    redirect: "manual",
-  };
-
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    init.body = request.body;
-    (init as RequestInit & { duplex?: string }).duplex = "half";
-  }
-
-  try {
-    return await fetch(target.toString(), init);
-  } catch {
-    return jsonError(
-      502,
-      "Could not reach the BonList API. Please try again in a moment.",
-    );
-  }
-}
-
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -173,6 +264,10 @@ export default {
       }));
     }
 
+    if (url.pathname === "/api/career/smokey/chat" && request.method === "POST") {
+      return withNativeCors(request, await handleSmokeyChat(request, env));
+    }
+
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
       if (request.method === "OPTIONS") {
         return withNativeCors(request, new Response(null, { status: 204 }));
@@ -196,18 +291,10 @@ export default {
         if (platformResponse) return withNativeCors(request, platformResponse);
       }
 
-      const upstream = String(env.API_UPSTREAM_URL || "")
-        .trim()
-        .replace(/\/+$/, "");
-
-      if (!upstream) {
-        return withNativeCors(request, jsonError(
-          501,
-          "This API route is not yet available on the Cloudflare edge. Auth routes (/api/auth/*) are live; career APIs are being migrated.",
-        ));
-      }
-
-      return withNativeCors(request, await proxyApi(request, `${upstream}/`));
+      return withNativeCors(request, jsonError(
+        501,
+        "This API route is not yet available on Cloudflare Workers.",
+      ));
     }
 
     const assetResponse = await env.ASSETS.fetch(request);

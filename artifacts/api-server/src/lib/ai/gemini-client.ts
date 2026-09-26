@@ -15,18 +15,18 @@ const SMOKEY_SYSTEM_INSTRUCTION = `You are Smokey, BonList's friendly, expert ca
  */
 export const GEMINI_MODEL = "gemini-3.1-flash-lite";
 
-export async function streamSmokeyReply(input: {
+function createSmokeyChat(input: {
   apiKey: string;
   model?: string;
   message: string;
   history: GeminiChatTurn[];
   context?: string;
-}): Promise<AsyncGenerator<string>> {
+}) {
   const ai = new GoogleGenAI({ apiKey: input.apiKey });
   const context = input.context?.trim()
     ? `\n\nVerified user context for this conversation (reference only):\n${input.context.trim().slice(0, 10_000)}`
     : "";
-  const chat = ai.chats.create({
+  return ai.chats.create({
     model: input.model || GEMINI_MODEL,
     config: {
       systemInstruction: SMOKEY_SYSTEM_INSTRUCTION + context,
@@ -35,13 +35,33 @@ export async function streamSmokeyReply(input: {
     },
     history: input.history.slice(-16),
   });
+}
+
+export async function* streamSmokeyReply(input: {
+  apiKey: string;
+  model?: string;
+  message: string;
+  history: GeminiChatTurn[];
+  context?: string;
+}): AsyncGenerator<string> {
+  const chat = createSmokeyChat(input);
   const stream = await chat.sendMessageStream({ message: input.message });
-  return (async function* () {
-    for await (const chunk of stream) {
-      const text = chunk.text;
-      if (text) yield text;
-    }
-  })();
+  for await (const chunk of stream) {
+    const text = chunk.text;
+    if (text) yield text;
+  }
+}
+
+export async function generateSmokeyReply(input: {
+  apiKey: string;
+  model?: string;
+  message: string;
+  history: GeminiChatTurn[];
+  context?: string;
+}): Promise<string> {
+  const chat = createSmokeyChat(input);
+  const response = await chat.sendMessage({ message: input.message });
+  return response.text || "";
 }
 
 function parseJsonObject(value: string): Partial<CareerAlignmentReport> | null {

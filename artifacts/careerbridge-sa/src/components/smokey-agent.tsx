@@ -71,59 +71,82 @@ export function SmokeyAgent() {
     ]);
     setInput('');
 
-    try {
-      const response = await authFetch('/api/career/smokey/chat', {
+    const requestBody = JSON.stringify({ message, history, role, cvDocument });
+    const requestJsonFallback = async () => {
+      const fallbackResponse = await authFetch('/api/career/smokey/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-        body: JSON.stringify({ message, history, role, cvDocument }),
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ message, history, role, cvDocument, stream: false }),
       });
+      const payload = await fallbackResponse.json() as { reply?: string; error?: string; suggestions?: string[] };
+      if (!fallbackResponse.ok || !payload.reply) {
+        throw new Error(payload.error || 'Smokey could not respond just now. Please try again shortly.');
+      }
+      setMessages((current) => current.map((item) => item.id === replyId ? { ...item, text: payload.reply! } : item));
+      if (payload.suggestions?.length) setSuggestions(payload.suggestions.slice(0, 3));
+    };
+
+    const streamController = new AbortController();
+    const streamTimeout = window.setTimeout(() => streamController.abort(), 45_000);
+    try {
+      let response: Response;
+      try {
+        response = await authFetch('/api/career/smokey/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+          body: requestBody,
+          signal: streamController.signal,
+        });
+      } catch {
+        await requestJsonFallback();
+        return;
+      }
       if (!response.ok || !response.body) {
-        let messageText = "I couldn't reply just now. Try again in a moment — I'm still here.";
+        await requestJsonFallback();
+      } else {
         try {
-          const errorBody = await response.json() as { error?: string };
-          if (errorBody.error) messageText = errorBody.error;
-        } catch { /* keep friendly fallback */ }
-        throw new Error(messageText);
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let receivedText = false;
-      const consumeEvents = (text: string) => {
-        buffer += text;
-        const events = buffer.split(/\r?\n\r?\n/);
-        buffer = events.pop() || '';
-        for (const event of events) {
-          const data = event.split(/\r?\n/).find((line) => line.startsWith('data:'))?.slice(5).trim();
-          if (!data || data === '[DONE]') continue;
-          try {
-            const payload = JSON.parse(data) as { text?: string; error?: string; suggestions?: string[] };
-            if (payload.error) throw new Error(payload.error);
-            if (payload.text) {
-              receivedText = true;
-              setMessages((current) => current.map((item) => item.id === replyId ? { ...item, text: item.text + payload.text } : item));
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let receivedText = false;
+          const consumeEvents = (text: string) => {
+            buffer += text;
+            const events = buffer.split(/\r?\n\r?\n/);
+            buffer = events.pop() || '';
+            for (const event of events) {
+              const data = event.split(/\r?\n/).find((line) => line.startsWith('data:'))?.slice(5).trim();
+              if (!data || data === '[DONE]') continue;
+              const payload = JSON.parse(data) as { text?: string; error?: string; suggestions?: string[] };
+              if (payload.error) throw new Error(payload.error);
+              if (payload.text) {
+                receivedText = true;
+                setMessages((current) => current.map((item) => item.id === replyId ? { ...item, text: item.text + payload.text } : item));
+              }
+              if (payload.suggestions?.length) setSuggestions(payload.suggestions.slice(0, 3));
             }
-            if (payload.suggestions?.length) setSuggestions(payload.suggestions.slice(0, 3));
-          } catch (error) {
-            if (error instanceof Error && error.message !== 'Unexpected end of JSON input') throw error;
-          }
-        }
-      };
+          };
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        consumeEvents(decoder.decode(value, { stream: true }));
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            consumeEvents(decoder.decode(value, { stream: true }));
+          }
+          consumeEvents(decoder.decode());
+          if (!receivedText) throw new Error("Smokey couldn't prepare a response. Please try again.");
+        } catch {
+          // Retry in JSON mode if the proxy or browser cannot complete SSE.
+          // Replace any partial stream text with the complete fallback reply.
+          setMessages((current) => current.map((item) => item.id === replyId ? { ...item, text: '' } : item));
+          await requestJsonFallback();
+        }
       }
-      consumeEvents(decoder.decode());
-      if (!receivedText) throw new Error("Smokey couldn't prepare a response. Please try again.");
     } catch (error) {
       const errorText = error instanceof Error ? error.message : "I couldn't reply just now. Try again in a moment — I'm still here.";
       setMessages((current) => current.map((item) => item.id === replyId
         ? { ...item, text: item.text ? `${item.text}\n\n${errorText}` : errorText }
         : item));
     } finally {
+      window.clearTimeout(streamTimeout);
       streamingRef.current = false;
       setIsStreaming(false);
     }

@@ -16,7 +16,7 @@ import { db, adminUsersTable, applicationOutcomesTable, coachingApplicationsTabl
 import { and, count, desc, eq, ne } from "drizzle-orm";
 import { searchTrustedJobBoards, getTrustedBoardLabels } from "../lib/job-board-search";
 import { buildCareerAlignmentReport, estimateCareerYears, type CareerAlignmentReport } from "../lib/career-alignment";
-import { enrichCareerAdvisoryWithGemini, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
+import { enrichCareerAdvisoryWithGemini, generateSmokeyReply, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
 import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
 import { ensurePrimaryAdmin } from "../lib/admin-auth";
 import { createAdminNotification } from "../lib/admin-ops";
@@ -1276,31 +1276,53 @@ router.post("/career/smokey/chat", async (req, res) => {
     systems: stringList(content.toolsAndSoftware),
     experience: safeExperiences,
   });
+  const chatInput = {
+    apiKey,
+    model: process.env.GEMINI_MODEL || undefined,
+    message,
+    history,
+    context,
+  };
 
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
   try {
-    const stream = await streamSmokeyReply({
-      apiKey,
-      model: process.env.GEMINI_MODEL || undefined,
-      message,
-      history,
-      context,
-    });
+    if (input?.stream === false) {
+      const reply = await generateSmokeyReply(chatInput);
+      if (!reply.trim()) throw new Error("Gemini returned an empty chat response.");
+      res.json({ success: true, reply, suggestions: ["How can I improve my CV?", "Help me prepare for an interview.", "Which roles match my experience?"] });
+      return;
+    }
+
     res.status(200);
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
+    const flushResponse = () => (res as typeof res & { flush?: () => void }).flush?.();
+    res.write(": connected\n\n");
+    flushResponse();
+    heartbeat = setInterval(() => {
+      if (!res.destroyed) {
+        res.write(": keep-alive\n\n");
+        flushResponse();
+      }
+    }, 15_000);
+    const stream = streamSmokeyReply(chatInput);
     for await (const text of stream) {
       if (res.destroyed) break;
       res.write(`data: ${JSON.stringify({ text })}\n\n`);
+      flushResponse();
     }
     if (!res.destroyed) {
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
     }
+    clearInterval(heartbeat);
+    heartbeat = undefined;
     req.log.info({ messageLength: message.length, historyTurns: history.length }, "Smokey streamed a response");
   } catch (error) {
+    if (heartbeat) clearInterval(heartbeat);
     req.log.error({ err: error }, "Smokey Gemini chat failed");
     if (!res.headersSent) {
       res.status(502).json({ error: "Smokey is currently taking a quick breather. Please try again in a moment." });

@@ -59,6 +59,12 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 app.use("/api", router);
 
+// Keep missing API routes machine-readable so clients never try to parse
+// Express's default plain-text "Not Found" response as JSON.
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "API endpoint not found." });
+});
+
 // Production all-in-one: serve the built SPA from the same Node process as /api.
 const staticDir = process.env.STATIC_DIR?.trim();
 if (staticDir) {

@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const inheritedEnvKeys = new Set(Object.keys(process.env));
 
 function loadDotEnv(filePath) {
   if (!fs.existsSync(filePath)) return;
@@ -21,11 +22,14 @@ function loadDotEnv(filePath) {
     ) {
       value = value.slice(1, -1);
     }
-    if (!(key in process.env)) process.env[key] = value;
+    // Keep shell/host values highest priority; among files, later local files override defaults.
+    if (!inheritedEnvKeys.has(key)) process.env[key] = value;
   }
 }
 
 loadDotEnv(path.join(root, ".env"));
+loadDotEnv(path.join(root, ".env.local"));
+loadDotEnv(path.join(root, "artifacts", "api-server", ".env"));
 
 const sharedEnv = {
   ...process.env,

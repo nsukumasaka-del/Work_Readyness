@@ -2244,6 +2244,8 @@ export default function CvBuilderPage() {
 
   // Decoupled AI Feedback Channel State (Quarantined from CV document canvas)
   const [aiFeedback, setAiFeedback] = useState<AiFeedbackData | null>(null);
+  const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [suggestingSkills, setSuggestingSkills] = useState(false);
 
   // Manual input mutation helpers
   const handleAddManualExperience = () => {
@@ -3964,6 +3966,56 @@ export default function CvBuilderPage() {
   };
 
   // "Make It Sound Like Me" (Humanize)
+  const handleGenerateSummary = async () => {
+    if (!cv) return;
+    setGeneratingSummary(true);
+    try {
+      const response = await authFetch("/api/career/cv/ai/summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cvDocument: cv.document, targetRole: cv.document.headline }),
+      });
+      const result = await response.json() as { summary?: string; error?: string };
+      if (!response.ok || !result.summary?.trim()) throw new Error(result.error || "Could not write a CV summary.");
+      recordChange("Generated CV summary with Gemini");
+      updateDocumentField("summary", result.summary.trim());
+      setMessage("Gemini drafted a summary from your CV details.");
+      setTimeout(() => setMessage(""), 3000);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not write a CV summary.");
+    } finally {
+      setGeneratingSummary(false);
+    }
+  };
+
+  const handleSuggestSkills = async () => {
+    if (!cv) return;
+    setSuggestingSkills(true);
+    try {
+      const response = await authFetch("/api/career/cv/ai/skills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cvDocument: cv.document, existingSkills: cv.document.skills, targetRole: cv.document.headline }),
+      });
+      const result = await response.json() as { skills?: string[]; error?: string };
+      if (!response.ok || !Array.isArray(result.skills)) throw new Error(result.error || "Could not suggest CV skills.");
+      const current = new Set(cv.document.skills.map((skill) => skill.toLowerCase()));
+      const additions = result.skills.filter((skill) => typeof skill === "string" && skill.trim() && !current.has(skill.trim().toLowerCase())).map((skill) => skill.trim());
+      if (additions.length) {
+        recordChange("Suggested skills with Gemini");
+        updateDocumentField("skills", [...cv.document.skills, ...additions]);
+        setMessage(`Added ${additions.length} CV-grounded skill${additions.length === 1 ? "" : "s"}.`);
+      } else {
+        setMessage("Gemini found no additional skills supported by the CV details.");
+      }
+      setTimeout(() => setMessage(""), 3500);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not suggest CV skills.");
+    } finally {
+      setSuggestingSkills(false);
+    }
+  };
+
   const handleRunHumanize = async (tone: HumanizeTone) => {
     if (!cv) return;
     setSelectedTone(tone);
@@ -5703,6 +5755,16 @@ export default function CvBuilderPage() {
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
+                        onClick={() => void handleGenerateSummary()}
+                        disabled={generatingSummary}
+                        className="flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline disabled:opacity-50"
+                        title="Write a summary from verified CV details with Gemini"
+                      >
+                        <Wand2 size={11} /> {generatingSummary ? "Writing…" : "Write with AI"}
+                      </button>
+                      <span className="text-slate-300">·</span>
+                      <button
+                        type="button"
                         onClick={() => void handleRunHumanize(selectedTone)}
                         className="flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:underline"
                         title="Refine Tone"
@@ -5948,8 +6010,18 @@ export default function CvBuilderPage() {
                 const skillsSection = visibleSections.skills && (
                   <>
                     <A4PageSpacer id="skills" height={a4Spacers.skills || 0} />
-                  <section data-a4-id="skills" className={`relative group/section cv-a4-keep rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${cv.document.skills.length === 0 ? "hidden" : ""}`}>
+                  <section data-a4-id="skills" className="relative group/section cv-a4-keep rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
+                      <button
+                        type="button"
+                        onClick={() => void handleSuggestSkills()}
+                        disabled={suggestingSkills}
+                        className="text-[10px] font-bold text-emerald-700 hover:underline disabled:opacity-50"
+                        title="Suggest skills supported by your CV details"
+                      >
+                        {suggestingSkills ? "Suggesting…" : "Suggest Skills"}
+                      </button>
+                      <span className="text-slate-300">·</span>
                       <button
                         type="button"
                         onClick={() => {

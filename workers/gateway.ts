@@ -9,8 +9,11 @@ import { handleD1Career } from "./d1/career";
 import { handleCvTools } from "./d1/cv-tools";
 import { handlePlatformTools } from "./d1/platform-tools";
 import {
+  generateCvAssistantJson,
+  generateGeminiJson,
   generateSmokeyReply,
   streamSmokeyReply,
+  type CvAssistantTask,
   type GeminiChatTurn,
 } from "../artifacts/api-server/src/lib/ai/gemini-client";
 
@@ -58,7 +61,7 @@ async function handleSmokeyChat(request: Request, env: Env): Promise<Response> {
   if (!apiKey) return jsonError(503, "Smokey is temporarily unavailable. Please try again later.");
 
   const history: GeminiChatTurn[] = Array.isArray(input.history)
-    ? input.history.slice(-16).flatMap((turn): GeminiChatTurn[] => {
+    ? input.history.flatMap((turn): GeminiChatTurn[] => {
         if (!turn || typeof turn !== "object") return [];
         const item = turn as Record<string, unknown>;
         const role = item.role === "model" || item.role === "assistant" || item.role === "smokey"
@@ -139,6 +142,59 @@ async function handleSmokeyChat(request: Request, env: Env): Promise<Response> {
       "x-accel-buffering": "no",
     },
   });
+}
+
+async function handleCvAssistant(request: Request, env: Env, task: CvAssistantTask): Promise<Response> {
+  let input: Record<string, unknown>;
+  try {
+    const parsed: unknown = await request.json();
+    input = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return jsonError(400, "Send a valid JSON CV request.");
+  }
+  const apiKey = String(env.GEMINI_API_KEY || "").trim();
+  if (!apiKey) return jsonError(503, "CV AI tools are temporarily unavailable.");
+
+  const cv = input.cvDocument && typeof input.cvDocument === "object" ? input.cvDocument : {};
+  const evidence: Record<string, unknown> = {
+    cvDocument: cv,
+    targetRole: text(input.targetRole || input.role || (cv as Record<string, unknown>).headline, 160),
+    jobDescription: text(input.jobDescription || input.targetJob, 8_000),
+    question: text(input.question, 2_000),
+    text: text(input.text, 5_000),
+    bullet: text(input.bullet, 1_000),
+    tone: text(input.tone, 40),
+    scope: text(input.scope, 40),
+    existingSkills: textList(input.existingSkills || (cv as Record<string, unknown>).skills, 40),
+    baseline: input.baseline,
+  };
+  if (JSON.stringify(evidence).length > 32_000) return jsonError(413, "This CV is too large to process. Please shorten it and retry.");
+  if ((task === "bullet" && !evidence.bullet) || (task === "humanize" && !evidence.text) ||
+      (task === "advisor" && !evidence.question) || (task === "summary" && !evidence.cvDocument) ||
+      (task === "skills" && !evidence.cvDocument) || (task === "tailor" && !evidence.jobDescription)) {
+    return jsonError(400, "Required CV assistant details are missing.");
+  }
+  try {
+    const result = await generateCvAssistantJson<Record<string, unknown>>({
+      apiKey,
+      model: env.GEMINI_MODEL,
+      task,
+      evidence,
+    });
+    if (task === "summary" && typeof result.summary !== "string") throw new Error("Gemini summary response was invalid.");
+    if (task === "skills" && !Array.isArray(result.skills)) throw new Error("Gemini skills response was invalid.");
+    if (task === "bullet" && typeof result.improved !== "string") throw new Error("Gemini bullet response was invalid.");
+    if (task === "humanize" && typeof result.humanized !== "string") throw new Error("Gemini summary rewrite was invalid.");
+    if (task === "advisor" && typeof result.answer !== "string") throw new Error("Gemini advisor response was invalid.");
+    if ((task === "improve" || task === "tailor") && !Array.isArray(result.proposals)) throw new Error("Gemini returned an invalid proposal list.");
+    if (task === "tailor" && typeof result.overallMatch !== "number") throw new Error("Gemini returned an invalid match score.");
+    return new Response(JSON.stringify(result), {
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    });
+  } catch (error) {
+    console.error(`[cv-ai:${task}] Gemini request failed`, error);
+    return jsonError(502, "CV AI could not complete this request. Please try again.");
+  }
 }
 
 function jsonError(status: number, error: string): Response {
@@ -266,6 +322,20 @@ export default {
 
     if (url.pathname === "/api/career/smokey/chat" && request.method === "POST") {
       return withNativeCors(request, await handleSmokeyChat(request, env));
+    }
+
+    if (request.method === "POST") {
+      const cvAiTasks: Record<string, CvAssistantTask> = {
+        "/api/career/cv/ai/summary": "summary",
+        "/api/career/cv/ai/skills": "skills",
+        "/api/career/cv/enhance-bullet": "bullet",
+        "/api/career/cv/humanize": "humanize",
+        "/api/career/cv/advisor": "advisor",
+        "/api/career/cv/improve": "improve",
+        "/api/career/cv/tailor": "tailor",
+      };
+      const task = cvAiTasks[url.pathname];
+      if (task) return withNativeCors(request, await handleCvAssistant(request, env, task));
     }
 
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {

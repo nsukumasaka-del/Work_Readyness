@@ -16,7 +16,7 @@ import { db, adminUsersTable, applicationOutcomesTable, coachingApplicationsTabl
 import { and, count, desc, eq, ne } from "drizzle-orm";
 import { searchTrustedJobBoards, getTrustedBoardLabels } from "../lib/job-board-search";
 import { buildCareerAlignmentReport, estimateCareerYears, type CareerAlignmentReport } from "../lib/career-alignment";
-import { enrichCareerAdvisoryWithGemini, generateSmokeyReply, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
+import { enrichCareerAdvisoryWithGemini, generateCvAssistantJson, generateSmokeyReply, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
 import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
 import { ensurePrimaryAdmin } from "../lib/admin-auth";
 import { createAdminNotification } from "../lib/admin-ops";
@@ -68,6 +68,17 @@ import {
 } from "../lib/cv-builder";
 
 const router: IRouter = Router();
+
+async function runCvAssistant(task: "bullet" | "humanize" | "advisor" | "improve" | "tailor", evidence: unknown): Promise<Record<string, unknown>> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) throw new Error("CV AI tools are temporarily unavailable.");
+  return generateCvAssistantJson<Record<string, unknown>>({
+    apiKey,
+    model: process.env.GEMINI_MODEL,
+    task,
+    evidence,
+  });
+}
 
 function toProfileResponse(profile: typeof profilesTable.$inferSelect, profileCount: number) {
   return CreateProfileResponse.parse({
@@ -1240,7 +1251,7 @@ router.post("/career/smokey/chat", async (req, res) => {
   }
 
   const rawHistory = Array.isArray(input?.history) ? input.history : [];
-  const history: GeminiChatTurn[] = rawHistory.slice(-16).flatMap((turn): GeminiChatTurn[] => {
+  const history: GeminiChatTurn[] = rawHistory.flatMap((turn): GeminiChatTurn[] => {
     if (!turn || typeof turn !== "object") return [];
     const item = turn as Record<string, unknown>;
     const role = item.role === "model" || item.role === "assistant" || item.role === "smokey" ? "model" : item.role === "user" ? "user" : null;
@@ -1901,7 +1912,48 @@ router.post("/career/cv/recruiter-view", (req, res) => {
   res.json(report);
 });
 
-router.post("/career/cv/humanize", (req, res) => {
+router.post("/career/cv/ai/summary", async (req, res) => {
+  const cvDocument = req.body?.cvDocument;
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!cvDocument || typeof cvDocument !== "object") return res.status(400).json({ error: "cvDocument is required" });
+  if (!apiKey) return res.status(503).json({ error: "CV AI tools are temporarily unavailable." });
+  try {
+    const result = await generateCvAssistantJson<{ summary?: string }>({
+      apiKey,
+      model: process.env.GEMINI_MODEL,
+      task: "summary",
+      evidence: { cvDocument, targetRole: req.body?.targetRole },
+    });
+    if (!result.summary?.trim()) throw new Error("Gemini returned no summary.");
+    return res.json({ summary: result.summary.trim() });
+  } catch (error) {
+    req.log.error({ err: error }, "Gemini CV summary generation failed");
+    return res.status(502).json({ error: "Could not write a CV summary. Please try again." });
+  }
+});
+
+router.post("/career/cv/ai/skills", async (req, res) => {
+  const cvDocument = req.body?.cvDocument;
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!cvDocument || typeof cvDocument !== "object") return res.status(400).json({ error: "cvDocument is required" });
+  if (!apiKey) return res.status(503).json({ error: "CV AI tools are temporarily unavailable." });
+  try {
+    const result = await generateCvAssistantJson<{ skills?: unknown; evidence?: unknown }>({
+      apiKey,
+      model: process.env.GEMINI_MODEL,
+      task: "skills",
+      evidence: { cvDocument, targetRole: req.body?.targetRole, existingSkills: req.body?.existingSkills },
+    });
+    if (!Array.isArray(result.skills)) throw new Error("Gemini returned an invalid skills list.");
+    const skills = result.skills.filter((skill): skill is string => typeof skill === "string" && Boolean(skill.trim())).map((skill) => skill.trim()).slice(0, 8);
+    return res.json({ skills, evidence: Array.isArray(result.evidence) ? result.evidence.filter((item): item is string => typeof item === "string").slice(0, 8) : [] });
+  } catch (error) {
+    req.log.error({ err: error }, "Gemini CV skills suggestion failed");
+    return res.status(502).json({ error: "Could not suggest CV skills. Please try again." });
+  }
+});
+
+router.post("/career/cv/humanize", async (req, res) => {
   const text = String(req.body?.text || "").trim();
   const tone = (req.body?.tone || "professional") as HumanizeTone;
   const role = req.body?.role ? String(req.body.role) : undefined;
@@ -1910,22 +1962,34 @@ router.post("/career/cv/humanize", (req, res) => {
     res.status(400).json({ error: "Text is required to humanize" });
     return;
   }
-  const result = humanizeContent(text, tone, { role, name });
-  res.json(result);
+  try {
+    const generated = await runCvAssistant("humanize", { text, tone, role, name });
+    if (typeof generated.humanized !== "string") throw new Error("Gemini returned invalid summary text.");
+    res.json({ tone, original: text, humanized: generated.humanized, explanation: String(generated.explanation || "Rewritten in the requested tone using only supplied facts.") });
+  } catch (error) {
+    req.log.error({ err: error }, "Gemini CV summary rewrite failed");
+    res.status(502).json({ error: "Could not rewrite the summary. Please try again." });
+  }
 });
 
-router.post("/career/cv/enhance-bullet", (req, res) => {
+router.post("/career/cv/enhance-bullet", async (req, res) => {
   const bullet = String(req.body?.bullet || "").trim();
   const role = req.body?.role ? String(req.body.role) : undefined;
   if (!bullet) {
     res.status(400).json({ error: "bullet text is required" });
     return;
   }
-  const result = improveBulletPoint(bullet, role);
-  res.json(result);
+  try {
+    const generated = await runCvAssistant("bullet", { bullet, role });
+    if (typeof generated.improved !== "string") throw new Error("Gemini returned invalid bullet text.");
+    res.json({ original: bullet, improved: generated.improved, whyBetter: Array.isArray(generated.whyBetter) ? generated.whyBetter : [], classification: "REPHRASED", ...(typeof generated.missingMetricInquiry === "string" ? { missingMetricInquiry: generated.missingMetricInquiry } : {}) });
+  } catch (error) {
+    req.log.error({ err: error }, "Gemini experience bullet optimization failed");
+    res.status(502).json({ error: "Could not improve this bullet. Please try again." });
+  }
 });
 
-router.post("/career/cv/improve", (req, res) => {
+router.post("/career/cv/improve", async (req, res) => {
   const cvDocument = req.body?.cvDocument as GeneratedCvDocument;
   const scope = (req.body?.scope || "entire") as ImproveCvScope;
   const targetJob = req.body?.targetJob ? String(req.body.targetJob).trim() : undefined;
@@ -1938,22 +2002,36 @@ router.post("/career/cv/improve", (req, res) => {
     res.status(400).json({ error: "Invalid improve scope" });
     return;
   }
-  const result = improveCvContent(cvDocument, { scope, targetJob });
-  res.json(result);
+  try {
+    const baseline = improveCvContent(cvDocument, { scope, targetJob });
+    const generated = await runCvAssistant("improve", { cvDocument, scope, targetJob, baseline });
+    if (!Array.isArray(generated.proposals)) throw new Error("Gemini returned an invalid improvement report.");
+    res.json({ ...baseline, ...generated, scope, proposals: generated.proposals });
+  } catch (error) {
+    req.log.error({ err: error }, "Gemini CV improvement analysis failed");
+    res.status(502).json({ error: "Could not analyse CV wording. Please try again." });
+  }
 });
 
-router.post("/career/cv/tailor", (req, res) => {
+router.post("/career/cv/tailor", async (req, res) => {
   const cvDocument = req.body?.cvDocument as GeneratedCvDocument;
   const jobDescription = String(req.body?.jobDescription || "").trim();
   if (!cvDocument || !jobDescription) {
     res.status(400).json({ error: "cvDocument and jobDescription are required" });
     return;
   }
-  const result = matchJobDescription(cvDocument, jobDescription);
-  res.json(result);
+  try {
+    const baseline = matchJobDescription(cvDocument, jobDescription);
+    const generated = await runCvAssistant("tailor", { cvDocument, jobDescription, baseline });
+    if (!Array.isArray(generated.proposals)) throw new Error("Gemini returned an invalid tailoring report.");
+    res.json({ ...baseline, ...generated, proposals: generated.proposals });
+  } catch (error) {
+    req.log.error({ err: error }, "Gemini CV tailoring failed");
+    res.status(502).json({ error: "Could not tailor this CV. Please try again." });
+  }
 });
 
-router.post("/career/cv/advisor", (req, res) => {
+router.post("/career/cv/advisor", async (req, res) => {
   const question = String(req.body?.question || "").trim();
   const cvDocument = req.body?.cvDocument as GeneratedCvDocument;
   const targetJob = req.body?.targetJob ? String(req.body.targetJob) : undefined;
@@ -1961,8 +2039,14 @@ router.post("/career/cv/advisor", (req, res) => {
     res.status(400).json({ error: "question and cvDocument are required" });
     return;
   }
-  const result = answerAdvisorQuestion(question, cvDocument, targetJob);
-  res.json(result);
+  try {
+    const generated = await runCvAssistant("advisor", { question, cvDocument, targetJob });
+    if (typeof generated.answer !== "string") throw new Error("Gemini returned an invalid advisor response.");
+    res.json({ question, answer: generated.answer, reasoning: String(generated.reasoning || "Based on details documented in the CV."), ...(typeof generated.suggestedAction === "string" ? { suggestedAction: generated.suggestedAction } : {}) });
+  } catch (error) {
+    req.log.error({ err: error }, "Gemini CV advisor failed");
+    res.status(502).json({ error: "Could not answer the CV question. Please try again." });
+  }
 });
 
 router.get("/career/cv/versions", async (req, res) => {

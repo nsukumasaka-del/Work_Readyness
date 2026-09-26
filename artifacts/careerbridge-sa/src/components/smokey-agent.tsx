@@ -79,7 +79,6 @@ export function SmokeyAgent() {
     const replyId = `s-${Date.now()}`;
     const history = messages
       .filter((item) => item.id !== 'welcome' && (item.role === 'user' || item.role === 'smokey'))
-      .slice(-16)
       .map((item) => ({ role: item.role === 'user' ? 'user' : 'model', text: item.text }));
     streamingRef.current = true;
     setIsStreaming(true);

@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { MessageCircle, Send, Sparkles, X } from 'lucide-react';
-import { useAskSmokey } from '@workspace/api-client-react';
 import { useLocation } from 'wouter';
+import { authFetch } from '@/lib/auth-session';
 
 type ChatMessage = {
   id: string;
@@ -16,11 +16,11 @@ const defaultSuggestions = [
 ];
 
 export function SmokeyAgent() {
-  const ask = useAskSmokey();
   const [location] = useLocation();
   const isCvBuilder = location.startsWith('/cv-builder');
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
   const [suggestions, setSuggestions] = useState(defaultSuggestions);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -30,24 +30,23 @@ export function SmokeyAgent() {
     },
   ]);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const streamingRef = useRef(false);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, open]);
 
-  const send = (raw: string) => {
+  const send = async (raw: string) => {
     const message = raw.trim();
-    if (!message || ask.isPending) return;
+    if (!message || streamingRef.current) return;
 
     let role: string | undefined;
-    let fileName: string | undefined;
     let cvDocument: any;
     try {
       const stored = sessionStorage.getItem('careerbridge-report');
       if (stored) {
-        const report = JSON.parse(stored) as { targetRole?: string; fileName?: string };
+        const report = JSON.parse(stored) as { targetRole?: string };
         role = report.targetRole;
-        fileName = report.fileName;
       }
       const cvStored = sessionStorage.getItem('careerbridge-generated-cv');
       if (cvStored) {
@@ -58,34 +57,76 @@ export function SmokeyAgent() {
       // ignore malformed session payload
     }
 
+    const replyId = `s-${Date.now()}`;
+    const history = messages
+      .filter((item) => item.id !== 'welcome' && (item.role === 'user' || item.role === 'smokey'))
+      .slice(-16)
+      .map((item) => ({ role: item.role === 'user' ? 'user' : 'model', text: item.text }));
+    streamingRef.current = true;
+    setIsStreaming(true);
     setMessages((current) => [
       ...current,
       { id: `u-${Date.now()}`, role: 'user', text: message },
+      { id: replyId, role: 'smokey', text: '' },
     ]);
     setInput('');
 
-    ask.mutate(
-      { data: { message, role, fileName, cvDocument } },
-      {
-        onSuccess: (reply) => {
-          setMessages((current) => [
-            ...current,
-            { id: `s-${Date.now()}`, role: 'smokey', text: reply.reply },
-          ]);
-          if (reply.suggestions?.length) setSuggestions(reply.suggestions);
-        },
-        onError: () => {
-          setMessages((current) => [
-            ...current,
-            {
-              id: `e-${Date.now()}`,
-              role: 'smokey',
-              text: "I couldn't reply just now. Try again in a moment — I'm still here.",
-            },
-          ]);
-        },
-      },
-    );
+    try {
+      const response = await authFetch('/api/career/smokey/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        body: JSON.stringify({ message, history, role, cvDocument }),
+      });
+      if (!response.ok || !response.body) {
+        let messageText = "I couldn't reply just now. Try again in a moment — I'm still here.";
+        try {
+          const errorBody = await response.json() as { error?: string };
+          if (errorBody.error) messageText = errorBody.error;
+        } catch { /* keep friendly fallback */ }
+        throw new Error(messageText);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let receivedText = false;
+      const consumeEvents = (text: string) => {
+        buffer += text;
+        const events = buffer.split(/\r?\n\r?\n/);
+        buffer = events.pop() || '';
+        for (const event of events) {
+          const data = event.split(/\r?\n/).find((line) => line.startsWith('data:'))?.slice(5).trim();
+          if (!data || data === '[DONE]') continue;
+          try {
+            const payload = JSON.parse(data) as { text?: string; error?: string; suggestions?: string[] };
+            if (payload.error) throw new Error(payload.error);
+            if (payload.text) {
+              receivedText = true;
+              setMessages((current) => current.map((item) => item.id === replyId ? { ...item, text: item.text + payload.text } : item));
+            }
+            if (payload.suggestions?.length) setSuggestions(payload.suggestions.slice(0, 3));
+          } catch (error) {
+            if (error instanceof Error && error.message !== 'Unexpected end of JSON input') throw error;
+          }
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        consumeEvents(decoder.decode(value, { stream: true }));
+      }
+      consumeEvents(decoder.decode());
+      if (!receivedText) throw new Error("Smokey couldn't prepare a response. Please try again.");
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : "I couldn't reply just now. Try again in a moment — I'm still here.";
+      setMessages((current) => current.map((item) => item.id === replyId
+        ? { ...item, text: item.text ? `${item.text}\n\n${errorText}` : errorText }
+        : item));
+    } finally {
+      streamingRef.current = false;
+      setIsStreaming(false);
+    }
   };
 
   const onSubmit = (event: FormEvent) => {
@@ -134,7 +175,7 @@ export function SmokeyAgent() {
                 </div>
               </div>
             ))}
-            {ask.isPending && (
+            {isStreaming && !messages[messages.length - 1]?.text && (
               <div className="text-xs font-medium text-muted-foreground">Smokey is thinking…</div>
             )}
             <div ref={endRef} />
@@ -164,7 +205,7 @@ export function SmokeyAgent() {
               />
               <button
                 type="submit"
-                disabled={!input.trim() || ask.isPending}
+                disabled={!input.trim() || isStreaming}
                 className="grid h-11 w-11 place-items-center rounded-xl bg-primary text-primary-foreground disabled:opacity-50"
                 aria-label="Send message"
                 data-testid="button-send-smokey"

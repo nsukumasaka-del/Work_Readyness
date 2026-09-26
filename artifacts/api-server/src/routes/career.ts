@@ -16,10 +16,11 @@ import { db, adminUsersTable, applicationOutcomesTable, coachingApplicationsTabl
 import { and, count, desc, eq, ne } from "drizzle-orm";
 import { searchTrustedJobBoards, getTrustedBoardLabels } from "../lib/job-board-search";
 import { buildCareerAlignmentReport, estimateCareerYears, type CareerAlignmentReport } from "../lib/career-alignment";
-import { enrichCareerAdvisoryWithGemini } from "../lib/ai/gemini-client";
+import { enrichCareerAdvisoryWithGemini, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
 import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
 import { ensurePrimaryAdmin } from "../lib/admin-auth";
 import { createAdminNotification } from "../lib/admin-ops";
+import { clientIp, consumeRateLimit } from "../lib/rate-limit";
 import {
   PLAN_CATALOG,
   PROGRAMME,
@@ -1215,6 +1216,99 @@ router.post("/career/smokey", (req, res) => {
   const data = AskSmokeyResponse.parse(smokeyReply(input.message, input.role, input.fileName, (req.body as any)?.cvDocument));
   req.log.info({ messageLength: input.message.length }, "Smokey consulted");
   res.json(data);
+});
+
+router.post("/career/smokey/chat", async (req, res) => {
+  const input = req.body as Record<string, unknown> | undefined;
+  const message = typeof input?.message === "string" ? input.message.trim().slice(0, 2_000) : "";
+  if (!message) {
+    res.status(400).json({ error: "Enter a message for Smokey." });
+    return;
+  }
+
+  const limit = consumeRateLimit(`smokey:${clientIp(req)}`, 20, 60_000);
+  if (!limit.ok) {
+    res.setHeader("Retry-After", String(limit.retryAfterSec));
+    res.status(429).json({ error: "Smokey is receiving a lot of questions. Please try again shortly." });
+    return;
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) {
+    res.status(503).json({ error: "Smokey is temporarily unavailable. Please try again later." });
+    return;
+  }
+
+  const rawHistory = Array.isArray(input?.history) ? input.history : [];
+  const history: GeminiChatTurn[] = rawHistory.slice(-16).flatMap((turn): GeminiChatTurn[] => {
+    if (!turn || typeof turn !== "object") return [];
+    const item = turn as Record<string, unknown>;
+    const role = item.role === "model" || item.role === "assistant" || item.role === "smokey" ? "model" : item.role === "user" ? "user" : null;
+    const text = typeof item.text === "string" ? item.text.trim().slice(0, 2_000) : "";
+    return role && text ? [{ role, parts: [{ text }] }] : [];
+  });
+
+  const role = typeof input?.role === "string" ? input.role.trim().slice(0, 120) : "";
+  const cvDocument = input?.cvDocument && typeof input.cvDocument === "object"
+    ? input.cvDocument as Record<string, unknown>
+    : {};
+  const content = cvDocument.content && typeof cvDocument.content === "object"
+    ? cvDocument.content as Record<string, unknown>
+    : cvDocument;
+  const textField = (value: unknown, max = 1_200): string => typeof value === "string" ? value.trim().slice(0, max) : "";
+  const stringList = (value: unknown, maxCount = 12): string[] => Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim().slice(0, 160)).slice(0, maxCount)
+    : [];
+  const experiences = Array.isArray(content.experiences) ? content.experiences : Array.isArray(content.workExperience) ? content.workExperience : [];
+  const safeExperiences = experiences.slice(0, 5).flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const item = entry as Record<string, unknown>;
+    return [{
+      role: textField(item.role || item.jobTitle, 120),
+      company: textField(item.company, 120),
+      highlights: stringList(item.bullets || item.responsibilities, 4),
+    }];
+  });
+  const context = JSON.stringify({
+    targetRole: role,
+    summary: textField(content.summary || content.professionalSummary),
+    skills: stringList(content.skills),
+    systems: stringList(content.toolsAndSoftware),
+    experience: safeExperiences,
+  });
+
+  try {
+    const stream = await streamSmokeyReply({
+      apiKey,
+      model: process.env.GEMINI_MODEL || undefined,
+      message,
+      history,
+      context,
+    });
+    res.status(200);
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+    for await (const text of stream) {
+      if (res.destroyed) break;
+      res.write(`data: ${JSON.stringify({ text })}\n\n`);
+    }
+    if (!res.destroyed) {
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
+    }
+    req.log.info({ messageLength: message.length, historyTurns: history.length }, "Smokey streamed a response");
+  } catch (error) {
+    req.log.error({ err: error }, "Smokey Gemini chat failed");
+    if (!res.headersSent) {
+      res.status(502).json({ error: "Smokey is currently taking a quick breather. Please try again in a moment." });
+    } else if (!res.destroyed) {
+      res.write(`data: ${JSON.stringify({ error: "Smokey lost the connection. Please try again." })}\n\n`);
+      res.end();
+    }
+  }
 });
 
 router.get("/career/interview", (_req, res) => {

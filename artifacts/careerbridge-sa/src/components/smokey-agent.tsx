@@ -15,6 +15,25 @@ const defaultSuggestions = [
   'How do I prep for interviews?',
 ];
 
+const SMOKEY_CHAT_ENDPOINT = '/api/career/smokey/chat';
+const SMOKEY_CONNECTION_MESSAGE = 'Smokey is having trouble reaching the server. Please try again in a moment.';
+
+async function readSmokeyJson(response: Response): Promise<{ reply?: string; error?: string; suggestions?: string[] }> {
+  const contentType = response.headers.get('content-type') || '';
+  const responseText = await response.text();
+  if (!response.ok || !/application\/json/i.test(contentType)) {
+    console.error(`Smokey chat API returned ${response.status} (${contentType || 'no content type'}): ${responseText}`);
+    throw new Error(SMOKEY_CONNECTION_MESSAGE);
+  }
+
+  try {
+    return JSON.parse(responseText) as { reply?: string; error?: string; suggestions?: string[] };
+  } catch (error) {
+    console.error('Smokey chat API returned invalid JSON:', error);
+    throw new Error(SMOKEY_CONNECTION_MESSAGE);
+  }
+}
+
 export function SmokeyAgent() {
   const [location] = useLocation();
   const isCvBuilder = location.startsWith('/cv-builder');
@@ -73,14 +92,14 @@ export function SmokeyAgent() {
 
     const requestBody = JSON.stringify({ message, history, role, cvDocument });
     const requestJsonFallback = async () => {
-      const fallbackResponse = await authFetch('/api/career/smokey/chat', {
+      const fallbackResponse = await authFetch(SMOKEY_CHAT_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ message, history, role, cvDocument, stream: false }),
       });
-      const payload = await fallbackResponse.json() as { reply?: string; error?: string; suggestions?: string[] };
+      const payload = await readSmokeyJson(fallbackResponse);
       if (!fallbackResponse.ok || !payload.reply) {
-        throw new Error(payload.error || 'Smokey could not respond just now. Please try again shortly.');
+        throw new Error(payload.error || SMOKEY_CONNECTION_MESSAGE);
       }
       setMessages((current) => current.map((item) => item.id === replyId ? { ...item, text: payload.reply! } : item));
       if (payload.suggestions?.length) setSuggestions(payload.suggestions.slice(0, 3));
@@ -91,7 +110,7 @@ export function SmokeyAgent() {
     try {
       let response: Response;
       try {
-        response = await authFetch('/api/career/smokey/chat', {
+        response = await authFetch(SMOKEY_CHAT_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
           body: requestBody,
@@ -101,7 +120,12 @@ export function SmokeyAgent() {
         await requestJsonFallback();
         return;
       }
-      if (!response.ok || !response.body) {
+      const isEventStream = response.headers.get('content-type')?.toLowerCase().includes('text/event-stream') || false;
+      if (!response.ok) {
+        const responseText = await response.text();
+        console.error(`Smokey stream API returned ${response.status} (${response.headers.get('content-type') || 'no content type'}): ${responseText}`);
+        await requestJsonFallback();
+      } else if (!response.body || !isEventStream) {
         await requestJsonFallback();
       } else {
         try {
@@ -141,7 +165,9 @@ export function SmokeyAgent() {
         }
       }
     } catch (error) {
-      const errorText = error instanceof Error ? error.message : "I couldn't reply just now. Try again in a moment — I'm still here.";
+      const errorText = error instanceof Error && error.message === SMOKEY_CONNECTION_MESSAGE
+        ? error.message
+        : "Smokey is having trouble reaching the server. Please try again in a moment.";
       setMessages((current) => current.map((item) => item.id === replyId
         ? { ...item, text: item.text ? `${item.text}\n\n${errorText}` : errorText }
         : item));

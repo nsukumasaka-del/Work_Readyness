@@ -12,6 +12,7 @@ import {
 } from "./auth";
 import { searchTrustedJobBoards } from "../../artifacts/api-server/src/lib/job-board-search";
 import { buildCareerAlignmentReport, estimateCareerYears } from "../../artifacts/api-server/src/lib/career-alignment";
+import { enrichCareerAdvisoryWithGemini } from "../../artifacts/api-server/src/lib/ai/gemini-client";
 import {
   buildGeneratedCv,
   normalizeStructure,
@@ -745,10 +746,16 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
     adzunaAppId: env.ADZUNA_APP_ID,
     adzunaAppKey: env.ADZUNA_APP_KEY,
   });
+  const baseAdvisory = data
+    ? buildCareerAlignmentReport(role || data.personal.professionalTitle || "Professional", location || data.personal.location || "South Africa", data, jobSearch.jobs)
+    : undefined;
+  const careerAdvisory = baseAdvisory
+    ? (await enrichCareerAdvisoryWithGemini(baseAdvisory, env.GEMINI_API_KEY, env.GEMINI_MODEL)) || baseAdvisory
+    : undefined;
   const report = {
     ...buildReport(fileName, role, location, data, id),
     relatedJobs: jobSearch.jobs,
-    ...(data ? { careerAdvisory: buildCareerAlignmentReport(role || data.personal.professionalTitle || "Professional", location || data.personal.location || "South Africa", data, jobSearch.jobs) } : {}),
+    ...(careerAdvisory ? { careerAdvisory } : {}),
     jobSearch: {
       query: jobSearch.query,
       queriedBoards: jobSearch.queriedBoards,

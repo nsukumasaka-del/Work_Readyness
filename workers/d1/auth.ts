@@ -32,6 +32,9 @@ export type D1Env = MailEnv & {
   API_UPSTREAM_URL?: string;
   ADZUNA_APP_ID?: string;
   ADZUNA_APP_KEY?: string;
+  /** Optional Gemini API key used to enrich CV Review career advisories. */
+  GEMINI_API_KEY?: string;
+  GEMINI_MODEL?: string;
   PRIMARY_ADMIN_EMAIL?: string;
   PRIMARY_ADMIN_PASSWORD?: string;
   PRIMARY_ADMIN_NAME?: string;

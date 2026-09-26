@@ -16,6 +16,7 @@ import { db, adminUsersTable, applicationOutcomesTable, coachingApplicationsTabl
 import { and, count, desc, eq, ne } from "drizzle-orm";
 import { searchTrustedJobBoards, getTrustedBoardLabels } from "../lib/job-board-search";
 import { buildCareerAlignmentReport, estimateCareerYears, type CareerAlignmentReport } from "../lib/career-alignment";
+import { enrichCareerAdvisoryWithGemini } from "../lib/ai/gemini-client";
 import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
 import { ensurePrimaryAdmin } from "../lib/admin-auth";
 import { createAdminNotification } from "../lib/admin-ops";
@@ -1055,9 +1056,16 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       liveResults: liveSearch.liveResults,
       boardSearchLinks: liveSearch.boardSearchLinks,
     };
-    const careerAdvisory = extractedCandidate
+    let careerAdvisory = extractedCandidate
       ? buildCareerAlignmentReport(targetRole, locationLabel, extractedCandidate, relatedJobs)
       : undefined;
+    if (careerAdvisory) {
+      careerAdvisory = (await enrichCareerAdvisoryWithGemini(
+        careerAdvisory,
+        process.env.GEMINI_API_KEY,
+        process.env.GEMINI_MODEL,
+      )) || careerAdvisory;
+    }
 
     const draftPayload = buildDiagnosticPayload({
       fileName,

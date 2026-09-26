@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.15",
+    "@google/genai": "^2.24.0",
     "@simplewebauthn/server": "^14.0.2",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",

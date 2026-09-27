@@ -6,6 +6,7 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { getApiBase, installApiFetchRewrite } from "@/lib/api-base";
 import { configureNativeChrome } from "@/lib/native-chrome";
 import { getSessionToken } from "@/lib/auth-session";
+import { ThemeProvider } from "@/components/theme-provider";
 
 import "./index.css";
 
@@ -22,6 +23,8 @@ createRoot(document.getElementById("root")!, {
   },
 }).render(
   <ErrorBoundary>
-    <App />
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
   </ErrorBoundary>,
 );

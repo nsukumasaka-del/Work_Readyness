@@ -19,6 +19,7 @@ import {
   Briefcase,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -89,6 +90,10 @@ import {
 const GENERATED_CV_KEY = "bonlist-generated-cv";
 const REPORT_KEY = "bonlist-report";
 const CV_VERSIONS_KEY = "bonlist-cv-versions";
+
+const CV_WIZARD_STEPS = [
+  "PERSONAL", "SUMMARY", "EXPERIENCE", "EDUCATION", "SKILLS", "CUSTOM", "DESIGN", "REVIEW",
+] as const;
 
 const MAX_BULLETS_PER_ROLE = 12;
 const MAX_BULLET_CHARS = 280;
@@ -2017,17 +2022,25 @@ export default function CvBuilderPage() {
   const [templateFilter, setTemplateFilter] = useState<string>("all");
   const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
   const [mobileWorkspaceView, setMobileWorkspaceView] = useState<"edit" | "preview">("preview");
+  const [activeWizardStep, setActiveWizardStep] = useState(1);
   const [showPopiaNotice, setShowPopiaNotice] = useState(true);
 
   // Enhancv-Style Left Navigation Rail State
   // 5 Main Options: "templates" | "design" | "sections" | "ai" | "ats" (null if collapsed)
-  const [activeNavPanel, setActiveNavPanel] = useState<"templates" | "design" | "sections" | "ai" | "ats" | null>(null);
+  const [activeNavPanel, setActiveNavPanel] = useState<"templates" | "design" | "sections" | "ai" | "ats" | null>(() =>
+    typeof window !== "undefined" && window.innerWidth >= 768 ? "sections" : null,
+  );
   const [commandHeaderHost, setCommandHeaderHost] = useState<HTMLElement | null>(null);
   useEffect(() => {
     setCommandHeaderHost(document.getElementById("cv-builder-command-slot"));
   }, []);
   const showTemplatesAfterGeneration = () => {
     setActiveNavPanel(window.innerWidth >= 768 ? "templates" : null);
+  };
+  const openWizardStep = (step: number) => {
+    setActiveWizardStep(step);
+    setActiveNavPanel(step === 7 ? "design" : step === 8 ? "ai" : "sections");
+    if (window.innerWidth < 768 && step <= 6) setMobileWorkspaceView("edit");
   };
 
   // Right Slide-Out Drawers
@@ -5009,6 +5022,9 @@ export default function CvBuilderPage() {
         <div className="h-full min-w-0 flex-1 overflow-hidden px-1 sm:px-3">
         <div className="flex h-full min-w-0 items-center justify-between gap-1 sm:gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-1 sm:gap-2">
+            <Link href="/dashboard" title="Back to saved CVs" aria-label="Back to saved CVs" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
+              <ChevronLeft size={17} />
+            </Link>
             <input
               ref={documentTitleInputRef}
               type="text"
@@ -5023,17 +5039,19 @@ export default function CvBuilderPage() {
             </button>
             <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${autoSaveStatus === "error" ? "bg-red-50 text-red-700" : saving ? "bg-slate-100 text-slate-600" : autoSaveStatus === "unsaved" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>
               {autoSaveStatus === "saved" && !saving ? <Check size={11} /> : null}
-              <span className="sm:hidden">{saving ? "Saving" : autoSaveStatus === "error" ? "Error" : autoSaveStatus === "unsaved" ? "Unsaved" : "Saved"}</span>
-              <span className="hidden lg:inline">{saving ? "Saving…" : autoSaveStatus === "error" ? "Save failed" : autoSaveStatus === "unsaved" ? "Unsaved changes" : "Saved to account"}</span>
+              <span>{saving ? "Saving" : autoSaveStatus === "error" ? "Error" : autoSaveStatus === "unsaved" ? "Draft" : "Saved"}</span>
             </span>
-            <span className="hidden shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50/90 px-2.5 py-1 text-[10px] font-semibold text-emerald-800 xl:inline-flex">
-              <Target size={12} /> ATS {qualityReport?.overallScore != null ? `${qualityReport.overallScore}%` : "Health"}
+            <span className="hidden shrink-0 rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 sm:inline-flex dark:bg-indigo-950/60 dark:text-indigo-200" title="Profile completeness based on your CV details">
+              Profile {cv ? calculateCvCompletion(cv.document) : 0}%
             </span>
           </div>
 
           <div className="flex shrink-0 items-center justify-end gap-0 sm:gap-1 md:gap-1.5">
-            <button type="button" onClick={openImproveCvModal} className="hidden shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm shadow-indigo-500/20 transition hover:from-indigo-700 hover:to-blue-700 lg:inline-flex" title="Improve your CV with AI">
-              <Sparkles size={14} /><span>AI Revamp</span>
+            <button type="button" onClick={() => { setActiveNavPanel("templates"); setMobileWorkspaceView("preview"); }} className="hidden shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 sm:inline-flex" title="Choose a template">
+              <LayoutTemplate size={14} /><span className="hidden xl:inline">Template</span>
+            </button>
+            <button type="button" onClick={() => openWizardStep(8)} className="hidden shrink-0 items-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 lg:inline-flex" title="Open AI suggestions">
+              <Sparkles size={14} /><span>Suggestions</span>
             </button>
             <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="max-[420px]:hidden inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40" title="Print CV">
               <Printer size={15} /><span className="hidden lg:inline">Print</span>
@@ -5151,7 +5169,7 @@ export default function CvBuilderPage() {
               <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 {activeNavPanel === "templates" && "Layout & Templates"}
                 {activeNavPanel === "design" && "Design, Typography & Spacing"}
-                {activeNavPanel === "sections" && "Manage CV Sections"}
+                {activeNavPanel === "sections" && `Step ${activeWizardStep} · ${CV_WIZARD_STEPS[activeWizardStep - 1]}`}
                 {activeNavPanel === "ai" && "AI Assistant & Career Intelligence"}
               </h2>
               <button
@@ -5162,6 +5180,20 @@ export default function CvBuilderPage() {
               >
                 <X size={15} />
               </button>
+            </div>
+
+            <div className="mb-5 grid grid-cols-8 gap-1.5" aria-label="CV Builder steps">
+              {CV_WIZARD_STEPS.map((stepName, index) => {
+                const step = index + 1;
+                const selected = activeWizardStep === step;
+                const complete = activeWizardStep > step;
+                return (
+                  <button key={stepName} type="button" onClick={() => openWizardStep(step)} aria-current={selected ? "step" : undefined} title={`${step}. ${stepName}`} className="group flex min-w-0 flex-col items-center gap-1 text-center">
+                    <span className={`grid h-7 w-7 place-items-center rounded-full border text-[10px] font-bold transition ${selected ? "border-indigo-400 bg-indigo-600 text-white shadow-[0_0_16px_rgba(99,102,241,.45)] ring-2 ring-indigo-400/20" : complete ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-slate-600 dark:bg-slate-800 dark:text-indigo-300" : "border-slate-200 bg-white text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500"}`}>{step}</span>
+                    <span className={`w-full truncate text-[7px] font-bold tracking-wide sm:text-[8px] ${selected ? "text-indigo-700 dark:text-indigo-300" : "text-slate-400 dark:text-slate-500"}`}>{stepName}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {/* PANEL 1: TEMPLATES & VISUAL THUMBNAILS */}
@@ -5376,7 +5408,7 @@ export default function CvBuilderPage() {
                 {cv ? (
                   <div className="space-y-2.5">
                     <p className="text-xs leading-relaxed text-slate-500">Update your details here; the A4 preview and saved document stay in sync as you edit.</p>
-                    <details open className="group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md">
+                    <details open className={`group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/80 ${activeWizardStep === 1 ? "" : "hidden"}`}>
                       <summary className="cursor-pointer list-none text-sm font-bold tracking-tight text-slate-900">Personal information <span className="float-right text-slate-400 transition group-open:rotate-180">⌄</span></summary>
                       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                         {([
@@ -5384,20 +5416,20 @@ export default function CvBuilderPage() {
                         ] as const).map(([label, key]) => (
                           <label key={key} className="block min-w-0 text-[10px] font-semibold text-slate-500">
                             {label}
-                            <input value={cv.document[key] || ""} onChange={(event) => updateDocumentField(key, event.target.value)} className="mt-1 min-h-10 w-full rounded-xl border border-slate-200 bg-slate-50/80 px-3 text-sm text-slate-800 shadow-inner outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" />
+                            <input value={cv.document[key] || ""} onChange={(event) => updateDocumentField(key, event.target.value)} className="mt-1 min-h-10 w-full rounded-xl border border-slate-200 bg-slate-50/80 px-3 text-sm text-slate-800 shadow-inner outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/15 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:bg-slate-800" />
                           </label>
                         ))}
                       </div>
                     </details>
 
-                    <details open className="group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md">
+                    <details open className={`group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/80 ${activeWizardStep === 2 ? "" : "hidden"}`}>
                       <summary className="cursor-pointer list-none text-sm font-bold tracking-tight text-slate-900">Professional summary <span className="float-right text-slate-400 transition group-open:rotate-180">⌄</span></summary>
                       <label className="mt-3 block text-[10px] font-semibold text-slate-500">Profile summary
-                        <textarea rows={5} value={cv.document.summary || ""} onChange={(event) => updateDocumentField("summary", event.target.value)} className="mt-1 w-full resize-y rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-sm leading-6 text-slate-800 shadow-inner outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" placeholder="Write a concise overview of your experience and strengths" />
+                        <textarea rows={5} value={cv.document.summary || ""} onChange={(event) => updateDocumentField("summary", event.target.value)} className="mt-1 w-full resize-y rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-sm leading-6 text-slate-800 shadow-inner outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/15 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:bg-slate-800" placeholder="Write a concise overview of your experience and strengths" />
                       </label>
                     </details>
 
-                    <details open className="group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md">
+                    <details open className={`group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/80 ${activeWizardStep === 3 ? "" : "hidden"}`}>
                       <summary className="cursor-pointer list-none text-sm font-bold tracking-tight text-slate-900">Work experience <span className="float-right text-slate-400 transition group-open:rotate-180">⌄</span></summary>
                       <div className="mt-3 space-y-3">
                         {cv.document.experiences.map((experience, index) => (
@@ -5408,20 +5440,20 @@ export default function CvBuilderPage() {
                             if (moved) reordered.splice(index, 0, moved);
                             updateDocumentField("experiences", reordered);
                             setDraggedExperienceIndex(null);
-                          }} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                          }} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-800/70">
                             <div className="mb-2 flex items-center gap-2"><span className="cursor-grab text-slate-400" title="Drag to reorder">⠿</span><span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Role {index + 1}</span></div>
                             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              <input aria-label="Job title" value={experience.role} onChange={(event) => { const items = [...cv.document.experiences]; items[index] = { ...experience, role: event.target.value }; updateDocumentField("experiences", items); }} className="min-h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15" placeholder="Job title" />
-                              <input aria-label="Company" value={experience.company} onChange={(event) => { const items = [...cv.document.experiences]; items[index] = { ...experience, company: event.target.value }; updateDocumentField("experiences", items); }} className="min-h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15" placeholder="Company" />
+                              <input aria-label="Job title" value={experience.role} onChange={(event) => { const items = [...cv.document.experiences]; items[index] = { ...experience, role: event.target.value }; updateDocumentField("experiences", items); }} className="min-h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" placeholder="Job title" />
+                              <input aria-label="Company" value={experience.company} onChange={(event) => { const items = [...cv.document.experiences]; items[index] = { ...experience, company: event.target.value }; updateDocumentField("experiences", items); }} className="min-h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" placeholder="Company" />
                             </div>
-                            <textarea aria-label="Achievement bullets" rows={4} value={experience.bullets.join("\n")} onChange={(event) => { const items = [...cv.document.experiences]; items[index] = { ...experience, bullets: event.target.value.split("\n") }; updateDocumentField("experiences", items); }} className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm leading-5 shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15" placeholder="One achievement per line" />
+                            <textarea aria-label="Achievement bullets" rows={4} value={experience.bullets.join("\n")} onChange={(event) => { const items = [...cv.document.experiences]; items[index] = { ...experience, bullets: event.target.value.split("\n") }; updateDocumentField("experiences", items); }} className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm leading-5 shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" placeholder="One achievement per line" />
                           </div>
                         ))}
                         <button type="button" onClick={() => updateDocumentField("experiences", [...cv.document.experiences, { id: `exp-${Date.now()}`, role: "Job title", company: "Company", startDate: "", endDate: "", bullets: [], classification: "VERIFIED" }])} className="w-full rounded-xl border border-dashed border-indigo-300 py-2.5 font-semibold text-indigo-700 transition hover:bg-indigo-50">+ Add work experience</button>
                       </div>
                     </details>
 
-                    <details open className="group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md">
+                    <details open className={`group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/80 ${activeWizardStep === 5 ? "" : "hidden"}`}>
                       <summary className="cursor-pointer list-none text-sm font-bold tracking-tight text-slate-900">Skills <span className="float-right text-slate-400 transition group-open:rotate-180">⌄</span></summary>
                       <div className="mt-3 space-y-2">
                         {cv.document.skills.map((skill, index) => (
@@ -5442,7 +5474,7 @@ export default function CvBuilderPage() {
                       </div>
                     </details>
 
-                    <details open className="group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md">
+                    <details open className={`group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/80 ${activeWizardStep === 4 ? "" : "hidden"}`}>
                       <summary className="cursor-pointer list-none text-sm font-bold tracking-tight text-slate-900">Education & qualifications <span className="float-right text-slate-400 transition group-open:rotate-180">⌄</span></summary>
                       <div className="mt-3 space-y-2">
                         {cv.document.education.map((education, index) => (
@@ -5455,8 +5487,38 @@ export default function CvBuilderPage() {
                         <button type="button" onClick={() => updateDocumentField("education", [...cv.document.education, { id: `edu-${Date.now()}`, degree: "Qualification", institution: "Institution", graduationYear: "" }])} className="w-full rounded-xl border border-dashed border-indigo-300 py-2.5 font-semibold text-indigo-700 transition hover:bg-indigo-50">+ Add qualification</button>
                       </div>
                     </details>
-                  </div>
+                </div>
                 ) : null}
+                {activeWizardStep === 6 && cv ? (
+                  <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/80">
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-sm font-bold tracking-tight text-slate-900 dark:text-slate-100">Custom sections</h3>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Add projects, certifications, languages, or other relevant details.</p>
+                      </div>
+                      <button type="button" onClick={() => {
+                        const heading = window.prompt("Name this CV section", "Projects");
+                        if (heading?.trim()) updateDocumentField("sections", [...(cv.document.sections || []), { heading: heading.trim(), items: [""] }]);
+                      }} className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-xl bg-indigo-600 px-3 text-xs font-semibold text-white hover:bg-indigo-700"><Plus size={14} /> Add section</button>
+                    </div>
+                    <div className="space-y-3">
+                      {(cv.document.sections || []).map((section, index) => (
+                        <div key={`${section.heading}-${index}`} draggable onDragStart={() => setDraggedCustomSection(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => draggedCustomSection !== null && moveCustomSection(draggedCustomSection, index)} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-800/70">
+                          <div className="mb-2 flex items-center gap-2">
+                            <span className="cursor-grab text-slate-400" title="Drag to reorder">⠿</span>
+                            <input aria-label={`Custom section ${index + 1} heading`} value={section.heading} onChange={(event) => { const items = [...(cv.document.sections || [])]; items[index] = { ...section, heading: event.target.value }; updateDocumentField("sections", items); }} className="min-h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" placeholder="Section title" />
+                            <button type="button" aria-label="Remove custom section" onClick={() => updateDocumentField("sections", (cv.document.sections || []).filter((_, itemIndex) => itemIndex !== index))} className="rounded-lg px-2 py-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600">×</button>
+                          </div>
+                          <textarea aria-label={`${section.heading || "Custom section"} details`} rows={3} value={(section.items || []).join("\n")} onChange={(event) => { const items = [...(cv.document.sections || [])]; items[index] = { ...section, items: event.target.value.split("\n") }; updateDocumentField("sections", items); }} className="w-full resize-y rounded-lg border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" placeholder="Add one detail per line" />
+                        </div>
+                      ))}
+                      {!cv.document.sections?.length ? <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">No custom sections yet. Add one when it helps show relevant qualifications or projects.</p> : null}
+                    </div>
+                  </section>
+                ) : null}
+                <details className="rounded-xl border border-border bg-card p-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-foreground">More workspace actions</summary>
+                  <div className="mt-3 space-y-4">
                 {cv ? (
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
                     <div className="flex items-center justify-between gap-2">
@@ -5588,6 +5650,8 @@ export default function CvBuilderPage() {
                   ))}
                   {!cv?.document.sections?.length ? <p className="text-[11px] text-muted-foreground">Add sections for projects, languages, certifications, or other details.</p> : null}
                 </div>
+                  </div>
+                </details>
               </div>
             )}
 
@@ -5784,6 +5848,27 @@ export default function CvBuilderPage() {
                 </div>
               </div>
             )}
+            {activeNavPanel === "sections" && activeWizardStep <= 6 ? (
+              <div className="sticky bottom-0 mt-5 flex items-center justify-between gap-3 border-t border-border bg-background/95 py-3 backdrop-blur">
+                <button type="button" disabled={activeWizardStep === 1} onClick={() => openWizardStep(activeWizardStep - 1)} className="inline-flex min-h-10 items-center gap-1 rounded-xl border border-border px-3 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:invisible"><ChevronLeft size={15} /> Previous</button>
+                <span className="text-xs font-medium text-muted-foreground">Step {activeWizardStep} of 8</span>
+                <button type="button" onClick={() => openWizardStep(activeWizardStep + 1)} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700">Continue <ChevronRight size={15} /></button>
+              </div>
+            ) : null}
+            {activeNavPanel === "design" ? (
+              <div className="sticky bottom-0 mt-5 flex items-center justify-between gap-3 border-t border-border bg-background/95 py-3 backdrop-blur">
+                <button type="button" onClick={() => openWizardStep(6)} className="inline-flex min-h-10 items-center gap-1 rounded-xl border border-border px-3 text-sm font-semibold text-foreground transition hover:bg-secondary"><ChevronLeft size={15} /> Previous</button>
+                <span className="text-xs font-medium text-muted-foreground">Step 7 of 8</span>
+                <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700">Review <ChevronRight size={15} /></button>
+              </div>
+            ) : null}
+            {activeNavPanel === "ai" ? (
+              <div className="sticky bottom-0 mt-5 flex items-center justify-between gap-3 border-t border-border bg-background/95 py-3 backdrop-blur">
+                <button type="button" onClick={() => openWizardStep(7)} className="inline-flex min-h-10 items-center gap-1 rounded-xl border border-border px-3 text-sm font-semibold text-foreground transition hover:bg-secondary"><ChevronLeft size={15} /> Previous</button>
+                <span className="text-xs font-medium text-muted-foreground">Step 8 of 8</span>
+                <button type="button" onClick={() => { setActiveNavPanel(null); setMobileWorkspaceView("preview"); }} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-[#00A884] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#008f70]">Finish <Check size={15} /></button>
+              </div>
+            ) : null}
           </aside>
         )}
 

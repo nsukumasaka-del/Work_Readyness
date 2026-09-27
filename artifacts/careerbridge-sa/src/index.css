@@ -74,10 +74,10 @@
   --elevate-1: rgba(14, 116, 180, 0.06);
   --elevate-2: rgba(14, 116, 180, 0.12);
 
-  /* Cool white + sky blue professional system */
-  --background: 204 45% 98%;
-  --foreground: 213 32% 16%;
-  --border: 205 28% 88%;
+  /* AuraCV-inspired cool light surface with indigo actions */
+  --background: 210 40% 98%;
+  --foreground: 222 47% 11%;
+  --border: 214 32% 91%;
 
   --card: 0 0% 100%;
   --card-foreground: 213 32% 16%;
@@ -86,17 +86,17 @@
   --sidebar: 0 0% 100%;
   --sidebar-foreground: 213 32% 16%;
   --sidebar-border: 205 28% 88%;
-  --sidebar-primary: 199 89% 48%;
+  --sidebar-primary: 239 84% 67%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 201 80% 96%;
   --sidebar-accent-foreground: 201 70% 28%;
-  --sidebar-ring: 199 89% 48%;
+  --sidebar-ring: 239 84% 67%;
 
   --popover: 0 0% 100%;
   --popover-foreground: 213 32% 16%;
   --popover-border: 205 28% 88%;
 
-  --primary: 199 89% 48%;
+  --primary: 239 84% 67%;
   --primary-foreground: 0 0% 100%;
 
   --secondary: 201 80% 96%;
@@ -112,9 +112,9 @@
   --destructive-foreground: 0 0% 100%;
 
   --input: 205 28% 84%;
-  --ring: 199 89% 48%;
-  --chart-1: 199 89% 48%;
-  --chart-2: 205 72% 40%;
+  --ring: 239 84% 67%;
+  --chart-1: 239 84% 67%;
+  --chart-2: 217 91% 60%;
   --chart-3: 190 70% 42%;
   --chart-4: 213 32% 28%;
   --chart-5: 204 35% 72%;
@@ -179,37 +179,37 @@
   --elevate-1: rgba(255, 255, 255, 0.04);
   --elevate-2: rgba(255, 255, 255, 0.09);
 
-  --background: 213 32% 10%;
-  --foreground: 204 40% 96%;
-  --border: 213 22% 22%;
-  --card: 213 28% 14%;
+  --background: 222 47% 7%;
+  --foreground: 210 40% 98%;
+  --border: 215 25% 23%;
+  --card: 217 33% 15%;
   --card-foreground: 204 40% 96%;
-  --card-border: 213 22% 22%;
-  --sidebar: 213 32% 8%;
-  --sidebar-foreground: 204 40% 96%;
-  --sidebar-border: 213 22% 18%;
-  --sidebar-primary: 199 89% 55%;
-  --sidebar-primary-foreground: 213 32% 10%;
-  --sidebar-accent: 213 22% 18%;
-  --sidebar-accent-foreground: 204 40% 96%;
-  --sidebar-ring: 199 89% 55%;
-  --popover: 213 28% 14%;
-  --popover-foreground: 204 40% 96%;
-  --popover-border: 213 22% 22%;
-  --primary: 199 89% 55%;
-  --primary-foreground: 213 32% 10%;
-  --secondary: 213 22% 18%;
-  --secondary-foreground: 204 40% 96%;
-  --muted: 213 22% 16%;
-  --muted-foreground: 205 18% 70%;
-  --accent: 205 72% 55%;
-  --accent-foreground: 213 32% 10%;
+  --card-border: 215 25% 23%;
+  --sidebar: 222 47% 6%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-border: 215 25% 19%;
+  --sidebar-primary: 239 84% 70%;
+  --sidebar-primary-foreground: 222 47% 7%;
+  --sidebar-accent: 217 33% 18%;
+  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-ring: 239 84% 70%;
+  --popover: 217 33% 15%;
+  --popover-foreground: 210 40% 98%;
+  --popover-border: 215 25% 23%;
+  --primary: 239 84% 70%;
+  --primary-foreground: 222 47% 7%;
+  --secondary: 217 33% 18%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 33% 16%;
+  --muted-foreground: 215 20% 67%;
+  --accent: 217 91% 65%;
+  --accent-foreground: 222 47% 7%;
   --destructive: 4 72% 58%;
   --destructive-foreground: 0 0% 100%;
-  --input: 213 22% 26%;
-  --ring: 199 89% 55%;
-  --chart-1: 199 89% 55%;
-  --chart-2: 205 72% 55%;
+  --input: 215 25% 24%;
+  --ring: 239 84% 70%;
+  --chart-1: 239 84% 70%;
+  --chart-2: 217 91% 65%;
   --chart-3: 190 70% 50%;
   --chart-4: 204 40% 80%;
   --chart-5: 213 22% 40%;

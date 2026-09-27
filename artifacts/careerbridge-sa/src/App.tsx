@@ -20,6 +20,7 @@ import {
   FileCheck2,
   FileText,
   HeartHandshake,
+  House,
   Info,
   Layers,
   Lock,
@@ -64,6 +65,7 @@ import { buildParseUploadBody, readFileAsDataUrl } from '@/lib/cv-parse-upload';
 import { isNativeApp } from '@/lib/platform';
 import { describeApiMisconfiguration } from '@/lib/api-base';
 import { triggerAndroidApkDownload } from '@/lib/download-apk';
+import { ThemeToggle } from '@/components/theme-provider';
 import { getNativeCv, isOfflineWorkstationActive, listNativeCvs, startNativeCvSync } from '@/lib/native-cv-store';
 import {
   clearAuthSession,
@@ -207,42 +209,46 @@ function HeaderAuthActions({
   isAdmin,
   onLogout,
   compact = false,
+  workspaceMode = false,
 }: {
   profileReady: boolean;
   profile: UserProfile | null;
   isAdmin: boolean;
   onLogout: () => void;
   compact?: boolean;
+  workspaceMode?: boolean;
 }) {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   if (profileReady && profile) {
     return (
       <div className={`flex items-center ${compact ? 'w-full flex-col gap-2' : 'gap-1.5 xl:gap-2'}`}>
-        <Link
+        {!workspaceMode ? <Link
           href="/dashboard"
           className={`rounded-xl px-2.5 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground ${compact ? 'w-full border border-border text-center' : 'hidden sm:inline-flex'}`}
           data-testid="link-header-my-resumes"
         >
           My Resumes
-        </Link>
+        </Link> : null}
         <div className="relative">
           <button
             type="button"
             onClick={() => setProfileMenuOpen((open) => !open)}
-            className={`inline-flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2 text-sm font-medium text-foreground hover:border-primary/30 xl:px-3 ${compact ? 'w-full justify-center py-2.5' : ''}`}
+            className={`inline-flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2 text-sm font-medium text-foreground hover:border-primary/30 xl:px-3 ${compact ? 'w-full justify-center py-2.5' : ''} ${workspaceMode ? '!h-9 !w-9 !justify-center !rounded-full !p-0' : ''}`}
             data-testid="button-header-account-menu"
             aria-expanded={profileMenuOpen}
             aria-haspopup="menu"
           >
             <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-secondary text-xs font-bold text-primary">{profile.name.charAt(0).toUpperCase()}</span>
-            <span className={compact ? 'max-w-[14rem] truncate font-medium' : 'hidden max-w-[7rem] truncate sm:inline xl:max-w-[9rem]'}>{compact ? profile.name : profile.name.split(' ')[0]}</span>
-            <ChevronDown size={14} className="text-muted-foreground" />
+            {!workspaceMode ? <span className={compact ? 'max-w-[14rem] truncate font-medium' : 'hidden max-w-[7rem] truncate sm:inline xl:max-w-[9rem]'}>{compact ? profile.name : profile.name.split(' ')[0]}</span> : null}
+            {!workspaceMode ? <ChevronDown size={14} className="text-muted-foreground" /> : null}
           </button>
           {profileMenuOpen ? (
             <div role="menu" className={`absolute right-0 top-full z-[70] mt-2 w-56 rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl ${compact ? 'left-0 right-0 w-full' : ''}`}>
               <Link role="menuitem" href="/profile" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted" data-testid="link-profile-menu-account">Profile & account settings</Link>
+              {workspaceMode ? <Link role="menuitem" href="/dashboard" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted">My saved CVs</Link> : null}
               <Link role="menuitem" href="/settings/security" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted" data-testid="link-profile-menu-security">Security settings</Link>
               {isAdmin ? <Link role="menuitem" href="/admin" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm font-semibold text-primary hover:bg-muted" data-testid="link-profile-menu-admin">Admin Console</Link> : null}
+              {workspaceMode ? <button role="menuitem" type="button" onClick={() => { setProfileMenuOpen(false); onLogout(); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted">Log out</button> : null}
             </div>
           ) : null}
         </div>
@@ -257,7 +263,7 @@ function HeaderAuthActions({
             Updates
           </Link>
         ) : null}
-        <button
+        {!workspaceMode ? <button
           type="button"
           onClick={onLogout}
           className={`rounded-xl px-2.5 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground xl:px-3 ${
@@ -266,7 +272,7 @@ function HeaderAuthActions({
           data-testid="button-header-logout"
         >
           Log out
-        </button>
+        </button> : null}
       </div>
     );
   }
@@ -795,12 +801,34 @@ function AppShell({ children }: { children: ReactNode }) {
             <LogoMark />
           </div>
 
-          {/* Desktop Enhancv-Style Control Panel Navigation */}
+          {/* AuraCV-style quick navigation for routes that are available today. */}
           {isCvBuilder ? (
             <div id="cv-builder-command-slot" className="flex h-full min-w-0 flex-1 items-center" />
-          ) : <nav
-            className="hidden min-w-0 items-center gap-1 lg:flex"
-            aria-label="Primary navigation"
+          ) : <>
+            <nav className="hidden min-w-0 flex-1 items-center justify-center gap-1 xl:flex" aria-label="Primary navigation">
+              {[
+                { href: '/', label: 'Home', Icon: House },
+                { href: '/jobs', label: 'Jobs', Icon: BriefcaseBusiness },
+                { href: '/cv-builder?intake=1', label: 'CV Builder', Icon: FileText },
+                { href: '/interview', label: 'AI Hub', Icon: Bot },
+                { href: '/coaching', label: 'Coaching', Icon: HeartHandshake },
+                { href: '/programme', label: 'Programme', Icon: ClipboardCheck },
+                { href: '/dashboard', label: 'My CVs', Icon: Layers },
+              ].map(({ href, label, Icon }) => {
+                const target = href.split('?')[0];
+                const active = location === target || (target !== '/' && location.startsWith(`${target}/`));
+                return (
+                  <Link key={label} href={href} className={`group relative flex min-w-[62px] flex-col items-center gap-1 rounded-xl px-2.5 py-2 text-[10px] font-semibold transition ${active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'}`}>
+                    <Icon size={17} strokeWidth={active ? 2.4 : 1.9} />
+                    <span>{label}</span>
+                    <span className={`absolute inset-x-3 -bottom-0.5 h-0.5 rounded-full bg-primary transition-opacity ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} />
+                  </Link>
+                );
+              })}
+            </nav>
+            <nav
+            className="hidden"
+            aria-label="Legacy navigation menus"
           >
             {/* Resume Mega-Menu Dropdown */}
             <div
@@ -1160,10 +1188,17 @@ function AppShell({ children }: { children: ReactNode }) {
             >
               Pricing
             </Link>
-          </nav>}
+          </nav>
+          </>}
 
           {/* Right Header Actions */}
           <div className={`flex shrink-0 items-center ${isCvBuilder ? 'gap-1 sm:gap-2' : 'gap-2'}`}>
+            {!isCvBuilder ? (
+              <Link href="/pricing" className="hidden rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 p-[1px] shadow-sm shadow-indigo-500/20 sm:inline-flex" data-testid="link-header-upgrade">
+                <span className="rounded-full bg-background px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-950/60">Go Pro</span>
+              </Link>
+            ) : null}
+            <ThemeToggle />
             {!isCvBuilder && !inNativeApp ? (
             <button
               type="button"
@@ -1178,14 +1213,7 @@ function AppShell({ children }: { children: ReactNode }) {
             </button>
             ) : null}
             {isCvBuilder ? (
-              <Link href="/dashboard" className="hidden shrink-0 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 md:inline-flex" data-testid="link-header-my-resumes">
-                My Resumes
-              </Link>
-            ) : null}
-            {isCvBuilder ? (
-              <Link href="/profile" className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-card text-sm font-bold text-primary hover:border-primary/40" title="Your profile" aria-label="Your profile">
-                {profile?.name?.charAt(0).toUpperCase() || <span className="text-xs">P</span>}
-              </Link>
+              <HeaderAuthActions profileReady={Boolean(profile)} profile={profile} isAdmin={isAdmin} onLogout={handleLogout} workspaceMode />
             ) : <div className="hidden lg:flex">
               <HeaderAuthActions
                 profileReady={profileReady}
@@ -1195,7 +1223,7 @@ function AppShell({ children }: { children: ReactNode }) {
               />
             </div>}
             {!isCvBuilder && <button
-              className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-card lg:hidden"
+              className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-card xl:hidden"
               onClick={() => setMenuOpen(!menuOpen)}
               data-testid="button-mobile-menu"
               aria-label="Toggle navigation"
@@ -1208,7 +1236,7 @@ function AppShell({ children }: { children: ReactNode }) {
 
         {/* Mobile Enhancv-Style Accordion Menu */}
         {menuOpen && !isCvBuilder && (
-          <div className="max-h-[min(80vh,calc(100dvh-4rem))] overflow-y-auto border-t border-border bg-card px-4 py-4 lg:hidden animate-in slide-in-from-top-2 duration-200">
+          <div className="max-h-[min(80vh,calc(100dvh-4rem))] overflow-y-auto border-t border-border bg-card px-4 py-4 xl:hidden animate-in slide-in-from-top-2 duration-200">
             {/* Resume Accordion */}
             <div className="border-b border-border/70 pb-3">
               <button
@@ -1806,15 +1834,15 @@ function Home() {
     ] as const;
 
     return (
-      <div className="min-h-screen bg-slate-50">
-        <section className="border-b border-border bg-white">
+      <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-[#090D16] dark:text-slate-100">
+        <section className="border-b border-border bg-white dark:bg-slate-950/90">
           <div className="mx-auto max-w-7xl px-5 py-7 md:px-8 md:py-9">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Your career workspace</p>
                 <h1 className="display mt-2 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">Welcome back, {firstName}</h1>
               </div>
-              <div className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${paidPlanActive ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
+              <div className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${paidPlanActive ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}>
                 <span className={`h-2 w-2 rounded-full ${paidPlanActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                 {paidPlanActive ? `Paid plan active · ${entitlement.planName || 'Premium'} features` : 'Free tier · Upgrade for premium job matching'}
               </div>
@@ -1826,10 +1854,10 @@ function Home() {
         <main className="mx-auto max-w-7xl px-5 py-6 pb-[calc(2rem+var(--safe-bottom))] md:px-8 md:py-8 md:pb-[calc(2rem+var(--safe-bottom))]">
           <section aria-label="Quick actions" className="grid gap-4 md:grid-cols-3">
             {actionCards.map((card) => (
-              <Link key={card.title} href={card.href} onClick={card.title === 'Free AI CV Review & Score' ? openDiagnosticUpload : undefined} className="group flex min-h-48 flex-col rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md" data-testid={`dashboard-action-${card.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`}>
+              <Link key={card.title} href={card.href} onClick={card.title === 'Free AI CV Review & Score' ? openDiagnosticUpload : undefined} className="group flex min-h-48 flex-col rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/85 dark:hover:border-indigo-800" data-testid={`dashboard-action-${card.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`}>
                 <div className="flex items-start justify-between gap-3">
                   <span className={`grid h-11 w-11 place-items-center rounded-xl ${card.tone}`}><card.icon size={20} /></span>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold tracking-wide text-slate-600">{card.badge}</span>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">{card.badge}</span>
                 </div>
                 <span className="mt-4 text-base font-semibold text-foreground group-hover:text-primary">{card.title}</span>
                 <span className="mt-1 flex-1 text-xs leading-5 text-muted-foreground">{card.copy}</span>
@@ -1840,7 +1868,7 @@ function Home() {
 
           <section id="cv-check" className="mt-7 grid items-start gap-5 xl:grid-cols-[1.15fr_0.85fr]">
             <div className="space-y-5">
-              <article className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:shadow-md sm:p-6">
+              <article className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:shadow-md sm:p-6 dark:border-slate-800 dark:bg-slate-900/85">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Next best action</p>
@@ -1848,14 +1876,14 @@ function Home() {
                   </div>
                   <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">{profileCompletion}% complete</span>
                 </div>
-                <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label="Profile completeness" aria-valuenow={profileCompletion} aria-valuemin={0} aria-valuemax={100}>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" role="progressbar" aria-label="Profile completeness" aria-valuenow={profileCompletion} aria-valuemin={0} aria-valuemax={100}>
                   <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${profileCompletion}%` }} />
                 </div>
                 <p className="mt-4 text-sm leading-6 text-muted-foreground">Upload an updated CV to refresh your profile review and job matches.</p>
                 <button type="button" onClick={scrollToDiagnosticUpload} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:text-primary/80">Update your CV <ArrowRight size={15} /></button>
               </article>
 
-              <article className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:shadow-md sm:p-6">
+              <article className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:shadow-md sm:p-6 dark:border-slate-800 dark:bg-slate-900/85">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">From your latest CV review</p>
@@ -1868,12 +1896,12 @@ function Home() {
                     {matches.map((job: JobMatch) => (
                       <Link key={job.id} href="/jobs" className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
                         <span className="min-w-0"><span className="block truncate text-sm font-semibold text-foreground">{job.title}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{job.company || 'Company'}{job.location ? ` · ${job.location}` : ''}</span></span>
-                        <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">{job.match}% match</span>
+                        <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-200">{job.match}% match</span>
                       </Link>
                     ))}
                   </div>
                 ) : (
-                  <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">Upload your CV for a review to see the latest matching jobs here.</div>
+                  <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground dark:bg-slate-800/70">Upload your CV for a review to see the latest matching jobs here.</div>
                 )}
                 <Link href="/jobs" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary">See all matched jobs <ArrowRight size={15} /></Link>
               </article>
@@ -1888,7 +1916,7 @@ function Home() {
               <form
               onSubmit={submitDiagnostic}
               id="upload-section"
-              className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6"
+              className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6 dark:bg-slate-900"
             >
               {isReviewing ? (
                 <div className="space-y-5 py-4" data-testid="cv-scan-progress">
@@ -2009,7 +2037,7 @@ function Home() {
                 </>
               )}
               </form>
-              <div className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+              <div className="rounded-2xl border border-border bg-white p-5 shadow-sm dark:bg-slate-900">
                 <h3 className="text-sm font-semibold text-foreground">More career tools</h3>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   {[

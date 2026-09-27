@@ -1970,6 +1970,8 @@ export default function CvBuilderPage() {
   const [currentCanvasPage, setCurrentCanvasPage] = useState(1);
   const [documentLocale, setDocumentLocale] = useState("en-GB");
   const [draggedCustomSection, setDraggedCustomSection] = useState<number | null>(null);
+  const [draggedExperienceIndex, setDraggedExperienceIndex] = useState<number | null>(null);
+  const [draggedSkillIndex, setDraggedSkillIndex] = useState<number | null>(null);
   const activeTextTargetRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
   const [cv, setCv] = useState<GeneratedCvResponse | null>(null);
@@ -2014,6 +2016,7 @@ export default function CvBuilderPage() {
   const [bgPattern, setBgPattern] = useState<string>("none");
   const [templateFilter, setTemplateFilter] = useState<string>("all");
   const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
+  const [mobileWorkspaceView, setMobileWorkspaceView] = useState<"edit" | "preview">("preview");
   const [showPopiaNotice, setShowPopiaNotice] = useState(true);
 
   // Enhancv-Style Left Navigation Rail State
@@ -5023,9 +5026,15 @@ export default function CvBuilderPage() {
               <span className="sm:hidden">{saving ? "Saving" : autoSaveStatus === "error" ? "Error" : autoSaveStatus === "unsaved" ? "Unsaved" : "Saved"}</span>
               <span className="hidden lg:inline">{saving ? "Saving…" : autoSaveStatus === "error" ? "Save failed" : autoSaveStatus === "unsaved" ? "Unsaved changes" : "Saved to account"}</span>
             </span>
+            <span className="hidden shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50/90 px-2.5 py-1 text-[10px] font-semibold text-emerald-800 xl:inline-flex">
+              <Target size={12} /> ATS {qualityReport?.overallScore != null ? `${qualityReport.overallScore}%` : "Health"}
+            </span>
           </div>
 
           <div className="flex shrink-0 items-center justify-end gap-0 sm:gap-1 md:gap-1.5">
+            <button type="button" onClick={openImproveCvModal} className="hidden shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm shadow-indigo-500/20 transition hover:from-indigo-700 hover:to-blue-700 lg:inline-flex" title="Improve your CV with AI">
+              <Sparkles size={14} /><span>AI Revamp</span>
+            </button>
             <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="max-[420px]:hidden inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40" title="Print CV">
               <Printer size={15} /><span className="hidden lg:inline">Print</span>
             </button>
@@ -5080,6 +5089,21 @@ export default function CvBuilderPage() {
         </div>
       ) : null}
 
+      <div className="no-print grid grid-cols-2 gap-1 border-b border-slate-200/80 bg-white/90 p-1.5 shadow-sm backdrop-blur md:hidden">
+        <button
+          type="button"
+          aria-pressed={mobileWorkspaceView === "edit"}
+          onClick={() => { setMobileWorkspaceView("edit"); setActiveNavPanel("sections"); }}
+          className={`min-h-10 rounded-xl px-3 text-sm font-semibold transition ${mobileWorkspaceView === "edit" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+        >Edit Content</button>
+        <button
+          type="button"
+          aria-pressed={mobileWorkspaceView === "preview"}
+          onClick={() => { setMobileWorkspaceView("preview"); setActiveNavPanel(null); }}
+          className={`min-h-10 rounded-xl px-3 text-sm font-semibold transition ${mobileWorkspaceView === "preview" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+        >Live Preview</button>
+      </div>
+
       {/* 2. ENHANCV-STYLE WORKSPACE (LEFT ICON RAIL + FLYOUT PANEL + A4 CANVAS + RIGHT DRAWERS) */}
       <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
         {/* DARK STUDIO TOOL DOCK */}
@@ -5106,7 +5130,15 @@ export default function CvBuilderPage() {
             { id: "design" as const, label: "Formatting", Icon: Type },
             { id: "sections" as const, label: "Content", Icon: ListChecks },
           ]).map(({ id, label, Icon }) => (
-            <button key={id} type="button" onClick={() => setActiveNavPanel(activeNavPanel === id ? null : id)} aria-expanded={activeNavPanel === id} className={`flex min-w-[76px] flex-col items-center justify-center gap-1 rounded-xl px-3 py-1.5 text-[10px] font-medium ${activeNavPanel === id ? "text-white" : "text-slate-300"}`}>
+            <button key={id} type="button" onClick={() => {
+              if (activeNavPanel === id) {
+                setActiveNavPanel(null);
+                setMobileWorkspaceView("preview");
+              } else {
+                setActiveNavPanel(id);
+                setMobileWorkspaceView(id === "sections" ? "edit" : "preview");
+              }
+            }} aria-expanded={activeNavPanel === id} className={`flex min-w-[76px] flex-col items-center justify-center gap-1 rounded-xl px-3 py-1.5 text-[10px] font-medium ${activeNavPanel === id ? "text-white" : "text-slate-300"}`}>
               <span className={`grid h-8 w-10 place-items-center rounded-lg ${activeNavPanel === id ? "bg-blue-600" : ""}`}><Icon size={17} /></span>
               {label}
             </button>
@@ -5114,7 +5146,7 @@ export default function CvBuilderPage() {
         </nav>
         {/* LEFT EXPANDABLE DRAWER PANEL (340px) */}
         {activeNavPanel && (
-          <aside className="no-print fixed inset-x-0 bottom-16 top-auto z-40 max-h-[72dvh] w-full min-w-0 shrink-0 overflow-y-auto rounded-t-2xl border border-slate-200 bg-white p-4 pb-6 shadow-xl animate-in slide-in-from-bottom duration-200 md:relative md:inset-auto md:z-10 md:h-full md:max-h-none md:w-80 md:shrink-0 md:rounded-none md:border-y-0 md:border-l-0 md:p-5 md:shadow-lg md:animate-in md:slide-in-from-left">
+          <aside className="no-print fixed inset-x-0 bottom-16 top-auto z-40 max-h-[72dvh] w-full min-w-0 shrink-0 overflow-y-auto rounded-t-2xl border border-slate-200/70 bg-white/95 p-4 pb-6 shadow-xl backdrop-blur-xl animate-in slide-in-from-bottom duration-200 md:relative md:inset-auto md:z-10 md:h-full md:max-h-none md:w-[min(44vw,560px)] md:shrink-0 md:rounded-none md:border-y-0 md:border-l-0 md:p-5 md:shadow-lg md:animate-in md:slide-in-from-left xl:w-[min(42vw,600px)]">
             <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
               <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 {activeNavPanel === "templates" && "Layout & Templates"}
@@ -5341,6 +5373,90 @@ export default function CvBuilderPage() {
             {/* PANEL 3: CONTENT & SECTIONS */}
             {activeNavPanel === "sections" && (
               <div className="space-y-4 text-xs">
+                {cv ? (
+                  <div className="space-y-2.5">
+                    <p className="text-xs leading-relaxed text-slate-500">Update your details here; the A4 preview and saved document stay in sync as you edit.</p>
+                    <details open className="group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md">
+                      <summary className="cursor-pointer list-none text-sm font-bold tracking-tight text-slate-900">Personal information <span className="float-right text-slate-400 transition group-open:rotate-180">⌄</span></summary>
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {([
+                          ["Full name", "fullName"], ["Professional title", "headline"], ["Email", "email"], ["Phone", "phone"], ["Location", "location"],
+                        ] as const).map(([label, key]) => (
+                          <label key={key} className="block min-w-0 text-[10px] font-semibold text-slate-500">
+                            {label}
+                            <input value={cv.document[key] || ""} onChange={(event) => updateDocumentField(key, event.target.value)} className="mt-1 min-h-10 w-full rounded-xl border border-slate-200 bg-slate-50/80 px-3 text-sm text-slate-800 shadow-inner outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" />
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+
+                    <details open className="group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md">
+                      <summary className="cursor-pointer list-none text-sm font-bold tracking-tight text-slate-900">Professional summary <span className="float-right text-slate-400 transition group-open:rotate-180">⌄</span></summary>
+                      <label className="mt-3 block text-[10px] font-semibold text-slate-500">Profile summary
+                        <textarea rows={5} value={cv.document.summary || ""} onChange={(event) => updateDocumentField("summary", event.target.value)} className="mt-1 w-full resize-y rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-sm leading-6 text-slate-800 shadow-inner outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" placeholder="Write a concise overview of your experience and strengths" />
+                      </label>
+                    </details>
+
+                    <details open className="group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md">
+                      <summary className="cursor-pointer list-none text-sm font-bold tracking-tight text-slate-900">Work experience <span className="float-right text-slate-400 transition group-open:rotate-180">⌄</span></summary>
+                      <div className="mt-3 space-y-3">
+                        {cv.document.experiences.map((experience, index) => (
+                          <div key={experience.id || index} draggable onDragStart={() => setDraggedExperienceIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => {
+                            if (draggedExperienceIndex === null || draggedExperienceIndex === index) return;
+                            const reordered = [...cv.document.experiences];
+                            const [moved] = reordered.splice(draggedExperienceIndex, 1);
+                            if (moved) reordered.splice(index, 0, moved);
+                            updateDocumentField("experiences", reordered);
+                            setDraggedExperienceIndex(null);
+                          }} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                            <div className="mb-2 flex items-center gap-2"><span className="cursor-grab text-slate-400" title="Drag to reorder">⠿</span><span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Role {index + 1}</span></div>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <input aria-label="Job title" value={experience.role} onChange={(event) => { const items = [...cv.document.experiences]; items[index] = { ...experience, role: event.target.value }; updateDocumentField("experiences", items); }} className="min-h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15" placeholder="Job title" />
+                              <input aria-label="Company" value={experience.company} onChange={(event) => { const items = [...cv.document.experiences]; items[index] = { ...experience, company: event.target.value }; updateDocumentField("experiences", items); }} className="min-h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15" placeholder="Company" />
+                            </div>
+                            <textarea aria-label="Achievement bullets" rows={4} value={experience.bullets.join("\n")} onChange={(event) => { const items = [...cv.document.experiences]; items[index] = { ...experience, bullets: event.target.value.split("\n") }; updateDocumentField("experiences", items); }} className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm leading-5 shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15" placeholder="One achievement per line" />
+                          </div>
+                        ))}
+                        <button type="button" onClick={() => updateDocumentField("experiences", [...cv.document.experiences, { id: `exp-${Date.now()}`, role: "Job title", company: "Company", startDate: "", endDate: "", bullets: [], classification: "VERIFIED" }])} className="w-full rounded-xl border border-dashed border-indigo-300 py-2.5 font-semibold text-indigo-700 transition hover:bg-indigo-50">+ Add work experience</button>
+                      </div>
+                    </details>
+
+                    <details open className="group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md">
+                      <summary className="cursor-pointer list-none text-sm font-bold tracking-tight text-slate-900">Skills <span className="float-right text-slate-400 transition group-open:rotate-180">⌄</span></summary>
+                      <div className="mt-3 space-y-2">
+                        {cv.document.skills.map((skill, index) => (
+                          <div key={`${skill}-${index}`} draggable onDragStart={() => setDraggedSkillIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => {
+                            if (draggedSkillIndex === null || draggedSkillIndex === index) return;
+                            const reordered = [...cv.document.skills];
+                            const [moved] = reordered.splice(draggedSkillIndex, 1);
+                            if (moved !== undefined) reordered.splice(index, 0, moved);
+                            updateDocumentField("skills", reordered);
+                            setDraggedSkillIndex(null);
+                          }} className="flex items-center gap-2">
+                            <span className="cursor-grab text-slate-400" title="Drag to reorder">⠿</span>
+                            <input aria-label={`Skill ${index + 1}`} value={skill} onChange={(event) => { const items = [...cv.document.skills]; items[index] = event.target.value; updateDocumentField("skills", items); }} className="min-h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50/80 px-3 text-sm shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15" />
+                            <button type="button" aria-label="Remove skill" onClick={() => updateDocumentField("skills", cv.document.skills.filter((_, itemIndex) => itemIndex !== index))} className="rounded-lg px-2 py-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600">×</button>
+                          </div>
+                        ))}
+                        <button type="button" onClick={() => updateDocumentField("skills", [...cv.document.skills, "New skill"])} className="w-full rounded-xl border border-dashed border-indigo-300 py-2.5 font-semibold text-indigo-700 transition hover:bg-indigo-50">+ Add skill</button>
+                      </div>
+                    </details>
+
+                    <details open className="group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md">
+                      <summary className="cursor-pointer list-none text-sm font-bold tracking-tight text-slate-900">Education & qualifications <span className="float-right text-slate-400 transition group-open:rotate-180">⌄</span></summary>
+                      <div className="mt-3 space-y-2">
+                        {cv.document.education.map((education, index) => (
+                          <div key={education.id || index} className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-2">
+                            <input aria-label="Qualification" value={education.degree} onChange={(event) => { const items = [...cv.document.education]; items[index] = { ...education, degree: event.target.value }; updateDocumentField("education", items); }} className="min-h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15" placeholder="Qualification" />
+                            <input aria-label="Institution" value={education.institution} onChange={(event) => { const items = [...cv.document.education]; items[index] = { ...education, institution: event.target.value }; updateDocumentField("education", items); }} className="min-h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15" placeholder="Institution" />
+                            <input aria-label="Year" value={education.graduationYear} onChange={(event) => { const items = [...cv.document.education]; items[index] = { ...education, graduationYear: event.target.value }; updateDocumentField("education", items); }} className="min-h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-inner outline-none focus:ring-2 focus:ring-indigo-500/15 sm:col-span-2" placeholder="Year" />
+                          </div>
+                        ))}
+                        <button type="button" onClick={() => updateDocumentField("education", [...cv.document.education, { id: `edu-${Date.now()}`, degree: "Qualification", institution: "Institution", graduationYear: "" }])} className="w-full rounded-xl border border-dashed border-indigo-300 py-2.5 font-semibold text-indigo-700 transition hover:bg-indigo-50">+ Add qualification</button>
+                      </div>
+                    </details>
+                  </div>
+                ) : null}
                 {cv ? (
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
                     <div className="flex items-center justify-between gap-2">
@@ -5683,7 +5799,7 @@ export default function CvBuilderPage() {
             const pageHeight = (canvasPageWidthPx / 210) * 297 * (zoomLevel / 100);
             if (pageHeight > 0) setCurrentCanvasPage(Math.min(a4PageCount, Math.max(1, Math.floor((event.currentTarget.scrollTop + 16) / pageHeight) + 1)));
           }}
-          className="relative min-h-0 min-w-0 flex h-full flex-1 flex-col items-center overflow-auto bg-[#f0f2f5] px-3 pb-24 pt-4 sm:p-8 md:pb-8"
+          className={`relative min-h-0 min-w-0 h-full flex-1 flex-col items-center overflow-auto bg-gradient-to-br from-slate-100 via-slate-50 to-indigo-50/40 px-3 pb-24 pt-4 sm:p-8 md:pb-8 ${mobileWorkspaceView === "edit" ? "hidden md:flex" : "flex"}`}
         >
           {cv && !isPreviewMode ? (
             <div className="no-print sticky top-0 z-20 mb-3 flex max-w-full items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-sm backdrop-blur" role="toolbar" aria-label="Text formatting">
@@ -5704,12 +5820,18 @@ export default function CvBuilderPage() {
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
             <div className="cv-a4-viewport relative">
-              <div className="no-print sticky top-2 z-30 mb-2 mr-2 flex shrink-0 self-end items-center gap-0.5 rounded-full border border-slate-200/80 bg-white/85 p-1 text-slate-700 shadow-md backdrop-blur-md sm:top-3 sm:mr-3" role="toolbar" aria-label="Canvas zoom controls">
+              <div className="no-print sticky top-2 z-30 mb-2 mr-2 flex max-w-[calc(100vw-1.5rem)] shrink-0 self-end items-center gap-0.5 overflow-x-auto rounded-2xl border border-white/70 bg-white/85 p-1 text-slate-700 shadow-lg shadow-slate-900/10 backdrop-blur-xl sm:top-3 sm:mr-3" role="toolbar" aria-label="Canvas zoom and export controls">
                 <button type="button" onClick={handleZoomOut} className="grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100" title="Zoom out" aria-label="Zoom out"><ZoomOut size={15} /></button>
                 <span className="min-w-10 text-center text-[10px] font-semibold tabular-nums">{Math.round(zoomLevel)}%</span>
                 <button type="button" onClick={handleZoomIn} className="grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100" title="Zoom in" aria-label="Zoom in"><ZoomIn size={15} /></button>
                 <button type="button" onClick={handleResetZoom} className="rounded-full px-2 py-1 text-[10px] font-semibold hover:bg-slate-100" title="Reset zoom to 100%">Reset</button>
-                <button type="button" onClick={handleFitCanvas} className="rounded-full px-2 py-1 text-[10px] font-semibold hover:bg-slate-100" title="Fit canvas to screen">Fit</button>
+                <button type="button" onClick={handleFitCanvas} className="whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-semibold hover:bg-slate-100" title="Fit canvas to screen">Fit width</button>
+                <select aria-label="Choose CV template" value={selectedTemplate} onChange={(event) => handleTemplateChange(event.target.value)} className="max-w-28 rounded-full border-0 bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-800 outline-none focus:ring-2 focus:ring-indigo-200">
+                  {TEMPLATE_CATALOG.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                </select>
+                <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-600 px-3 py-2 text-[10px] font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50" title="Export PDF">
+                  <Download size={13} /><span className="hidden sm:inline">Download PDF</span>
+                </button>
               </div>
                 <div
                 className="cv-zoom-outer"

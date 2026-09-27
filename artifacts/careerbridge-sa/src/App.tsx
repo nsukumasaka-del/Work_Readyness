@@ -1826,7 +1826,7 @@ function Home() {
         <main className="mx-auto max-w-7xl px-5 py-6 pb-[calc(2rem+var(--safe-bottom))] md:px-8 md:py-8 md:pb-[calc(2rem+var(--safe-bottom))]">
           <section aria-label="Quick actions" className="grid gap-4 md:grid-cols-3">
             {actionCards.map((card) => (
-              <Link key={card.title} href={card.href} onClick={card.title === 'Free AI CV Review & Score' ? openDiagnosticUpload : undefined} className="group flex min-h-48 flex-col rounded-2xl border border-border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md" data-testid={`dashboard-action-${card.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`}>
+              <Link key={card.title} href={card.href} onClick={card.title === 'Free AI CV Review & Score' ? openDiagnosticUpload : undefined} className="group flex min-h-48 flex-col rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md" data-testid={`dashboard-action-${card.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`}>
                 <div className="flex items-start justify-between gap-3">
                   <span className={`grid h-11 w-11 place-items-center rounded-xl ${card.tone}`}><card.icon size={20} /></span>
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold tracking-wide text-slate-600">{card.badge}</span>
@@ -1840,7 +1840,7 @@ function Home() {
 
           <section id="cv-check" className="mt-7 grid items-start gap-5 xl:grid-cols-[1.15fr_0.85fr]">
             <div className="space-y-5">
-              <article className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6">
+              <article className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:shadow-md sm:p-6">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Next best action</p>
@@ -1855,7 +1855,7 @@ function Home() {
                 <button type="button" onClick={scrollToDiagnosticUpload} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:text-primary/80">Update your CV <ArrowRight size={15} /></button>
               </article>
 
-              <article className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6">
+              <article className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:shadow-md sm:p-6">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">From your latest CV review</p>

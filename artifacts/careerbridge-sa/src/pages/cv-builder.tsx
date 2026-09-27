@@ -1,6 +1,7 @@
 import {
   type ChangeEvent,
   type DragEvent,
+  type PointerEvent as ReactPointerEvent,
   type TextareaHTMLAttributes,
   Fragment,
   useEffect,
@@ -2000,6 +2001,16 @@ export default function CvBuilderPage() {
   const [zoomLevel, setZoomLevel] = useState<number>(() =>
     typeof window !== "undefined" && window.innerWidth < 768 ? 75 : 100,
   );
+  const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 });
+  const canvasGestureRef = useRef<{
+    pointers: Map<number, { x: number; y: number }>;
+    mode: "pan" | "pinch" | "scroll" | null;
+    startZoom: number;
+    startPan: { x: number; y: number };
+    startDistance: number;
+    startPoint: { x: number; y: number };
+    startScrollTop: number;
+  }>({ pointers: new Map(), mode: null, startZoom: 100, startPan: { x: 0, y: 0 }, startDistance: 0, startPoint: { x: 0, y: 0 }, startScrollTop: 0 });
   const [bgPattern, setBgPattern] = useState<string>("none");
   const [templateFilter, setTemplateFilter] = useState<string>("all");
   const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
@@ -4898,14 +4909,102 @@ export default function CvBuilderPage() {
     canvasRef.current?.scrollTo({ top: Math.max(0, (page - 1) * pageHeight), behavior: "smooth" });
   };
 
-  const handleZoomIn = () => setZoomLevel((previous) => Math.min(200, previous + 15));
+  const handleZoomIn = () => setZoomLevel((previous) => Math.min(250, previous + 15));
   const handleZoomOut = () => setZoomLevel((previous) => Math.max(40, previous - 15));
-  const handleFitCanvas = () => setZoomLevel(Math.max(40, Math.min(100, Math.round(canvasFitScale * 100))));
+  const handleFitCanvas = () => {
+    setCanvasPan({ x: 0, y: 0 });
+    setZoomLevel(Math.max(40, Math.min(100, Math.round(canvasFitScale * 100))));
+  };
+  const handleResetZoom = () => {
+    setCanvasPan({ x: 0, y: 0 });
+    setZoomLevel(100);
+  };
+  const handleCanvasPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch") return;
+    if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, button, a, [contenteditable='true']")) return;
+    const gesture = canvasGestureRef.current;
+    gesture.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    event.currentTarget.setPointerCapture(event.pointerId);
+    if (gesture.pointers.size >= 2) {
+      const [first, second] = [...gesture.pointers.values()];
+      if (!first || !second) return;
+      gesture.mode = "pinch";
+      gesture.startZoom = zoomLevel;
+      gesture.startPan = canvasPan;
+      gesture.startDistance = Math.hypot(second.x - first.x, second.y - first.y);
+      const origin = event.currentTarget.parentElement?.getBoundingClientRect() || event.currentTarget.getBoundingClientRect();
+      gesture.startPoint = { x: (first.x + second.x) / 2 - origin.left, y: (first.y + second.y) / 2 - origin.top };
+    } else if (zoomLevel > 100) {
+      gesture.mode = "pan";
+      gesture.startZoom = zoomLevel;
+      gesture.startPan = canvasPan;
+      gesture.startPoint = { x: event.clientX, y: event.clientY };
+    } else {
+      gesture.mode = "scroll";
+      gesture.startPoint = { x: event.clientX, y: event.clientY };
+      gesture.startScrollTop = canvasRef.current?.scrollTop || 0;
+    }
+  };
+  const handleCanvasPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = canvasGestureRef.current;
+    if (!gesture.pointers.has(event.pointerId)) return;
+    gesture.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (gesture.mode === "pinch" && gesture.pointers.size >= 2) {
+      const [first, second] = [...gesture.pointers.values()];
+      if (!first || !second || gesture.startDistance <= 0) return;
+      const midpoint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+      const rect = event.currentTarget.parentElement?.getBoundingClientRect() || event.currentTarget.getBoundingClientRect();
+      const focal = { x: midpoint.x - rect.left, y: midpoint.y - rect.top };
+      const nextZoom = Math.max(40, Math.min(250, gesture.startZoom * Math.hypot(second.x - first.x, second.y - first.y) / gesture.startDistance));
+      const ratio = nextZoom / gesture.startZoom;
+      setCanvasPan({
+        x: focal.x - (gesture.startPoint.x - gesture.startPan.x) * ratio,
+        y: focal.y - (gesture.startPoint.y - gesture.startPan.y) * ratio,
+      });
+      setZoomLevel(nextZoom);
+    } else if (gesture.mode === "pan" && gesture.pointers.size === 1) {
+      setCanvasPan({
+        x: gesture.startPan.x + event.clientX - gesture.startPoint.x,
+        y: gesture.startPan.y + event.clientY - gesture.startPoint.y,
+      });
+    } else if (gesture.mode === "scroll" && gesture.pointers.size === 1 && canvasRef.current) {
+      canvasRef.current.scrollTop = gesture.startScrollTop + gesture.startPoint.y - event.clientY;
+    }
+  };
+  const handleCanvasPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = canvasGestureRef.current;
+    gesture.pointers.delete(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (gesture.pointers.size >= 2) {
+      const [first, second] = [...gesture.pointers.values()];
+      if (first && second) {
+        gesture.mode = "pinch";
+        gesture.startZoom = zoomLevel;
+        gesture.startPan = canvasPan;
+        gesture.startDistance = Math.hypot(second.x - first.x, second.y - first.y);
+        const origin = event.currentTarget.parentElement?.getBoundingClientRect() || event.currentTarget.getBoundingClientRect();
+        gesture.startPoint = { x: (first.x + second.x) / 2 - origin.left, y: (first.y + second.y) / 2 - origin.top };
+      }
+    } else if (gesture.pointers.size === 1) {
+      const remaining = [...gesture.pointers.values()][0]!;
+      gesture.startPoint = remaining;
+      if (zoomLevel > 100) {
+        gesture.mode = "pan";
+        gesture.startPan = canvasPan;
+      } else {
+        gesture.mode = "scroll";
+        gesture.startScrollTop = canvasRef.current?.scrollTop || 0;
+      }
+    } else {
+      gesture.mode = null;
+    }
+  };
 
   return (
     <div className="cv-builder relative flex h-[calc(100dvh-3.5rem)] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
       {commandHeaderHost ? createPortal(
-        <div className="flex h-full min-w-0 flex-1 items-center justify-between gap-1 overflow-hidden px-2 sm:gap-3 sm:px-3">
+        <div className="h-full min-w-0 flex-1 overflow-x-auto overflow-y-hidden px-2 sm:px-3">
+        <div className="flex h-full min-w-max items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-1 sm:gap-2">
             <input
               ref={documentTitleInputRef}
@@ -4965,6 +5064,7 @@ export default function CvBuilderPage() {
               </select>
             </label>
           </div>
+        </div>
         </div>,
         commandHeaderHost,
       ) : null}
@@ -5603,7 +5703,14 @@ export default function CvBuilderPage() {
           ) : null}
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
-            <div className="cv-a4-viewport">
+            <div className="cv-a4-viewport relative">
+              <div className="no-print sticky top-2 z-30 mb-2 mr-2 flex shrink-0 self-end items-center gap-0.5 rounded-full border border-slate-200/80 bg-white/85 p-1 text-slate-700 shadow-md backdrop-blur-md sm:top-3 sm:mr-3" role="toolbar" aria-label="Canvas zoom controls">
+                <button type="button" onClick={handleZoomOut} className="grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100" title="Zoom out" aria-label="Zoom out"><ZoomOut size={15} /></button>
+                <span className="min-w-10 text-center text-[10px] font-semibold tabular-nums">{Math.round(zoomLevel)}%</span>
+                <button type="button" onClick={handleZoomIn} className="grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100" title="Zoom in" aria-label="Zoom in"><ZoomIn size={15} /></button>
+                <button type="button" onClick={handleResetZoom} className="rounded-full px-2 py-1 text-[10px] font-semibold hover:bg-slate-100" title="Reset zoom to 100%">Reset</button>
+                <button type="button" onClick={handleFitCanvas} className="rounded-full px-2 py-1 text-[10px] font-semibold hover:bg-slate-100" title="Fit canvas to screen">Fit</button>
+              </div>
                 <div
                 className="cv-zoom-outer"
                 style={{
@@ -5615,11 +5722,16 @@ export default function CvBuilderPage() {
               >
                 <div
                   style={{
-                    transform: `scale(${zoomLevel / 100})`,
+                    transform: `translate(${canvasPan.x}px, ${canvasPan.y}px) scale(${zoomLevel / 100})`,
                     transformOrigin: "top left",
-                    transition: "transform 0.15s ease-out",
+                    transition: canvasGestureRef.current.mode ? "none" : "transform 0.15s ease-out",
+                    touchAction: "none",
                   }}
                   className="cv-zoom-stage"
+                  onPointerDown={handleCanvasPointerDown}
+                  onPointerMove={handleCanvasPointerMove}
+                  onPointerUp={handleCanvasPointerEnd}
+                  onPointerCancel={handleCanvasPointerEnd}
                 >
                   <div className="cv-a4-stack">
                     <div className="cv-page-guides no-print" aria-hidden>
@@ -6927,12 +7039,6 @@ export default function CvBuilderPage() {
                 <span className="min-w-12 text-center font-medium">{currentCanvasPage} / {a4PageCount}</span>
                 <button type="button" onClick={() => scrollToCanvasPage(currentCanvasPage + 1)} disabled={currentCanvasPage >= a4PageCount} className="px-1 font-semibold hover:text-slate-950 disabled:opacity-30" aria-label="Next page">›</button>
               </div>
-              <div className="no-print absolute bottom-20 left-3 z-40 flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 p-1 text-slate-600 shadow-md backdrop-blur md:bottom-4 md:left-auto md:right-4">
-                <button type="button" onClick={handleZoomOut} className="grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100" title="Zoom out" aria-label="Zoom out"><ZoomOut size={15} /></button>
-                <span className="min-w-10 text-center text-[10px] font-semibold">{zoomLevel}%</span>
-                <button type="button" onClick={handleZoomIn} className="grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100" title="Zoom in" aria-label="Zoom in"><ZoomIn size={15} /></button>
-                <button type="button" onClick={handleFitCanvas} className="rounded-full px-2 py-1 text-[10px] font-semibold hover:bg-slate-100" title="Fit canvas to screen">Fit</button>
-              </div>
             </>
           )}
         </main>
@@ -7323,31 +7429,31 @@ export default function CvBuilderPage() {
             )}
 
             {/* Step 1: Mode Selection Tabs */}
-            <div className="grid grid-cols-2 gap-2 rounded-2xl bg-secondary/50 p-1.5 text-sm font-bold md:text-xs">
+            <div className="flex flex-col gap-2 rounded-2xl bg-secondary/50 p-1.5 text-sm font-bold sm:flex-row md:text-xs">
               <button
                 type="button"
                 onClick={() => { setIntakeTab("manual"); setManualWizardStep(0); }}
-                className={`flex items-center justify-center gap-2 rounded-xl py-2.5 transition ${
+                className={`flex min-h-12 min-w-0 flex-1 flex-wrap items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-center leading-snug transition ${
                   intakeTab === "manual"
                     ? "bg-card text-foreground shadow-xs ring-1 ring-border"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <FileText size={15} className={intakeTab === "manual" ? "text-primary" : ""} />
-                <span>Option 1: Enter Information Manually</span>
+                <span className="whitespace-normal">Option 1: Enter Information Manually</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setIntakeTab("upload")}
-                className={`flex items-center justify-center gap-2 rounded-xl py-2.5 transition ${
+                className={`flex min-h-12 min-w-0 flex-1 flex-wrap items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-center leading-snug transition ${
                   intakeTab === "upload"
                     ? "bg-card text-foreground shadow-xs ring-1 ring-border"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <Upload size={15} className={intakeTab === "upload" ? "text-primary" : ""} />
-                <span>Option 2: Upload CV</span>
+                <span className="whitespace-normal">Option 2: Upload CV</span>
                 <span
                   data-testid="cv-upload-build-indicator"
                   className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[9px] font-bold tracking-wide text-sky-700 dark:text-sky-300"

@@ -121,7 +121,13 @@ async function syncAndApplyOta(release: Release) {
   if (!isAndroidApk()) throw new Error("Over-the-air updates are available only in the BonList Android app.");
   if (release.targetPlatform !== "all") throw new Error("This release is not an OTA-compatible web bundle.");
   if (!release.bundleUrl || !release.bundleVersion) throw new Error("The update service has no web bundle for this release.");
-  const bundle = await CapacitorUpdater.download({ url: release.bundleUrl, version: release.bundleVersion });
+  let bundle: Awaited<ReturnType<typeof CapacitorUpdater.download>>;
+  try {
+    bundle = await CapacitorUpdater.download({ url: release.bundleUrl, version: release.bundleVersion });
+  } catch (error) {
+    console.warn("BonList OTA bundle download failed; the installed app remains available.", error);
+    throw new Error("The live update could not be downloaded. BonList is still available; check your connection and retry when ready.");
+  }
   const reloadNow = window.confirm("The update is downloaded. Reload BonList now to apply it?");
   if (reloadNow) {
     localStorage.setItem(ACTIVE_BUNDLE_KEY, release.bundleVersion);

@@ -62,7 +62,9 @@ const config = {
     CapacitorUpdater: {
       autoUpdate: false,
       appReadyTimeout: 20000,
-      resetWhenUpdate: true,
+      statsUrl: "",
+      resetWhenUpdate: false,
+      responseTimeout: 120,
       keepUrlPathAfterReload: true,
     },
     SplashScreen: {

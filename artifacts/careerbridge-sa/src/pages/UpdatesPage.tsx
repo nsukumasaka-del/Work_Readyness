@@ -117,7 +117,7 @@ async function installAndroidRelease(apkUrl: string) {
   if (result?.permissionRequired) throw new Error("Allow BonList to install apps in Android settings, then tap Install Update again.");
 }
 
-async function syncAndApplyOta(release: Release) {
+async function syncAndApplyOta(release: Release, onProgress?: (percent: number | null) => void) {
   if (!isAndroidApk()) throw new Error("Over-the-air updates are available only in the BonList Android app.");
   if (release.targetPlatform !== "all") throw new Error("This release is not an OTA-compatible web bundle.");
   if (!release.bundleUrl || !release.bundleVersion) throw new Error("The update service has no web bundle for this release.");
@@ -135,11 +135,59 @@ async function syncAndApplyOta(release: Release) {
     throw new Error("OTA Update server maintenance, please try again later.");
   }
   let bundle: Awaited<ReturnType<typeof CapacitorUpdater.download>>;
+  const listenerHandles: Array<{ remove: () => Promise<void> }> = [];
+  const safeBundleUrl = `${bundleUrl.origin}${bundleUrl.pathname}`;
+  console.info("[CapacitorUpdater] Starting native OTA download", {
+    platform: Capacitor.getPlatform(),
+    bundleVersion: release.bundleVersion,
+    url: safeBundleUrl,
+    contentLength,
+    responseTimeoutSeconds: 120,
+  });
   try {
+    try {
+      listenerHandles.push(await CapacitorUpdater.addListener("download", (event: unknown) => {
+        const percent = Number((event as { percent?: unknown } | null)?.percent);
+        if (Number.isFinite(percent)) onProgress?.(Math.max(0, Math.min(100, percent)));
+        console.debug("[CapacitorUpdater] Native download progress", {
+          version: release.bundleVersion,
+          percent: Number.isFinite(percent) ? percent : undefined,
+          event,
+        });
+      }));
+      listenerHandles.push(await CapacitorUpdater.addListener("downloadFailed", (event: unknown) => {
+        console.error("[CapacitorUpdater] Native downloadFailed event", event);
+      }));
+      listenerHandles.push(await CapacitorUpdater.addListener("downloadComplete", (event: unknown) => {
+        console.info("[CapacitorUpdater] Native downloadComplete event", event);
+      }));
+    } catch (listenerError) {
+      // Listener registration is diagnostic only; still attempt the actual download.
+      console.warn("[CapacitorUpdater] Could not attach all download diagnostics", listenerError);
+    }
     bundle = await CapacitorUpdater.download({ url: release.bundleUrl, version: release.bundleVersion });
+    const bundleDetails = bundle as typeof bundle & { version?: string; status?: string };
+    console.info("[CapacitorUpdater] Native download() resolved", {
+      id: bundle.id,
+      version: bundleDetails.version,
+      status: bundleDetails.status,
+    });
+    onProgress?.(100);
   } catch (error) {
-    console.warn("BonList OTA bundle download failed; the installed app remains available.", error);
+    console.error("[CapacitorUpdater] Native download() rejected", {
+      platform: Capacitor.getPlatform(),
+      version: release.bundleVersion,
+      url: safeBundleUrl,
+      error: error instanceof Error
+        ? { name: error.name, message: error.message, stack: error.stack }
+        : error,
+    });
     throw new Error("OTA Update server maintenance, please try again later.");
+  } finally {
+    await Promise.all(listenerHandles.map(async (handle) => {
+      try { await handle.remove(); }
+      catch (error) { console.debug("[CapacitorUpdater] Listener cleanup failed", error); }
+    }));
   }
   const reloadNow = window.confirm("The update is downloaded. Reload BonList now to apply it?");
   if (reloadNow) {
@@ -152,28 +200,29 @@ async function syncAndApplyOta(release: Release) {
   return false;
 }
 
-function UpdateAction({ release, installed, busy, onError, onBusy, onComplete }: {
+function UpdateAction({ release, installed, busy, onError, onBusy, onComplete, onProgress }: {
   release: Release;
   installed: Installed;
   busy: boolean;
   onError: (message: string) => void;
   onBusy: (value: boolean) => void;
   onComplete?: (message: string) => void;
+  onProgress?: (percent: number | null) => void;
 }) {
   const apkRequired = apkUpdateRequired(release, installed);
   const otaAvailable = hasOtaUpdate(release, installed);
   if (!apkRequired && !otaAvailable) return null;
   const apply = async () => {
-    onBusy(true); onError("");
+    onBusy(true); onError(""); onProgress?.(null);
     try {
       if (apkRequired) await installAndroidRelease(release.apkUrl);
       else {
-        const appliedImmediately = await syncAndApplyOta(release);
+        const appliedImmediately = await syncAndApplyOta(release, onProgress);
         if (!appliedImmediately) onComplete?.("Bundle downloaded. It will apply the next time BonList reloads.");
       }
     } catch (error) {
       onError(error instanceof Error ? error.message : "Could not apply this update.");
-    } finally { onBusy(false); }
+    } finally { onBusy(false); onProgress?.(null); }
   };
   return (
     <button type="button" onClick={() => void apply()} disabled={busy || (apkRequired && !release.apkUrl) || (otaAvailable && !release.bundleUrl)} className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-primary px-5 py-2 text-sm font-bold text-primary-foreground hover:brightness-105 disabled:opacity-60">
@@ -188,6 +237,7 @@ export function UpdatesPage() {
   const [release, setRelease] = useState<Release | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -230,8 +280,9 @@ export function UpdatesPage() {
           <button type="button" onClick={() => void checkForUpdates()} disabled={loading} className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary disabled:opacity-60">
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />{loading ? "Checking…" : "Check for Updates"}
           </button>
-          {release ? <UpdateAction release={release} installed={installed} busy={busy} onBusy={setBusy} onError={showActionError} onComplete={setMessage} /> : null}
+          {release ? <UpdateAction release={release} installed={installed} busy={busy} onBusy={setBusy} onError={showActionError} onComplete={setMessage} onProgress={setDownloadProgress} /> : null}
         </div>
+        {downloadProgress !== null && <p className="mt-3 text-xs text-muted-foreground" role="status">Downloading update: {Math.round(downloadProgress)}%</p>}
         {!isAndroidApk() && <p className="mt-4 text-xs text-muted-foreground">APK installation and over-the-air bundle sync are available inside the BonList Android app.</p>}
         {actionError ? <p className="sr-only" aria-live="assertive">{actionError}</p> : null}
       </div>

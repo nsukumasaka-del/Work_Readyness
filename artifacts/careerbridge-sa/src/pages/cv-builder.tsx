@@ -5001,11 +5001,11 @@ export default function CvBuilderPage() {
   };
 
   return (
-    <div className="cv-builder relative flex h-[calc(100dvh-3.5rem)] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+    <div className="cv-builder relative flex h-[calc(100dvh-3.5rem-var(--safe-top))] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
       {commandHeaderHost ? createPortal(
-        <div className="h-full min-w-0 flex-1 overflow-x-auto overflow-y-hidden px-2 sm:px-3">
-        <div className="flex h-full min-w-max items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+        <div className="h-full min-w-0 flex-1 overflow-hidden px-1 sm:px-3">
+        <div className="flex h-full min-w-0 items-center justify-between gap-1 sm:gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1 sm:gap-2">
             <input
               ref={documentTitleInputRef}
               type="text"
@@ -5013,7 +5013,7 @@ export default function CvBuilderPage() {
               value={documentTitle}
               onChange={(event) => { documentTitleEditedRef.current = true; setDocumentTitle(event.target.value); }}
               onBlur={() => { if (!documentTitle.trim()) setDocumentTitle(`CV of ${cv?.document.fullName || profile?.name || "Candidate"}`); }}
-              className="w-[min(34vw,140px)] max-w-[140px] truncate rounded px-1 py-1 text-xs font-semibold text-slate-800 outline-none transition-all hover:bg-gray-100 focus:bg-white focus:ring-1 focus:ring-blue-500 sm:w-56 sm:max-w-xs sm:px-2 sm:text-sm"
+              className="min-w-0 w-0 max-w-[clamp(4.5rem,20vw,8.75rem)] flex-1 truncate rounded px-1 py-1 text-xs font-semibold text-slate-800 outline-none transition-all hover:bg-gray-100 focus:bg-white focus:ring-1 focus:ring-blue-500 sm:max-w-[14rem] sm:px-2 sm:text-sm md:max-w-xs"
             />
             <button type="button" onClick={() => documentTitleInputRef.current?.focus()} className="hidden shrink-0 text-gray-400 hover:text-gray-600 sm:block" aria-label="Edit CV title">
               <Pencil size={14} />
@@ -5021,12 +5021,12 @@ export default function CvBuilderPage() {
             <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${autoSaveStatus === "error" ? "bg-red-50 text-red-700" : saving ? "bg-slate-100 text-slate-600" : autoSaveStatus === "unsaved" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>
               {autoSaveStatus === "saved" && !saving ? <Check size={11} /> : null}
               <span className="sm:hidden">{saving ? "Saving" : autoSaveStatus === "error" ? "Error" : autoSaveStatus === "unsaved" ? "Unsaved" : "Saved"}</span>
-              <span className="hidden sm:inline">{saving ? "Saving…" : autoSaveStatus === "error" ? "Save failed" : autoSaveStatus === "unsaved" ? "Unsaved changes" : "Saved to account"}</span>
+              <span className="hidden lg:inline">{saving ? "Saving…" : autoSaveStatus === "error" ? "Save failed" : autoSaveStatus === "unsaved" ? "Unsaved changes" : "Saved to account"}</span>
             </span>
           </div>
 
-          <div className="flex min-w-0 shrink-0 items-center justify-end gap-0.5 sm:gap-1.5">
-            <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40" title="Print CV">
+          <div className="flex shrink-0 items-center justify-end gap-0 sm:gap-1 md:gap-1.5">
+            <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="max-[420px]:hidden inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40" title="Print CV">
               <Printer size={15} /><span className="hidden lg:inline">Print</span>
             </button>
             <button
@@ -5038,7 +5038,7 @@ export default function CvBuilderPage() {
                 const body = encodeURIComponent("My CV is ready. Download the PDF from the CV Builder and attach it to this email.");
                 window.location.href = "mailto:?subject=" + subject + "&body=" + body;
               }}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+              className="max-[420px]:hidden inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40"
               title="Compose an email about your CV"
             >
               <Mail size={15} /><span className="hidden lg:inline">Email</span>
@@ -5050,10 +5050,10 @@ export default function CvBuilderPage() {
               type="button"
               disabled={!cv || saving}
               onClick={() => { void handleSaveCv(documentTitle.trim() || `CV of ${cv?.document.fullName || "Candidate"}`).then(() => canvasRef.current?.focus()); }}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#00A884] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#008f70] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[#00A884] px-2 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#008f70] disabled:cursor-not-allowed disabled:opacity-50 sm:gap-1.5 sm:px-2.5 md:px-3"
               title="Save your CV and continue"
             >
-              <Save size={14} /><span className="hidden sm:inline">{saving ? "Saving…" : "Save & Next"}</span>
+              <Save size={14} /><span className="hidden md:inline">{saving ? "Saving…" : "Save & Next"}</span>
             </button>
             <label className="hidden items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5 text-[11px] text-slate-600 sm:flex" title="Document locale">
               <span className="sr-only">Language and locale</span>
@@ -7045,7 +7045,7 @@ export default function CvBuilderPage() {
 
         {/* 3. INTERACTIVE SLIDE-OUT ATS LIVE SCORE PANEL (RIGHT DRAWER) */}
         {showAtsDrawer && (
-          <aside className="no-print fixed inset-x-0 bottom-0 z-50 max-h-[80dvh] w-full overflow-y-auto rounded-t-2xl border border-border bg-card p-4 shadow-xl animate-in slide-in-from-right duration-200 md:static md:max-h-none md:w-96 md:shrink-0 md:rounded-none md:border-y-0 md:border-r-0 md:p-5">
+          <aside className="no-print fixed inset-x-0 bottom-0 z-50 max-h-[80dvh] w-full overflow-y-auto rounded-t-2xl border border-border bg-card p-4 pb-[calc(1rem+var(--safe-bottom))] shadow-xl animate-in slide-in-from-right duration-200 md:static md:max-h-none md:w-96 md:shrink-0 md:rounded-none md:border-y-0 md:border-r-0 md:p-5">
             <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
               <div className="flex items-center gap-2">
                 <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
@@ -7171,7 +7171,7 @@ export default function CvBuilderPage() {
 
         {/* 4. INTERACTIVE SLIDE-OUT JOB MATCH & KEYWORD DRAWER (RIGHT DRAWER) */}
         {showJobMatchDrawer && (
-          <aside className="no-print fixed inset-x-0 bottom-0 z-50 max-h-[80dvh] w-full overflow-y-auto rounded-t-2xl border border-border bg-card p-4 shadow-xl animate-in slide-in-from-right duration-200 md:static md:max-h-none md:w-96 md:shrink-0 md:rounded-none md:border-y-0 md:border-r-0 md:p-5">
+          <aside className="no-print fixed inset-x-0 bottom-0 z-50 max-h-[80dvh] w-full overflow-y-auto rounded-t-2xl border border-border bg-card p-4 pb-[calc(1rem+var(--safe-bottom))] shadow-xl animate-in slide-in-from-right duration-200 md:static md:max-h-none md:w-96 md:shrink-0 md:rounded-none md:border-y-0 md:border-r-0 md:p-5">
             <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
               <div className="flex items-center gap-2">
                 <span className="grid h-7 w-7 place-items-center rounded-lg bg-sky-500/15 text-sky-600 dark:text-sky-400">

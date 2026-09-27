@@ -75,7 +75,7 @@ const config = {
     StatusBar: {
       style: "DARK",
       backgroundColor: "#F3F8FC",
-      overlaysWebView: false,
+      overlaysWebView: true,
     },
   },
   android: {

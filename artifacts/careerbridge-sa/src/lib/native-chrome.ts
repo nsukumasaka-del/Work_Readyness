@@ -7,8 +7,8 @@ type StatusBarPlugin = {
 };
 
 /**
- * Keep the WebView below the system status / navigation bars on phones.
- * Uses the Capacitor StatusBar plugin when running inside the Android shell.
+ * Draw edge-to-edge in the Android shell; CSS safe-area insets keep controls
+ * clear of the status and navigation bars.
  */
 export async function configureNativeChrome(): Promise<void> {
   if (!isNativeApp()) return;
@@ -22,9 +22,9 @@ export async function configureNativeChrome(): Promise<void> {
     const StatusBar = plugins?.StatusBar;
     if (!StatusBar) return;
 
-    await StatusBar.setOverlaysWebView?.({ overlay: false });
-    // Match app background (cool white / sky)
-    await StatusBar.setBackgroundColor?.({ color: "#F3F8FC" });
+    await StatusBar.setOverlaysWebView?.({ overlay: true });
+    // Keep the status bar transparent so the WebView can render edge-to-edge.
+    await StatusBar.setBackgroundColor?.({ color: "#00000000" });
     // Dark icons on a light status bar
     await StatusBar.setStyle?.({ style: "DARK" });
   } catch (error) {

@@ -183,7 +183,7 @@ export function SmokeyAgent() {
   };
 
   return (
-    <div className={`fixed ${isCvBuilder ? 'bottom-[calc(5rem+var(--safe-bottom))]' : 'bottom-[max(1rem,var(--safe-bottom))]'} right-[max(1rem,var(--safe-right))] z-[60] flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 md:bottom-[max(1rem,var(--safe-bottom))]`}>
+    <div className={`fixed ${isCvBuilder ? 'bottom-[calc(5rem+var(--safe-bottom))]' : 'bottom-[calc(1rem+var(--safe-bottom))]'} right-[calc(1rem+var(--safe-right))] z-[60] flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 md:bottom-[calc(1rem+var(--safe-bottom))]`}>
       {open && (
         <div className="flex h-[min(560px,72vh)] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-xl">
           <div className="flex items-center justify-between bg-primary px-4 py-3 text-primary-foreground">

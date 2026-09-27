@@ -790,7 +790,7 @@ function AppShell({ children }: { children: ReactNode }) {
         />
       ) : null}
       <header className="app-safe-header sticky top-0 z-40 border-b border-border/70 bg-background/90 backdrop-blur-xl">
-        <div className={`mx-auto flex ${isCvBuilder ? 'h-14 w-full max-w-full gap-3 px-3 sm:px-5' : 'h-14 max-w-6xl gap-3 px-4 sm:h-16 sm:px-5 md:px-8'} items-center justify-between`}>
+        <div className={`mx-auto flex ${isCvBuilder ? 'min-h-14 w-full max-w-full gap-2 px-2 sm:gap-3 sm:px-4 md:px-5' : 'min-h-14 max-w-6xl gap-3 px-4 sm:min-h-16 sm:px-5 md:px-8'} items-center justify-between`}>
           <div className="min-w-0 shrink-0">
             <LogoMark />
           </div>
@@ -1163,7 +1163,7 @@ function AppShell({ children }: { children: ReactNode }) {
           </nav>}
 
           {/* Right Header Actions */}
-          <div className="flex shrink-0 items-center gap-2">
+          <div className={`flex shrink-0 items-center ${isCvBuilder ? 'gap-1 sm:gap-2' : 'gap-2'}`}>
             {!isCvBuilder && !inNativeApp ? (
             <button
               type="button"
@@ -1178,7 +1178,7 @@ function AppShell({ children }: { children: ReactNode }) {
             </button>
             ) : null}
             {isCvBuilder ? (
-              <Link href="/dashboard" className="hidden shrink-0 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 sm:inline-flex" data-testid="link-header-my-resumes">
+              <Link href="/dashboard" className="hidden shrink-0 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 md:inline-flex" data-testid="link-header-my-resumes">
                 My Resumes
               </Link>
             ) : null}
@@ -1823,7 +1823,7 @@ function Home() {
           </div>
         </section>
 
-        <main className="mx-auto max-w-7xl px-5 py-6 md:px-8 md:py-8">
+        <main className="mx-auto max-w-7xl px-5 py-6 pb-[calc(2rem+var(--safe-bottom))] md:px-8 md:py-8 md:pb-[calc(2rem+var(--safe-bottom))]">
           <section aria-label="Quick actions" className="grid gap-4 md:grid-cols-3">
             {actionCards.map((card) => (
               <Link key={card.title} href={card.href} onClick={card.title === 'Free AI CV Review & Score' ? openDiagnosticUpload : undefined} className="group flex min-h-48 flex-col rounded-2xl border border-border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md" data-testid={`dashboard-action-${card.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`}>

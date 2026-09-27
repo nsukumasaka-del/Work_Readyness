@@ -243,20 +243,27 @@ async function serveOtaAsset(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const isBundle = url.pathname === "/ota/latest.zip";
   const isManifest = url.pathname === "/ota/manifest.json";
-  if (!isBundle && !isManifest) return jsonError(404, "OTA asset not found.");
 
   const corsHeaders = new Headers({
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
     "Access-Control-Allow-Headers": "Accept, Content-Type, Range",
     "Access-Control-Max-Age": "86400",
+    "Cache-Control": "public, max-age=3600",
+    "X-Content-Type-Options": "nosniff",
     "Vary": "Origin",
   });
   if (request.method === "OPTIONS") {
+    corsHeaders.set("Content-Type", isManifest ? "application/json; charset=utf-8" : "application/zip");
     return new Response(null, { status: 204, headers: corsHeaders });
+  }
+  if (!isBundle && !isManifest) {
+    corsHeaders.set("Content-Type", "application/json; charset=utf-8");
+    return new Response(JSON.stringify({ error: "OTA asset not found." }), { status: 404, headers: corsHeaders });
   }
   if (request.method !== "GET" && request.method !== "HEAD") {
     corsHeaders.set("Allow", "GET, HEAD, OPTIONS");
+    corsHeaders.set("Content-Type", "application/json; charset=utf-8");
     return new Response("Method not allowed.", { status: 405, headers: corsHeaders });
   }
 
@@ -265,20 +272,20 @@ async function serveOtaAsset(request: Request, env: Env): Promise<Response> {
   const assetRequest = new Request(url, { method: "GET", headers: request.headers });
   const asset = await env.ASSETS.fetch(assetRequest);
   if (!asset.ok) {
+    corsHeaders.set("Content-Type", isBundle ? "application/zip" : "application/json; charset=utf-8");
     return new Response("OTA asset unavailable.", { status: asset.status, headers: corsHeaders });
   }
 
   const body = await asset.arrayBuffer();
   const bytes = new Uint8Array(body);
   if (isBundle && !(bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && [0x03, 0x05, 0x07].includes(bytes[2]!) && [0x04, 0x06, 0x08].includes(bytes[3]!))) {
+    corsHeaders.set("Content-Type", "application/zip");
     return new Response("OTA bundle is missing or invalid.", { status: 404, headers: corsHeaders });
   }
 
   const headers = new Headers(asset.headers);
   corsHeaders.forEach((value, key) => headers.set(key, value));
   headers.set("Content-Type", isBundle ? "application/zip" : "application/json; charset=utf-8");
-  headers.set("Cache-Control", "no-store, max-age=0");
-  headers.set("X-Content-Type-Options", "nosniff");
   if (isBundle) {
     headers.set("Content-Disposition", 'attachment; filename="latest.zip"');
     headers.set("Content-Length", String(bytes.byteLength));
@@ -311,7 +318,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/ota/latest.zip" || url.pathname === "/ota/manifest.json") {
+    if (url.pathname.startsWith("/ota/")) {
       return serveOtaAsset(request, env);
     }
 

@@ -123,25 +123,13 @@ async function syncAndApplyOta(release: Release, onProgress?: (percent: number |
   if (!release.bundleUrl || !release.bundleVersion) throw new Error("The update service has no web bundle for this release.");
   const bundleUrl = new URL(release.bundleUrl);
   if (bundleUrl.protocol !== "https:") throw new Error("OTA Update server maintenance, please try again later.");
-  let preflight: Response;
-  try {
-    preflight = await fetch(bundleUrl, { method: "HEAD", cache: "no-store" });
-  } catch {
-    throw new Error("OTA Update server maintenance, please try again later.");
-  }
-  const mimeType = (preflight.headers.get("content-type") || "").split(";")[0]?.trim().toLowerCase();
-  const contentLength = Number(preflight.headers.get("content-length") || 0);
-  if (!preflight.ok || mimeType !== "application/zip" || contentLength <= 0) {
-    throw new Error("OTA Update server maintenance, please try again later.");
-  }
   let bundle: Awaited<ReturnType<typeof CapacitorUpdater.download>>;
   const listenerHandles: Array<{ remove: () => Promise<void> }> = [];
   const safeBundleUrl = `${bundleUrl.origin}${bundleUrl.pathname}`;
-  console.info("[CapacitorUpdater] Starting native OTA download", {
+  console.info("[CapacitorUpdater] Starting native OTA download without a browser preflight", {
     platform: Capacitor.getPlatform(),
     bundleVersion: release.bundleVersion,
     url: safeBundleUrl,
-    contentLength,
     responseTimeoutSeconds: 120,
   });
   try {
@@ -174,7 +162,7 @@ async function syncAndApplyOta(release: Release, onProgress?: (percent: number |
     });
     onProgress?.(100);
   } catch (error) {
-    console.error("[CapacitorUpdater] Native download() rejected", {
+    console.error("[OTA Download Error] CapacitorUpdater.download() rejected", {
       platform: Capacitor.getPlatform(),
       version: release.bundleVersion,
       url: safeBundleUrl,

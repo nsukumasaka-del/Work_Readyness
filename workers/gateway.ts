@@ -260,8 +260,8 @@ async function serveOtaAsset(request: Request, env: Env): Promise<Response> {
     return new Response("Method not allowed.", { status: 405, headers: corsHeaders });
   }
 
-  // Fetch GET even for HEAD so we can reject SPA fallback HTML and verify the
-  // archive signature before the native updater attempts to install it.
+  // Workers Assets does not consistently expose Content-Length for HEAD.
+  // Read the GET asset so both GET and HEAD validate the same archive bytes.
   const assetRequest = new Request(url, { method: "GET", headers: request.headers });
   const asset = await env.ASSETS.fetch(assetRequest);
   if (!asset.ok) {
@@ -280,10 +280,31 @@ async function serveOtaAsset(request: Request, env: Env): Promise<Response> {
   headers.set("Cache-Control", "no-store, max-age=0");
   headers.set("X-Content-Type-Options", "nosniff");
   if (isBundle) {
-    headers.set("Content-Disposition", 'attachment; filename="bonlist-ota-latest.zip"');
+    headers.set("Content-Disposition", 'attachment; filename="latest.zip"');
     headers.set("Content-Length", String(bytes.byteLength));
   }
-  return new Response(request.method === "HEAD" ? null : body, { status: 200, headers });
+  if (request.method === "HEAD") return new Response(null, { status: 200, headers });
+  return new Response(body, { status: 200, headers });
+}
+
+async function hasValidOtaBundle(env: Env, url: URL): Promise<boolean> {
+  const response = await env.ASSETS.fetch(new Request(url, { method: "GET", headers: { "cache-control": "no-cache" } }));
+  if (!response.ok || (response.headers.get("Content-Type") || "").toLowerCase().includes("text/html") || !response.body) return false;
+  const reader = response.body.getReader();
+  const signature = new Uint8Array(4);
+  let offset = 0;
+  try {
+    while (offset < signature.length) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      const amount = Math.min(chunk.value.length, signature.length - offset);
+      signature.set(chunk.value.subarray(0, amount), offset);
+      offset += amount;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return offset === 4 && signature[0] === 0x50 && signature[1] === 0x4b && [0x03, 0x05, 0x07].includes(signature[2]!) && [0x04, 0x06, 0x08].includes(signature[3]!);
 }
 
 export default {
@@ -299,10 +320,13 @@ export default {
       const parsedVersionCode = Number(env.ANDROID_VERSION_CODE || 1);
       const configuredApkUrl = String(env.ANDROID_APK_URL || "https://www.bonlist.site/downloads/BonList.apk").trim();
       let bundleManifest: Record<string, unknown> = {};
+      let hasBundle = false;
       try {
         const manifestUrl = new URL("/ota/manifest.json", url.origin);
         const manifestResponse = await env.ASSETS.fetch(new Request(manifestUrl, { headers: { "cache-control": "no-cache" } }));
-        if (manifestResponse.ok) bundleManifest = await manifestResponse.json() as Record<string, unknown>;
+        const bundleUrl = new URL("/ota/latest.zip", url.origin);
+        hasBundle = await hasValidOtaBundle(env, bundleUrl);
+        if (manifestResponse.ok && hasBundle) bundleManifest = await manifestResponse.json() as Record<string, unknown>;
       } catch (error) {
         console.warn("[app-version] OTA manifest unavailable; returning APK metadata only", error);
       }
@@ -310,10 +334,10 @@ export default {
         latestVersion,
         versionCode: Number.isFinite(parsedVersionCode) && parsedVersionCode > 0 ? parsedVersionCode : 1,
         apkUrl: configuredApkUrl,
-        bundleVersion: String(bundleManifest.bundleVersion || ""),
-        bundleUrl: String(bundleManifest.bundleUrl || ""),
-        targetPlatform: String(bundleManifest.targetPlatform || "all"),
-        requiresNewAPK: Boolean(bundleManifest.requiresNewAPK),
+        bundleVersion: hasBundle ? String(bundleManifest.bundleVersion || "") : "",
+        bundleUrl: hasBundle ? String(bundleManifest.bundleUrl || "") : "",
+        targetPlatform: hasBundle ? String(bundleManifest.targetPlatform || "all") : "web-only",
+        requiresNewAPK: hasBundle && Boolean(bundleManifest.requiresNewAPK),
         releaseNotes: String(bundleManifest.releaseNotes || env.ANDROID_RELEASE_NOTES || "Current stable BonList Android release."),
       }), {
         headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },

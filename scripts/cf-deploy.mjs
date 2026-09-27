@@ -4,7 +4,7 @@
  * (avoids "workspace root" detection errors).
  */
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -53,8 +53,20 @@ if (!existsSync(resolve(outDir, "index.html"))) {
   process.exit(1);
 }
 
+const otaBundlePath = resolve(outDir, "ota/latest.zip");
+const otaManifestPath = resolve(outDir, "ota/manifest.json");
+if (!existsSync(otaBundlePath) || !existsSync(otaManifestPath) || statSync(otaBundlePath).size < 4) {
+  console.error(`[bonlist] OTA bundle missing or empty: ${otaBundlePath}`);
+  process.exit(1);
+}
+const otaSignature = readFileSync(otaBundlePath).subarray(0, 4);
+if (otaSignature[0] !== 0x50 || otaSignature[1] !== 0x4b || ![0x03, 0x05, 0x07].includes(otaSignature[2]) || ![0x04, 0x06, 0x08].includes(otaSignature[3])) {
+  console.error(`[bonlist] OTA bundle is not a valid ZIP: ${otaBundlePath}`);
+  process.exit(1);
+}
+
 const wranglerEntry = resolveWranglerEntry();
-console.log(`[bonlist] Deploying Worker static assets from ${outDir}`);
+console.log(`[bonlist] Verified OTA ZIP (${statSync(otaBundlePath).size} bytes). Deploying Worker static assets from ${outDir}`);
 
 if (wranglerEntry) {
   run(process.execPath, [wranglerEntry, "deploy", "-c", configPath]);

@@ -121,12 +121,25 @@ async function syncAndApplyOta(release: Release) {
   if (!isAndroidApk()) throw new Error("Over-the-air updates are available only in the BonList Android app.");
   if (release.targetPlatform !== "all") throw new Error("This release is not an OTA-compatible web bundle.");
   if (!release.bundleUrl || !release.bundleVersion) throw new Error("The update service has no web bundle for this release.");
+  const bundleUrl = new URL(release.bundleUrl);
+  if (bundleUrl.protocol !== "https:") throw new Error("OTA Update server maintenance, please try again later.");
+  let preflight: Response;
+  try {
+    preflight = await fetch(bundleUrl, { method: "HEAD", cache: "no-store" });
+  } catch {
+    throw new Error("OTA Update server maintenance, please try again later.");
+  }
+  const mimeType = (preflight.headers.get("content-type") || "").split(";")[0]?.trim().toLowerCase();
+  const contentLength = Number(preflight.headers.get("content-length") || 0);
+  if (!preflight.ok || mimeType !== "application/zip" || contentLength <= 0) {
+    throw new Error("OTA Update server maintenance, please try again later.");
+  }
   let bundle: Awaited<ReturnType<typeof CapacitorUpdater.download>>;
   try {
     bundle = await CapacitorUpdater.download({ url: release.bundleUrl, version: release.bundleVersion });
   } catch (error) {
     console.warn("BonList OTA bundle download failed; the installed app remains available.", error);
-    throw new Error("The live update could not be downloaded. BonList is still available; check your connection and retry when ready.");
+    throw new Error("OTA Update server maintenance, please try again later.");
   }
   const reloadNow = window.confirm("The update is downloaded. Reload BonList now to apply it?");
   if (reloadNow) {

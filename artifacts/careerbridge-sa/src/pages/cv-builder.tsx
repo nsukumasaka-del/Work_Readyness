@@ -1582,7 +1582,12 @@ export function persistGeneratedCv(payload: GeneratedCvResponse) {
     ...payload,
     document: condenseCvDocument(payload.document),
   };
-  sessionStorage.setItem(GENERATED_CV_KEY, JSON.stringify(next));
+  try {
+    sessionStorage.setItem(GENERATED_CV_KEY, JSON.stringify(next));
+  } catch {
+    // Storage can be unavailable in private browsing or a constrained WebView;
+    // callers still keep the generated document in React state.
+  }
 }
 
 export function readGeneratedCv(): GeneratedCvResponse | null {
@@ -3156,6 +3161,14 @@ export default function CvBuilderPage() {
         throw new Error("The uploaded CV content is still missing. Please re-upload the original document or paste its text before generating.");
       }
 
+      // Persist the parsed and reviewed payload before any asynchronous request
+      // so a route transition or WebView remount cannot lose the imported CV.
+      try {
+        window.sessionStorage.setItem(CV_INTAKE_DATA_KEY, JSON.stringify(extractedPayload));
+      } catch {
+        // The live React state remains available when session storage is blocked.
+      }
+
       setAgentStepIndex(2);
       setAgentStepText("Formatting semantic ATS hierarchy and layout…");
 
@@ -3186,6 +3199,9 @@ export default function CvBuilderPage() {
         setAiFeedback(created.document.aiFeedback);
       }
       setIsIntakeModalOpen(false);
+      setIsPasteModalOpen(false);
+      setIsExtractModalOpen(false);
+      setMobileWorkspaceView("edit");
       selectedFileRef.current = null;
       setSelectedUploadMeta(null);
       setUploadReadStatus("");
@@ -3194,6 +3210,7 @@ export default function CvBuilderPage() {
       setImportStep("builder_prefilled");
       try { window.sessionStorage.setItem(CV_INTAKE_SUCCESS_KEY, "1"); } catch { /* session storage is optional */ }
       if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = "";
+      // Route directly to the editor without retaining confirmation query state.
       setLocation("/cv-builder/edit");
       showTemplatesAfterGeneration();
       setShowImportSuccessBanner(Boolean(extractedData));
@@ -3208,8 +3225,10 @@ export default function CvBuilderPage() {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate CV");
-      setIsIntakeModalOpen(true);
-  } finally {
+      // The standalone import page is already active. Reopening the intake
+      // modal resets its view to Upload and appears to send users in a loop.
+      if (routePath !== "/cv-builder/import") setIsIntakeModalOpen(true);
+    } finally {
       setIsAgentWorking(false);
       setGeneratingFromIntake(false);
     }

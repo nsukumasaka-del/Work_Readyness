@@ -2173,6 +2173,15 @@ export default function CvBuilderPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("serif_classic");
   const [selectedColor, setSelectedColor] = useState(COLOR_THEMES[0]!);
   const [selectedFont, setSelectedFont] = useState(FONT_OPTIONS[0]!);
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  useEffect(() => {
+    if (!isTemplateModalOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsTemplateModalOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [isTemplateModalOpen]);
   const [fontSize, setFontSize] = useState<number>(10.5); // pt
   const [lineSpacing, setLineSpacing] = useState<"tight" | "balanced" | "relaxed">("balanced");
   const [marginSize, setMarginSize] = useState<"compact" | "normal" | "wide">("normal");
@@ -2365,7 +2374,7 @@ export default function CvBuilderPage() {
   const [intakePasteText, setIntakePasteText] = useState("");
   const [showPasteInsideUpload, setShowPasteInsideUpload] = useState(false);
   const [selectedUploadMeta, setSelectedUploadMeta] = useState<{ name: string; size: number; type: string } | null>(null);
-  const [showImportSuccessBanner, setShowImportSuccessBanner] = useState(() => readIntakeSession(CV_INTAKE_SUCCESS_KEY, "") === "1");
+  const [showImportSuccessBanner, setShowImportSuccessBanner] = useState(() => readIntakeSession<string>(CV_INTAKE_SUCCESS_KEY, "") === "1");
   const [isUploadDropActive, setIsUploadDropActive] = useState(false);
   const [uploadReadStatus, setUploadReadStatus] = useState("");
   const intakeUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -5340,6 +5349,55 @@ export default function CvBuilderPage() {
         </div>
       ) : null}
 
+      {isTemplateModalOpen ? (
+        <div
+          className="no-print fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setIsTemplateModalOpen(false); }}
+        >
+          <section role="dialog" aria-modal="true" aria-labelledby="cv-template-picker-title" className="flex max-h-[min(88vh,900px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+              <div>
+                <h2 id="cv-template-picker-title" className="text-lg font-bold text-slate-900 dark:text-white">Choose a template</h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Select a layout to update your live CV preview.</p>
+              </div>
+              <button type="button" onClick={() => setIsTemplateModalOpen(false)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white" aria-label="Close template picker">×</button>
+            </header>
+            <div className="flex flex-wrap gap-2 border-b border-slate-200 px-5 py-3 dark:border-slate-700">
+              {[
+                { id: "all", label: `All (${TEMPLATE_CATALOG.length})` },
+                { id: "double", label: "Two-Column" },
+                { id: "single", label: "Single-Column" },
+                { id: "timeline", label: "Timeline" },
+                { id: "executive", label: "Executive" },
+                { id: "modern", label: "Modern" },
+              ].map((filter) => (
+                <button key={filter.id} type="button" onClick={() => setTemplateFilter(filter.id)} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${templateFilter === filter.id ? "bg-slate-950 text-white dark:bg-indigo-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"}`}>
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              <label className="mb-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 dark:border-slate-700 dark:bg-slate-950">
+                <Search size={16} className="shrink-0 text-slate-400" />
+                <input value={templateSearch} onChange={(event) => setTemplateSearch(event.target.value)} className="min-h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Search templates" aria-label="Search templates" />
+              </label>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                {filteredTemplates.map((template) => (
+                  <div key={template.id}>
+                    <TemplateThumbnail tpl={template} selected={selectedTemplate === template.id} onSelect={() => { handleTemplateChange(template.id); setIsTemplateModalOpen(false); }} doc={cv?.document} />
+                    <div className="mt-2 flex items-center justify-between gap-2 px-1">
+                      <span className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100">{template.name}</span>
+                      {selectedTemplate === template.id ? <Check size={14} className="shrink-0 text-emerald-600" /> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {!filteredTemplates.length ? <p className="py-12 text-center text-sm text-slate-500">No templates match your search.</p> : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {/* Persistent split workstation: form remains in the left pane while the live paper preview stays on the right. */}
       <div className="cv-builder-workspace flex min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-100/70">
           <aside className="no-print flex w-full min-w-0 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white p-4 pb-6 dark:border-slate-800 dark:bg-slate-950 lg:w-[min(38vw,640px)] xl:w-[min(36vw,640px)]">
@@ -5358,7 +5416,7 @@ export default function CvBuilderPage() {
               <span className={`shrink-0 rounded-md px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${autoSaveStatus === "error" ? "bg-rose-50 text-rose-700" : saving ? "bg-slate-100 text-slate-500" : autoSaveStatus === "saved" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
                 {saving ? "Saving" : autoSaveStatus === "error" ? "Error" : autoSaveStatus === "saved" ? "Saved" : "Draft"}
               </span>
-              <button type="button" onClick={() => openWizardStep(7)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700" title="Choose a template">
+              <button type="button" onClick={() => setIsTemplateModalOpen(true)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700" title="Choose a template">
                 <Palette size={15} /><span className="hidden sm:inline">Template</span>
               </button>
               <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700" title="Open AI suggestions">
@@ -5434,12 +5492,6 @@ export default function CvBuilderPage() {
             {/* PANEL 2: DESIGN & TYPOGRAPHY */}
             {activeNavPanel === "design" && (
               <div className="space-y-5 text-xs">
-                <div>
-                  <label htmlFor="left-template-selector" className="mb-2 block font-bold text-foreground">Choose Template</label>
-                  <select id="left-template-selector" value={selectedTemplate} onChange={(event) => handleTemplateChange(event.target.value)} className="min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-                    {TEMPLATE_CATALOG.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-                  </select>
-                </div>
                 {/* Accent Color Palette (10 Custom Color Themes) */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -5452,6 +5504,7 @@ export default function CvBuilderPage() {
                         key={theme.id}
                         type="button"
                         onClick={() => setSelectedColor(theme)}
+                        aria-pressed={selectedColor.id === theme.id}
                         className={`group relative flex flex-col items-center gap-1 rounded-xl border p-1.5 text-[10px] font-semibold transition ${
                           selectedColor.id === theme.id
                             ? "border-primary bg-primary/10 ring-2 ring-primary/40 shadow-xs"
@@ -6169,8 +6222,8 @@ export default function CvBuilderPage() {
                 const renderSectionHeading = (title: string) => {
                   if (isSerifClassic) {
                     return (
-                      <div className="border-b border-slate-800 pb-1.5 mb-3">
-                        <h2 className="text-[11px] font-serif font-bold uppercase tracking-[0.18em] text-slate-900">
+                      <div className="mb-3 border-b pb-1.5" style={{ borderColor: selectedColor.border }}>
+                        <h2 className="text-[11px] font-serif font-bold uppercase tracking-[0.18em]" style={{ color: selectedColor.primary }}>
                           {title}
                         </h2>
                       </div>
@@ -6198,8 +6251,8 @@ export default function CvBuilderPage() {
                   }
                   if (isAnalystClean) {
                     return (
-                      <div className="mb-3 border-b border-dashed border-slate-300 pb-1.5">
-                        <h2 className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-800">
+                      <div className="mb-3 border-b border-dashed pb-1.5" style={{ borderColor: selectedColor.border }}>
+                        <h2 className="text-[11px] font-bold uppercase tracking-[0.28em]" style={{ color: selectedColor.primary }}>
                           {title.split("").join(" ")}
                         </h2>
                       </div>
@@ -7004,7 +7057,7 @@ export default function CvBuilderPage() {
                           <input type="text" value={cv.document.linkedin || ""} onChange={(e) => updateDocumentField("linkedin", e.target.value)} placeholder="LinkedIn" className={`bg-transparent text-center focus:outline-none ${!cv.document.linkedin ? "hidden" : ""}`} style={{ width: `${Math.max((cv.document.linkedin || "").length + 1, 12)}ch` }} />
                           <input type="text" value={cv.document.website || ""} onChange={(e) => updateDocumentField("website", e.target.value)} placeholder="Website / GitHub" className={`bg-transparent text-center focus:outline-none ${!cv.document.website ? "hidden" : ""}`} style={{ width: `${Math.max((cv.document.website || "").length + 1, 12)}ch` }} />
                         </div>
-                        <div className="mt-4 border-t border-slate-800" />
+                        <div className="mt-4 border-t" style={{ borderColor: selectedColor.primary }} />
                       </header>
                     ) : isCorporateBlue ? (
                       <header className="relative group/section pb-4">

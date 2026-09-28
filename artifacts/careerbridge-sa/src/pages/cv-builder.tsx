@@ -1786,7 +1786,9 @@ function TemplateThumbnail({
     <button
       type="button"
       onClick={onSelect}
-      className={`group relative flex w-full flex-col rounded-2xl border p-2 text-left transition-all ${
+      aria-label={`${tpl.name}${selected ? ", currently selected" : ", select template"}`}
+      aria-pressed={selected}
+      className={`group relative flex w-full flex-col rounded-2xl border p-2 text-left transition-all duration-200 hover:scale-[1.015] ${
         selected
           ? "border-primary bg-primary/5 ring-2 ring-primary/40 shadow-md"
           : "border-border bg-card hover:border-primary/50 hover:bg-secondary/40 hover:shadow-sm"
@@ -1985,8 +1987,8 @@ function TemplateThumbnail({
         </div>
 
         {selected && (
-          <span className="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-white shadow">
-            ✓
+          <span className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-[10px] font-bold text-white shadow-md">
+            <Check size={12} strokeWidth={3} /> Selected
           </span>
         )}
       </div>
@@ -1994,7 +1996,7 @@ function TemplateThumbnail({
       <div className="min-w-0 px-0.5">
         <div className="truncate text-xs font-bold text-foreground">{tpl.name}</div>
         <div className="mt-0.5 text-[10px] text-muted-foreground">
-          {isDouble ? "2-Column" : isTimeline ? "Timeline" : "Single-Column"} �� {tpl.pageDensity}
+          {tpl.category} · {isDouble ? "2-Column" : isTimeline ? "Timeline" : "Single-Column"} · {tpl.pageDensity}
         </div>
       </div>
     </button>
@@ -2176,11 +2178,16 @@ export default function CvBuilderPage() {
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   useEffect(() => {
     if (!isTemplateModalOpen) return;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsTemplateModalOpen(false);
     };
     window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
   }, [isTemplateModalOpen]);
   const [fontSize, setFontSize] = useState<number>(10.5); // pt
   const [lineSpacing, setLineSpacing] = useState<"tight" | "balanced" | "relaxed">("balanced");
@@ -5349,12 +5356,12 @@ export default function CvBuilderPage() {
         </div>
       ) : null}
 
-      {isTemplateModalOpen ? (
+      {isTemplateModalOpen && typeof document !== "undefined" ? createPortal((
         <div
           className="no-print fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm"
           onMouseDown={(event) => { if (event.target === event.currentTarget) setIsTemplateModalOpen(false); }}
         >
-          <section role="dialog" aria-modal="true" aria-labelledby="cv-template-picker-title" className="flex max-h-[min(88vh,900px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+          <section role="dialog" aria-modal="true" aria-labelledby="cv-template-picker-title" className="relative flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
             <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-700">
               <div>
                 <h2 id="cv-template-picker-title" className="text-lg font-bold text-slate-900 dark:text-white">Choose a template</h2>
@@ -5376,27 +5383,32 @@ export default function CvBuilderPage() {
                 </button>
               ))}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+            <div className="min-h-0 flex-1 overflow-y-auto p-6">
               <label className="mb-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 dark:border-slate-700 dark:bg-slate-950">
                 <Search size={16} className="shrink-0 text-slate-400" />
                 <input value={templateSearch} onChange={(event) => setTemplateSearch(event.target.value)} className="min-h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Search templates" aria-label="Search templates" />
               </label>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredTemplates.map((template) => (
-                  <div key={template.id}>
+                  <article key={template.id} className="group rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow-lg dark:border-slate-700 dark:bg-slate-900">
                     <TemplateThumbnail tpl={template} selected={selectedTemplate === template.id} onSelect={() => { handleTemplateChange(template.id); setIsTemplateModalOpen(false); }} doc={cv?.document} />
-                    <div className="mt-2 flex items-center justify-between gap-2 px-1">
-                      <span className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100">{template.name}</span>
-                      {selectedTemplate === template.id ? <Check size={14} className="shrink-0 text-emerald-600" /> : null}
+                    <div className="mt-3 flex min-w-0 items-start justify-between gap-2 px-1">
+                      <div className="min-w-0">
+                        <h3 className="truncate text-sm font-bold text-slate-900 dark:text-white">{template.name}</h3>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{template.category} · {template.bestFor}</p>
+                      </div>
+                      <button type="button" onClick={() => { handleTemplateChange(template.id); setIsTemplateModalOpen(false); }} className={`inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition ${selectedTemplate === template.id ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-slate-950 text-white hover:bg-slate-700 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"}`}>
+                        {selectedTemplate === template.id ? <><Check size={14} /> Selected</> : "Use Template"}
+                      </button>
                     </div>
-                  </div>
+                  </article>
                 ))}
               </div>
               {!filteredTemplates.length ? <p className="py-12 text-center text-sm text-slate-500">No templates match your search.</p> : null}
             </div>
           </section>
         </div>
-      ) : null}
+      ), document.body) : null}
 
       {/* Persistent split workstation: form remains in the left pane while the live paper preview stays on the right. */}
       <div className="cv-builder-workspace flex min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-100/70">

@@ -75,7 +75,7 @@ import { readStoredProfile } from "@/lib/entitlements";
 import { authFetch, readProfile as readAuthProfile } from "@/lib/auth-session";
 import { ensureCvProfile } from "@/lib/cv-profile";
 import { calculateCvCompletion } from "@/lib/cv-completion";
-import { buildParseUploadBody, parseUploadErrorMessage } from "@/lib/cv-parse-upload";
+import { buildParseUploadBody, parseUploadErrorMessage, readFileAsDataUrl } from "@/lib/cv-parse-upload";
 import { getNativeCv, NATIVE_CV_STORE_UPDATED, saveNativeCv } from "@/lib/native-cv-store";
 import { isAndroidApp } from "@/lib/platform";
 import {
@@ -1029,15 +1029,39 @@ function intakeFileValidationError(file: File): string | null {
  * the same parser as the Worker as a local fallback instead of losing intake.
  */
 async function parseCvUpload(file: File, onProgress?: (message: string) => void): Promise<ExtractedCvData> {
-  const parseBody = await buildParseUploadBody(file, onProgress);
+  let parseBody: Awaited<ReturnType<typeof buildParseUploadBody>>;
+  let extractionTimeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    parseBody = await Promise.race([
+      buildParseUploadBody(file, onProgress),
+      new Promise<never>((_, reject) => {
+        extractionTimeout = setTimeout(() => reject(new Error("Browser document reader timed out.")), 25_000);
+      }),
+    ]);
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== "Browser document reader timed out.") throw error;
+    onProgress?.("Browser extraction timed out; sending the original document to the secure CV reader…");
+    parseBody = {
+      fileName: file.name,
+      fileData: await Promise.race([
+        readFileAsDataUrl(file),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("The selected document could not be prepared for upload. Please try again.")), 15_000)),
+      ]),
+    };
+  } finally {
+    if (extractionTimeout) clearTimeout(extractionTimeout);
+  }
   const localData = parseBody.text?.trim()
     ? normalizeExtractedCvData(extractCvDataFromText(parseBody.text, file.name))
     : null;
+  const requestController = new AbortController();
+  const requestTimeout = setTimeout(() => requestController.abort(), 18_000);
   try {
     const response = await authFetch("/api/career/cv/parse-upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(parseBody),
+      signal: requestController.signal,
     });
     if (response.ok) {
       const remoteData = normalizeExtractedCvData(await response.json());
@@ -1159,7 +1183,12 @@ async function parseCvUpload(file: File, onProgress?: (message: string) => void)
       onProgress?.("Using the local CV reader…");
       return localData;
     }
+    if (requestController.signal.aborted) {
+      throw new Error("The CV reader took too long to respond. Please retry, or upload a text-based PDF / Word document.");
+    }
     throw error;
+  } finally {
+    clearTimeout(requestTimeout);
   }
 }
 
@@ -1226,6 +1255,7 @@ function buildLocalCvResponse(
 
 const CV_INTAKE_TAB_KEY = "bonlist-cv-intake-tab";
 const CV_INTAKE_DATA_KEY = "bonlist-cv-intake-data";
+const CV_INTAKE_SUCCESS_KEY = "bonlist-cv-intake-success";
 
 function readIntakeSession<T>(key: string, fallback: T, parse?: (value: unknown) => T): T {
   if (typeof window === "undefined") return fallback;
@@ -2111,6 +2141,9 @@ function A4PageSpacer({ id, height }: { id: string; height: number }) {
 export default function CvBuilderPage() {
   const [location, setLocation] = useLocation();
   const routePath = location.split("?")[0] || "/cv-builder";
+  const [importStep, setImportStep] = useState<"upload" | "confirmation" | "builder_prefilled">(() =>
+    new URLSearchParams(location.split("?")[1] || "").get("step") === "confirm" ? "confirmation" : "upload",
+  );
   const profile = readStoredProfile() || readAuthProfile();
   const printRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLElement>(null);
@@ -2332,7 +2365,7 @@ export default function CvBuilderPage() {
   const [intakePasteText, setIntakePasteText] = useState("");
   const [showPasteInsideUpload, setShowPasteInsideUpload] = useState(false);
   const [selectedUploadMeta, setSelectedUploadMeta] = useState<{ name: string; size: number; type: string } | null>(null);
-  const [showImportSuccessBanner, setShowImportSuccessBanner] = useState(false);
+  const [showImportSuccessBanner, setShowImportSuccessBanner] = useState(() => readIntakeSession(CV_INTAKE_SUCCESS_KEY, "") === "1");
   const [isUploadDropActive, setIsUploadDropActive] = useState(false);
   const [uploadReadStatus, setUploadReadStatus] = useState("");
   const intakeUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -2568,6 +2601,7 @@ export default function CvBuilderPage() {
       selectedFileRef.current = file;
       setSelectedUploadMeta({ name: file.name, size: file.size, type: file.type });
       setShowImportSuccessBanner(false);
+      try { window.sessionStorage.removeItem(CV_INTAKE_SUCCESS_KEY); } catch { /* session storage is optional */ }
     }
     setError(message);
     setUploadReadStatus(file
@@ -2665,6 +2699,7 @@ export default function CvBuilderPage() {
       setAgentStepText("CV details captured. Review them below, then generate your CV.");
       setUploadReadStatus("Document read. Review the detected sections below.");
       setIntakeTab("upload");
+      setImportStep("confirmation");
       setIsIntakeModalOpen(false);
       setLocation("/cv-builder/import?step=confirm");
     } catch (err) {
@@ -2704,6 +2739,7 @@ export default function CvBuilderPage() {
         lastSelectedUploadFingerprintRef.current = selectionKey;
         selectedFileRef.current = null;
         setExtractedData(null);
+        setImportStep("upload");
         setRawUploadText("");
         setIntakePasteText("");
         setManualInput({
@@ -2727,6 +2763,7 @@ export default function CvBuilderPage() {
       setUploadReadStatus(`${isDifferentDocument ? "New CV detected" : "File selected"}: ${file.name} (${size}). Click Parse & Import to read it.`);
       setError("");
       setShowImportSuccessBanner(false);
+      try { window.sessionStorage.removeItem(CV_INTAKE_SUCCESS_KEY); } catch { /* session storage is optional */ }
       // Keep the native input's FileList as a recovery source in case a route
       // update clears the component ref before the user starts parsing.
     } catch (err) {
@@ -3133,6 +3170,8 @@ export default function CvBuilderPage() {
       setUploadReadStatus("");
       setIntakePasteText("");
       setShowPasteInsideUpload(false);
+      setImportStep("builder_prefilled");
+      try { window.sessionStorage.setItem(CV_INTAKE_SUCCESS_KEY, "1"); } catch { /* session storage is optional */ }
       if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = "";
       setLocation("/cv-builder/edit");
       showTemplatesAfterGeneration();
@@ -3187,6 +3226,7 @@ export default function CvBuilderPage() {
         references: (content.references || []).join("\n"),
       });
       setUploadReadStatus("Text parsed. Review the detected information before applying it.");
+      setImportStep("confirmation");
       setLocation("/cv-builder/import?step=confirm");
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : "Could not parse the pasted resume. Please check the text and try again.");
@@ -3198,6 +3238,8 @@ export default function CvBuilderPage() {
   const handleResetCvIntake = () => {
     selectedFileRef.current = null;
     setShowImportSuccessBanner(false);
+    setImportStep("upload");
+    try { window.sessionStorage.removeItem(CV_INTAKE_SUCCESS_KEY); } catch { /* session storage is optional */ }
     lastHandledUploadRef.current = "";
     lastSelectedUploadFingerprintRef.current = "";
     if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = "";
@@ -5173,8 +5215,7 @@ export default function CvBuilderPage() {
     setSelectedTemplate(templateId);
     setLocation("/cv-builder/edit");
   };
-  const importStep = new URLSearchParams(location.split("?")[1] || "").get("step");
-  const showingImportConfirmation = routePath === "/cv-builder/import" && importStep === "confirm" && Boolean(extractedData);
+  const showingImportConfirmation = routePath === "/cv-builder/import" && importStep === "confirmation" && Boolean(extractedData);
 
   if (routePath === "/cv-builder/templates") {
     const categories = ["All", "Professional", "Creative", "Tech", "Business", "Education", "Healthcare", "Finance", "Service", "Trade", "Modern", "Starter", "Local"];
@@ -5199,7 +5240,7 @@ export default function CvBuilderPage() {
             <div><Link href="/cv-builder/edit" className="mb-3 inline-flex items-center gap-1 text-sm font-medium text-slate-500 transition hover:text-indigo-600"><ChevronLeft size={16} /> Back to CV Builder</Link><p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-600 dark:text-indigo-300">BonList CV Studio</p><h1 className="mt-1 text-3xl font-bold tracking-tight md:text-4xl">Choose a CV template</h1><p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-slate-400">Start with a layout that fits your experience, then personalize every section in the editor.</p></div>
             <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
               <label className="flex min-h-12 min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:w-[330px]"><Search size={17} className="shrink-0 text-slate-400" /><input value={templateSearch} onChange={(event) => setTemplateSearch(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder="Search templates..." aria-label="Search templates" /></label>
-              <button type="button" onClick={() => { setIntakeTab("upload"); setIsIntakeModalOpen(false); setError(""); setLocation("/cv-builder/import"); }} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 dark:bg-indigo-600 dark:hover:bg-indigo-500"><Upload size={16} /> Import Existing CV</button>
+              <button type="button" onClick={() => { setIntakeTab("upload"); setImportStep("upload"); setIsIntakeModalOpen(false); setError(""); setLocation("/cv-builder/import"); }} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 dark:bg-indigo-600 dark:hover:bg-indigo-500"><Upload size={16} /> Import Existing CV</button>
             </div>
           </div>
           <div className="mb-6 flex gap-2 overflow-x-auto pb-2" role="tablist" aria-label="Template categories">
@@ -5259,7 +5300,7 @@ export default function CvBuilderPage() {
               <div className="flex flex-wrap gap-2 text-[11px]">{[`${content?.experiences?.length || 0} work roles`, `${content?.education?.length || 0} qualifications`, `${content?.skills?.length || 0} skills`].map((item) => <span key={item} className="rounded-full bg-slate-100 px-3 py-1.5 font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{item}</span>)}</div>
               <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">Apply the extracted details to your CV Builder draft, then review and edit them before saving.</p>
               <button type="button" disabled={generatingFromIntake} onClick={() => void handleGenerateFromIntake()} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60 dark:bg-indigo-600 dark:hover:bg-indigo-500">{generatingFromIntake ? "Applying extracted details…" : "Apply to CV Builder"} <ArrowRight size={17} /></button>
-              <button type="button" onClick={() => { selectedFileRef.current = null; lastHandledUploadRef.current = ""; lastSelectedUploadFingerprintRef.current = ""; if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = ""; setSelectedUploadMeta(null); setExtractedData(null); setUploadReadStatus(""); setError(""); setLocation("/cv-builder/import"); }} className="min-h-12 w-full rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Import a different file</button>
+              <button type="button" onClick={() => { selectedFileRef.current = null; lastHandledUploadRef.current = ""; lastSelectedUploadFingerprintRef.current = ""; if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = ""; setSelectedUploadMeta(null); setExtractedData(null); setImportStep("upload"); setUploadReadStatus(""); setError(""); setLocation("/cv-builder/import"); }} className="min-h-12 w-full rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Import a different file</button>
             </div> : <>
               <div className="grid grid-cols-2 border-b border-slate-200 dark:border-slate-800"><button type="button" onClick={() => { setIntakeTab("upload"); setError(""); }} className={`min-h-14 border-b-2 text-sm font-semibold ${intakeTab === "upload" ? "border-slate-950 text-slate-950 dark:border-indigo-400 dark:text-indigo-200" : "border-transparent text-slate-500"}`}><Upload className="mr-2 inline" size={16} />Upload file</button><button type="button" onClick={() => { setIntakeTab("manual"); setError(""); }} className={`min-h-14 border-b-2 text-sm font-semibold ${intakeTab === "manual" ? "border-slate-950 text-slate-950 dark:border-indigo-400 dark:text-indigo-200" : "border-transparent text-slate-500"}`}><FileText className="mr-2 inline" size={16} />Paste text</button></div>
               <div className="space-y-4 p-5 sm:p-7">
@@ -5330,7 +5371,7 @@ export default function CvBuilderPage() {
             {showImportSuccessBanner ? (
               <div role="status" aria-live="polite" className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-medium leading-5 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
                 <span><CheckCircle2 size={15} className="mr-1.5 inline-block align-[-3px]" />CV imported successfully! Review and edit the extracted data below, then save.</span>
-                <button type="button" onClick={() => setShowImportSuccessBanner(false)} className="shrink-0 rounded px-1 text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900/60" aria-label="Dismiss import confirmation">×</button>
+                <button type="button" onClick={() => { setShowImportSuccessBanner(false); try { window.sessionStorage.removeItem(CV_INTAKE_SUCCESS_KEY); } catch { /* session storage is optional */ } }} className="shrink-0 rounded px-1 text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900/60" aria-label="Dismiss import confirmation">×</button>
               </div>
             ) : null}
             <div className="mb-5 grid grid-cols-8 gap-1.5" aria-label="CV Builder steps">
@@ -6060,7 +6101,7 @@ export default function CvBuilderPage() {
               <span className="ml-3 max-w-40 truncate rounded-full bg-slate-200/80 px-3 py-1 text-xs font-semibold uppercase text-slate-700">{TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "ATS template"}</span>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button type="button" onClick={() => setLocation("/cv-builder/import")} className="inline-flex min-h-10 items-center gap-2 rounded-2xl bg-slate-100 px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-200" title="Import an existing resume">
+              <button type="button" onClick={() => { setImportStep("upload"); setLocation("/cv-builder/import"); }} className="inline-flex min-h-10 items-center gap-2 rounded-2xl bg-slate-100 px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-200" title="Import an existing resume">
                 <FileUp size={15} /><span>Import Resume</span>
               </button>
               <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex min-h-10 items-center gap-2 rounded-2xl bg-black px-5 py-2.5 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50" title="Export PDF">

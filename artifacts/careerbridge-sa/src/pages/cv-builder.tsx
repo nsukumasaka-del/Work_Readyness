@@ -1044,15 +1044,108 @@ async function parseCvUpload(file: File, onProgress?: (message: string) => void)
       if (!localData) return remoteData;
       const remoteContent = remoteData.cv_content!;
       const localContent = localData.cv_content!;
-      const richness = (data: typeof remoteContent) =>
-        (data.experiences?.length || 0) * 5 +
-        (data.education?.length || 0) * 4 +
-        (data.skills?.length || 0) * 2 +
-        (data.projects?.length || 0) * 2 +
-        (data.summary?.length || 0) +
-        (data.personal?.email ? 1 : 0) +
-        (data.personal?.fullName ? 1 : 0);
-      return richness(localContent) > richness(remoteContent) ? localData : remoteData;
+      const normalizeKey = (value: unknown) => String(value || "").toLocaleLowerCase().replace(/[^a-z0-9]+/g, "").trim();
+      const mergeStrings = (...groups: Array<Array<string | null | undefined> | null | undefined>) => {
+        const seen = new Set<string>();
+        return groups.flatMap((group) => Array.isArray(group) ? group : [])
+          .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+          .filter((value) => {
+            const key = normalizeKey(value);
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+      };
+      const mergeRecords = <T extends { id?: string }>(
+        primary: T[] | null | undefined,
+        secondary: T[] | null | undefined,
+        identity: (item: T) => string,
+        merge: (preferred: T, other: T) => T,
+      ): T[] => {
+        const result = (Array.isArray(primary) ? primary : []).map((item) => ({ ...item }));
+        for (const candidate of Array.isArray(secondary) ? secondary : []) {
+          const key = identity(candidate);
+          const index = result.findIndex((item) => {
+            const existingKey = identity(item);
+            return key && existingKey === key;
+          });
+          if (index < 0) result.push(candidate);
+          else result[index] = merge(result[index], candidate);
+        }
+        return result;
+      };
+      const mergeExperience = (preferred: typeof remoteContent.experiences[number], other: typeof localContent.experiences[number]) => ({
+        ...other,
+        ...preferred,
+        id: preferred.id || other.id,
+        role: preferred.role || other.role,
+        company: preferred.company || other.company,
+        location: preferred.location || other.location,
+        startDate: preferred.startDate || other.startDate,
+        endDate: preferred.endDate || other.endDate,
+        bullets: mergeStrings(preferred.bullets, other.bullets),
+      });
+      const mergeEducation = (preferred: typeof remoteContent.education[number], other: typeof localContent.education[number]) => ({
+        ...other, ...preferred, id: preferred.id || other.id,
+        degree: preferred.degree || other.degree, institution: preferred.institution || other.institution,
+        location: preferred.location || other.location, graduationYear: preferred.graduationYear || other.graduationYear,
+        details: preferred.details || other.details,
+      });
+      const experienceIdentity = (item: typeof remoteContent.experiences[number]) =>
+        [item.role, item.company, item.startDate].map(normalizeKey).filter(Boolean).join("|");
+      const educationIdentity = (item: typeof remoteContent.education[number]) =>
+        [item.degree, item.institution, item.graduationYear].map(normalizeKey).filter(Boolean).join("|");
+      const mergedContent = {
+        ...localContent,
+        ...remoteContent,
+        personal: {
+          ...localContent.personal,
+          ...remoteContent.personal,
+          fullName: remoteContent.personal.fullName || localContent.personal.fullName,
+          email: remoteContent.personal.email || localContent.personal.email,
+          phone: remoteContent.personal.phone || localContent.personal.phone,
+          location: remoteContent.personal.location || localContent.personal.location,
+          linkedin: remoteContent.personal.linkedin || localContent.personal.linkedin,
+          website: remoteContent.personal.website || localContent.personal.website,
+          professionalTitle: remoteContent.personal.professionalTitle || localContent.personal.professionalTitle,
+        },
+        summary: [remoteContent.summary, localContent.summary].filter((value) => value?.trim()).sort((a, b) => b.length - a.length)[0] || "",
+        experiences: mergeRecords(remoteContent.experiences, localContent.experiences, experienceIdentity, mergeExperience),
+        education: mergeRecords(remoteContent.education, localContent.education, educationIdentity, mergeEducation),
+        skills: mergeStrings(remoteContent.skills, remoteContent.toolsAndSoftware, remoteContent.competencies, localContent.skills, localContent.toolsAndSoftware, localContent.competencies),
+        toolsAndSoftware: mergeStrings(remoteContent.toolsAndSoftware, localContent.toolsAndSoftware),
+        competencies: mergeStrings(remoteContent.competencies, localContent.competencies),
+        certifications: mergeRecords(remoteContent.certifications, localContent.certifications,
+          (item) => [item.name, item.issuer, item.year].map(normalizeKey).filter(Boolean).join("|"),
+          (preferred, other) => ({ ...other, ...preferred, id: preferred.id || other.id, name: preferred.name || other.name, issuer: preferred.issuer || other.issuer, year: preferred.year || other.year })),
+        languages: mergeStrings(remoteContent.languages, localContent.languages),
+        projects: mergeRecords(remoteContent.projects, localContent.projects,
+          (item) => [item.title, item.subtitle].map(normalizeKey).filter(Boolean).join("|"),
+          (preferred, other) => ({ ...other, ...preferred, id: preferred.id || other.id, title: preferred.title || other.title, subtitle: preferred.subtitle || other.subtitle, link: preferred.link || other.link, bullets: mergeStrings(preferred.bullets, other.bullets) })),
+        references: mergeStrings(remoteContent.references, localContent.references),
+        referenceDetails: mergeRecords(remoteContent.referenceDetails, localContent.referenceDetails,
+          (item) => [item.name, item.company, item.phone].map(normalizeKey).filter(Boolean).join("|"),
+          (preferred, other) => ({ ...other, ...preferred, id: preferred.id || other.id, name: preferred.name || other.name, title: preferred.title || other.title, company: preferred.company || other.company, phone: preferred.phone || other.phone })),
+      };
+      // Run through the canonicalizer to keep nested and legacy flat fields in sync.
+      return normalizeExtractedCvData({
+        ...localData,
+        ...remoteData,
+        cv_content: mergedContent,
+        personal: mergedContent.personal,
+        summary: mergedContent.summary,
+        experiences: mergedContent.experiences,
+        education: mergedContent.education,
+        skills: mergedContent.skills,
+        toolsAndSoftware: mergedContent.toolsAndSoftware,
+        competencies: mergedContent.competencies,
+        certifications: mergedContent.certifications,
+        languages: mergedContent.languages,
+        projects: mergedContent.projects,
+        references: mergedContent.references,
+        referenceDetails: mergedContent.referenceDetails,
+        ai_feedback: remoteData.ai_feedback || localData.ai_feedback,
+      });
     }
 
     const errBody = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -5138,11 +5231,13 @@ export default function CvBuilderPage() {
   if (routePath === "/cv-builder/import") {
     const candidateName = extractedData?.cv_content?.personal?.fullName || extractedData?.personal?.fullName || manualInput.fullName || "Candidate";
     const content = extractedData?.cv_content;
+    const selectedFile = getSelectedIntakeFile();
+    const selectedFileLost = Boolean(selectedUploadMeta && !selectedFile);
     const handleImportFileParse = () => {
       const file = getSelectedIntakeFile();
       if (!file) {
         const message = selectedUploadMeta
-          ? "The selected file is no longer available to the reader. Choose the file again, then parse it."
+          ? "The selected file is no longer in memory. Please re-select your file."
           : "Choose a PDF, Word (.docx), or text file first.";
         setError(message);
         setUploadReadStatus(message);
@@ -5169,13 +5264,14 @@ export default function CvBuilderPage() {
               <div className="grid grid-cols-2 border-b border-slate-200 dark:border-slate-800"><button type="button" onClick={() => { setIntakeTab("upload"); setError(""); }} className={`min-h-14 border-b-2 text-sm font-semibold ${intakeTab === "upload" ? "border-slate-950 text-slate-950 dark:border-indigo-400 dark:text-indigo-200" : "border-transparent text-slate-500"}`}><Upload className="mr-2 inline" size={16} />Upload file</button><button type="button" onClick={() => { setIntakeTab("manual"); setError(""); }} className={`min-h-14 border-b-2 text-sm font-semibold ${intakeTab === "manual" ? "border-slate-950 text-slate-950 dark:border-indigo-400 dark:text-indigo-200" : "border-transparent text-slate-500"}`}><FileText className="mr-2 inline" size={16} />Paste text</button></div>
               <div className="space-y-4 p-5 sm:p-7">
                 {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">{error}</p> : null}
+                {selectedFileLost ? <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">The selected file is no longer in memory. Please re-select your file.</p> : null}
                 {intakeTab === "upload" ? <>
                   <div onDragOver={(event) => { event.preventDefault(); setIsUploadDropActive(true); }} onDragLeave={() => setIsUploadDropActive(false)} onDrop={handleIntakeFileDrop} onClick={() => { if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = ""; intakeUploadInputRef.current?.click(); }} className={`flex min-h-[235px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-5 text-center transition ${isUploadDropActive ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30" : "border-slate-300 bg-slate-50/70 hover:border-slate-500 dark:border-slate-700 dark:bg-slate-950/50"}`}>
                     <input ref={intakeUploadInputRef} type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" className="sr-only" onChange={handleIntakeFileSelectionEvent} aria-label="Choose resume file" />
                     <span className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-100"><Upload size={27} /></span><strong className="text-base">{selectedUploadMeta?.name || "Drop your resume here"}</strong><span className="mt-2 text-sm text-slate-600 dark:text-slate-400">{selectedUploadMeta ? `${(selectedUploadMeta.size / 1024 / 1024).toFixed(2)} MB · click to change` : "or click to browse"}</span><span className="mt-4 text-xs text-slate-400">PDF, DOCX, or TXT · Max 10MB</span>
                   </div>
                   {uploadReadStatus ? <p className="text-center text-xs text-slate-500 dark:text-slate-400">{uploadReadStatus}</p> : null}
-                  <button type="button" disabled={!selectedUploadMeta || extracting} onClick={handleImportFileParse} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-600 dark:hover:bg-indigo-500">{extracting ? <><RefreshCw className="animate-spin" size={16} /> Parsing resume…</> : <><Upload size={16} /> Parse &amp; Import</>}</button>
+                  <button type="button" disabled={!selectedFile || extracting} onClick={handleImportFileParse} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-600 dark:hover:bg-indigo-500">{extracting ? <><RefreshCw className="animate-spin" size={16} /> Parsing resume…</> : <><Upload size={16} /> Parse &amp; Import</>}</button>
                 </> : <>
                   <label className="block text-sm font-semibold">Paste resume text<textarea value={intakePasteText} onChange={(event) => setIntakePasteText(event.target.value)} rows={10} className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" placeholder="Paste the text from your resume here…" /></label>
                   <button type="button" disabled={!intakePasteText.trim() || extracting} onClick={() => void parseImportPasteOnly()} className="min-h-12 w-full rounded-xl bg-slate-950 px-4 text-sm font-bold text-white disabled:bg-slate-400 dark:bg-indigo-600">{extracting ? "Parsing resume…" : "Parse & Import"}</button>

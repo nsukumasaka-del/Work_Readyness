@@ -1,3 +1,5 @@
+import { reconstructPdfTextFromItems, type PositionedPdfTextItem } from "./pdf-layout-text";
+
 /**
  * Reliable text extraction from uploaded CV documents (PDF / DOCX / plain text).
  * Never returns raw binary PDF/DOCX bytes as "text" — that leaks artifacts like "1 0 obj".
@@ -180,16 +182,28 @@ function decodeDataUrlOrBase64(fileData: string): Buffer {
  */
 async function extractPdfText(buffer: Buffer): Promise<string> {
   try {
-    const { extractText } = await import("unpdf");
+    const { extractText, extractTextItems } = await import("unpdf");
     const data = new Uint8Array(buffer);
     const extraction = extractText(data, { mergePages: true });
+    const positionedExtraction = extractTextItems(data);
     const timeout = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error("PDF parsing timed out")), 25_000);
     });
-    const result = await Promise.race([extraction, timeout]);
+    const [result, positioned] = await Promise.race([Promise.all([extraction, positionedExtraction]), timeout]);
     const rawText = result.text as string | string[];
     const text = typeof rawText === "string" ? rawText : rawText.join("\n\n");
-    return sanitizeExtractedCvText(text);
+    const plainText = sanitizeExtractedCvText(text);
+    const layoutText = sanitizeExtractedCvText(
+      reconstructPdfTextFromItems(positioned.items as PositionedPdfTextItem[][]),
+    );
+    const headingScore = (candidate: string) => {
+      const headings = candidate.match(/\b(?:professional summary|work experience|employment history|education|skills|competencies|certifications|languages|references)\b/gi);
+      const contacts = candidate.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:\+\d{1,3}|0)\s?\d[\d ()-]{7,}/gi);
+      return (headings?.length || 0) * 4 + Math.min(2, contacts?.length || 0) * 2 + Math.min(candidate.length / 500, 5);
+    };
+    // Positioned text is a fallback for columns whose visual rows were interleaved
+    // by the plain text extractor. Keep the plain result when it has better structure.
+    return layoutText && headingScore(layoutText) > headingScore(plainText) ? layoutText : plainText;
   } catch (err) {
     console.error("PDF extraction error:", err);
     throw new DocumentExtractionError(

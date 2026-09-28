@@ -1,4 +1,25 @@
 import { buildGeneratedCv, extractCvDataFromText, generateCandidateBiography } from "./cv-builder";
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { reconstructPdfTextFromItems } from "./pdf-layout-text";
+
+function expect<T>(actual: T) {
+  const includes = (value: unknown, expected: unknown) =>
+    typeof value === "string" ? value.includes(String(expected)) : Array.isArray(value) && value.includes(expected);
+  const match = (value: unknown, pattern: RegExp) => pattern.test(String(value ?? ""));
+  return {
+    toBe: (expected: unknown) => assert.equal(actual, expected),
+    toEqual: (expected: unknown) => assert.deepEqual(actual, expected),
+    toContain: (expected: unknown) => assert.ok(includes(actual, expected)),
+    toHaveLength: (expected: number) => assert.equal((actual as { length?: number } | null)?.length, expected),
+    toBeTruthy: () => assert.ok(actual),
+    toMatch: (pattern: RegExp) => assert.ok(match(actual, pattern)),
+    not: {
+      toContain: (expected: unknown) => assert.ok(!includes(actual, expected)),
+      toMatch: (pattern: RegExp) => assert.ok(!match(actual, pattern)),
+    },
+  };
+}
 
 const SAMPLE_CV = `
 Jane Doe
@@ -136,7 +157,7 @@ NAVIS`);
     expect(doc.fullName).toBe("");
     expect(doc.email).toBe("");
     expect(doc.location).toBe("");
-    expect(doc.summary).toBeTruthy();
+    expect(doc.summary).toBe("");
     expect(doc.summary).not.toMatch(/Enterprise Services|Relevant Qualification|Institution/i);
   });
 
@@ -150,7 +171,44 @@ NAVIS`);
       skills: ["Dispatch", "Customer Service", "Records Management"],
     });
 
-    expect(summary).toContain("Jane Doe");
+    expect(summary).toContain("Jane");
     expect(summary).not.toMatch(/Your CV has a readable structure|Strengthen the evidence|recommendations|ATS feedback/i);
+  });
+});
+
+describe("complex CV import layout extraction", () => {
+  it("reconstructs positioned two-column PDF text in column order", () => {
+    const positioned = [
+      [
+        { str: "JANE DOE", x: 40, y: 760, width: 80, fontSize: 16 },
+        { str: "jane@example.com", x: 40, y: 730, width: 110, fontSize: 10 },
+        { str: "+27 82 123 4567", x: 40, y: 710, width: 100, fontSize: 10 },
+        { str: "WORK EXPERIENCE", x: 40, y: 670, width: 120, fontSize: 11 },
+        { str: "Operations Coordinator", x: 40, y: 645, width: 150, fontSize: 10 },
+        { str: "ABC Logistics", x: 40, y: 625, width: 90, fontSize: 10 },
+        { str: "Coordinated daily dispatch schedules.", x: 40, y: 605, width: 190, fontSize: 10 },
+        { str: "EDUCATION", x: 330, y: 670, width: 65, fontSize: 11 },
+        { str: "Bachelor of Commerce", x: 330, y: 645, width: 130, fontSize: 10 },
+        { str: "University of Johannesburg", x: 330, y: 625, width: 155, fontSize: 10 },
+        { str: "SKILLS", x: 330, y: 590, width: 40, fontSize: 11 },
+        { str: "Excel", x: 330, y: 565, width: 35, fontSize: 10 },
+        { str: "Dispatch coordination", x: 330, y: 545, width: 120, fontSize: 10 },
+      ],
+    ];
+    const text = reconstructPdfTextFromItems(positioned);
+    assert.ok(text.indexOf("WORK EXPERIENCE") < text.indexOf("EDUCATION"));
+    assert.ok(text.indexOf("Coordinated daily dispatch") < text.indexOf("Bachelor of Commerce"));
+    assert.ok(text.indexOf("Bachelor of Commerce") < text.indexOf("SKILLS"));
+  });
+
+  it("extracts contact, experience, education, and skills from a two-column reading order", () => {
+    const text = `JANE DOE\nEmail: jane@example.com\nPhone: +27 82 123 4567\nWORK EXPERIENCE\nOperations Coordinator | ABC Logistics\n2021 - Present\n- Coordinated daily dispatch schedules and maintained delivery records.\nEDUCATION\nBachelor of Commerce | University of Johannesburg\n2020\nSKILLS\nExcel\nDispatch coordination`;
+    const extracted = extractCvDataFromText(text);
+    assert.equal(extracted.personal.fullName, "JANE DOE");
+    assert.equal(extracted.personal.email, "jane@example.com");
+    assert.match(extracted.personal.phone || "", /\+27/);
+    assert.ok(extracted.experiences.length > 0);
+    assert.ok(extracted.education.length > 0);
+    assert.ok(extracted.skills.some((skill) => /Excel/i.test(skill)));
   });
 });

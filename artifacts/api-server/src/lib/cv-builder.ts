@@ -2766,6 +2766,33 @@ function extractCvDataFromTextInternal(rawText: string, fileName?: string): Extr
     const hasDateRange = dateRangeRe.test(el);
     const looksLikeBullet = /^[\s•\-\*▪▫►]/.test(el);
 
+    // Common inline layout: "Role | Employer", followed by a date line.
+    // Split the heading before the generic date/company heuristics can swallow
+    // the employer into the role field.
+    if (!looksLikeBullet && !hasDateRange && /[|•·—–]/.test(el)) {
+      const parts = el.split(/\s*[|•·—–]\s*/).map((part) => part.trim()).filter(Boolean);
+      if (parts.length >= 2 && roleKeywords.test(parts[0] || "")) {
+        if (currentExp && (currentExp.bullets.length > 0 || currentExp.role)) experiences.push(currentExp);
+        const rolePart = parts[0] || "";
+        const companyPart = parts[1] || "";
+        const maybeDate = experienceLines[i + 1] || "";
+        const dateMatch = maybeDate.match(dateRangeRe)?.[0] || "";
+        currentExp = {
+          id: `exp-${experiences.length + 1}`,
+          role: rolePart,
+          company: companyPart,
+          location: parts.slice(2).join(", ") || undefined,
+          startDate: dateMatch ? dateMatch.split(/(?:to|[-—–])/i)[0]?.trim() || "" : "",
+          endDate: dateMatch ? dateMatch.split(/(?:to|[-—–])/i)[1]?.trim() || "" : "",
+          current: /present|current|ongoing/i.test(dateMatch),
+          bullets: [],
+          classification: "VERIFIED",
+        };
+        if (dateMatch) i += 1;
+        continue;
+      }
+    }
+
     // Pattern: "Role · Company Mon YYYY – Present" (role + company + dates on one line)
     if (!looksLikeBullet && hasDateRange && roleKeywords.test(el) && /[·•|]/.test(el)) {
       if (currentExp && (currentExp.bullets.length > 0 || currentExp.role)) {
@@ -2994,6 +3021,11 @@ function extractCvDataFromTextInternal(rawText: string, fileName?: string): Extr
     for (let i = 0; i < educationLines.length; i++) {
       const line = educationLines[i]?.trim();
       if (!line || isPageMarker(line)) continue;
+      if (/^(?:19|20)\d{2}$/.test(line)) {
+        const previousEducation = education.at(-1);
+        if (previousEducation && !previousEducation.graduationYear) previousEducation.graduationYear = line;
+        continue;
+      }
       // Skills/systems headers sometimes leak — skip
       if (/^(?:professional skills|skills|systems|languages|references)\b/i.test(line)) break;
 

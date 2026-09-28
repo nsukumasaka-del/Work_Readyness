@@ -2163,6 +2163,7 @@ export default function CvBuilderPage() {
   const [draggedSkillIndex, setDraggedSkillIndex] = useState<number | null>(null);
 
   const [cv, setCv] = useState<GeneratedCvResponse | null>(() => createBlankCvDraft());
+  const [mobileWorkspaceView, setMobileWorkspaceView] = useState<"edit" | "preview">("edit");
   const [documentTitle, setDocumentTitle] = useState("My CV");
   const documentTitleEditedRef = useRef(false);
   const currentCvRef = useRef<GeneratedCvResponse | null>(null);
@@ -5332,7 +5333,7 @@ export default function CvBuilderPage() {
                 {selectedFileLost ? <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">The selected file is no longer in memory. Please re-select your file.</p> : null}
                 {intakeTab === "upload" ? <>
                   <div onDragOver={(event) => { event.preventDefault(); setIsUploadDropActive(true); }} onDragLeave={() => setIsUploadDropActive(false)} onDrop={handleIntakeFileDrop} onClick={() => { if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = ""; intakeUploadInputRef.current?.click(); }} className={`flex min-h-[235px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-5 text-center transition ${isUploadDropActive ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30" : "border-slate-300 bg-slate-50/70 hover:border-slate-500 dark:border-slate-700 dark:bg-slate-950/50"}`}>
-                    <input ref={intakeUploadInputRef} type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" className="sr-only" onChange={handleIntakeFileSelectionEvent} aria-label="Choose resume file" />
+                    <input ref={intakeUploadInputRef} type="file" accept=".pdf,.docx,.doc,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/plain" className="sr-only" onChange={handleIntakeFileSelectionEvent} aria-label="Choose resume file" />
                     <span className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-100"><Upload size={27} /></span><strong className="text-base">{selectedUploadMeta?.name || "Drop your resume here"}</strong><span className="mt-2 text-sm text-slate-600 dark:text-slate-400">{selectedUploadMeta ? `${(selectedUploadMeta.size / 1024 / 1024).toFixed(2)} MB · click to change` : "or click to browse"}</span><span className="mt-4 text-xs text-slate-400">PDF, DOCX, or TXT · Max 10MB</span>
                   </div>
                   {uploadReadStatus ? <p className="text-center text-xs text-slate-500 dark:text-slate-400">{uploadReadStatus}</p> : null}
@@ -5421,8 +5422,8 @@ export default function CvBuilderPage() {
       ), document.body) : null}
 
       {/* Persistent split workstation: form remains in the left pane while the live paper preview stays on the right. */}
-      <div className="cv-builder-workspace flex min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-100/70">
-          <aside className="no-print flex w-full min-w-0 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white p-4 pb-6 dark:border-slate-800 dark:bg-slate-950 lg:w-[min(38vw,640px)] xl:w-[min(36vw,640px)]">
+      <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-100/70">
+          <aside className={`no-print ${mobileWorkspaceView === "edit" ? "flex" : "hidden"} w-full min-w-0 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white p-4 pb-24 dark:border-slate-800 dark:bg-slate-950 min-[1025px]:!flex min-[1025px]:pb-6 min-[1025px]:w-[min(38vw,640px)] xl:w-[min(36vw,640px)]`}>
             <div className="mb-4 flex w-full flex-wrap items-center gap-2">
               <Link href="/dashboard" title="Back to saved CVs" aria-label="Back to saved CVs" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100">
                 <ChevronLeft size={18} />
@@ -5433,15 +5434,15 @@ export default function CvBuilderPage() {
                 value={documentTitle}
                 onChange={(event) => { documentTitleEditedRef.current = true; setDocumentTitle(event.target.value); }}
                 onBlur={() => { if (!documentTitle.trim()) setDocumentTitle("My CV"); }}
-                className="w-[4.5rem] min-w-0 max-w-32 border-none bg-transparent px-0 py-1 text-base font-bold text-slate-800 outline-none focus:ring-0 dark:text-slate-100"
+                className="w-14 min-w-0 max-w-32 border-none bg-transparent px-0 py-1 text-sm font-bold text-slate-800 outline-none focus:ring-0 dark:text-slate-100 sm:w-[4.5rem] sm:text-base"
               />
               <span className={`shrink-0 rounded-md px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${autoSaveStatus === "error" ? "bg-rose-50 text-rose-700" : saving ? "bg-slate-100 text-slate-500" : autoSaveStatus === "saved" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
                 {saving ? "Saving" : autoSaveStatus === "error" ? "Error" : autoSaveStatus === "saved" ? "Saved" : "Draft"}
               </span>
-              <button type="button" onClick={() => setIsTemplateModalOpen(true)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700" title="Choose a template">
+              <button type="button" onClick={() => setIsTemplateModalOpen(true)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-100 px-2.5 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200 sm:px-3 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700" title="Choose a template" aria-label="Choose a template">
                 <Palette size={15} /><span className="hidden sm:inline">Template</span>
               </button>
-              <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700" title="Open AI suggestions">
+              <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-100 px-2.5 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200 sm:px-3 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700" title="Open AI suggestions" aria-label="Open AI suggestions">
                 <Sparkles size={14} /><span className="hidden sm:inline">Suggestions</span><Crown size={12} className="text-amber-500" />
               </button>
               <button type="button" disabled={!cv || saving} onClick={() => { void handleSaveCv(documentTitle.trim() || "My CV").then(() => canvasRef.current?.focus()); }} className="ml-auto inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-black px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50" title="Save your CV">
@@ -5454,19 +5455,22 @@ export default function CvBuilderPage() {
                 <button type="button" onClick={() => { setShowImportSuccessBanner(false); try { window.sessionStorage.removeItem(CV_INTAKE_SUCCESS_KEY); } catch { /* session storage is optional */ } }} className="shrink-0 rounded px-1 text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900/60" aria-label="Dismiss import confirmation">×</button>
               </div>
             ) : null}
-            <div className="mb-5 grid grid-cols-8 gap-1.5" aria-label="CV Builder steps">
+            <div className="cv-stepper-scroll mb-5 flex items-center gap-2 overflow-x-auto px-1 py-2 touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden md:grid md:grid-cols-8 md:gap-1.5" aria-label="CV Builder steps">
               {CV_WIZARD_STEPS.map((stepName, index) => {
                 const step = index + 1;
                 const selected = activeWizardStep === step;
                 const complete = activeWizardStep > step;
                 return (
-                  <button key={stepName} type="button" onClick={() => openWizardStep(step)} aria-current={selected ? "step" : undefined} title={`${step}. ${stepName}`} className="group flex min-w-0 flex-col items-center gap-1 text-center">
-                    <span className={`grid h-7 w-7 place-items-center rounded-full border text-[10px] font-bold transition ${selected ? "border-slate-950 bg-slate-950 text-white shadow-sm ring-2 ring-slate-400/20 dark:border-white dark:bg-white dark:text-slate-950" : complete ? "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300" : "border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500"}`}>{step}</span>
-                    <span className={`w-full truncate text-[7px] font-bold tracking-wide sm:text-[8px] ${selected ? "text-slate-950 dark:text-white" : "text-slate-500 dark:text-slate-500"}`}>{stepName}</span>
+                  <button key={stepName} type="button" onClick={() => openWizardStep(step)} aria-current={selected ? "step" : undefined} title={`${step}. ${stepName}`} className="group flex w-14 shrink-0 flex-col items-center gap-1 text-center md:w-auto md:min-w-0">
+                    <span className={`grid h-8 w-8 place-items-center rounded-full border text-[11px] font-bold transition ${selected ? "border-slate-950 bg-slate-950 text-white shadow-sm ring-2 ring-slate-400/20 dark:border-white dark:bg-white dark:text-slate-950" : complete ? "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300" : "border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500"}`}>{step}</span>
+                    <span className={`w-full truncate text-[9px] font-bold tracking-wide sm:text-[8px] ${selected ? "text-slate-950 dark:text-white" : "text-slate-500 dark:text-slate-500"}`}>{stepName}</span>
                   </button>
                 );
               })}
             </div>
+            <button type="button" onClick={() => { setImportStep("upload"); setError(""); setLocation("/cv-builder/import"); }} className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-200 min-[1025px]:hidden dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700">
+              <FileUp size={15} /> Import Resume
+            </button>
 
             {/* PANEL 1: TEMPLATES & VISUAL THUMBNAILS */}
             {activeNavPanel === "templates" && (
@@ -6165,10 +6169,10 @@ export default function CvBuilderPage() {
             ) : null}
           </aside>
 
-        {/* Pinned live preview panel. It is intentionally hidden below desktop width so the form remains usable. */}
+        {/* Pinned desktop preview, with an Edit/Preview toggle on phone and tablet widths. */}
         <main
           ref={canvasRef}
-          className="relative hidden min-h-0 min-w-0 flex-1 flex-col overflow-auto bg-slate-100/70 lg:flex"
+          className={`relative ${mobileWorkspaceView === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 w-full flex-1 flex-col overflow-auto bg-slate-100/70 min-[1025px]:!flex min-[1025px]:w-auto`}
         >
           <header className="no-print sticky top-0 z-20 flex w-full shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-950">
             <div className="flex min-w-0 items-center">
@@ -7440,6 +7444,19 @@ export default function CvBuilderPage() {
           )}
         </main>
 
+        <nav aria-label="Mobile CV actions" className="no-print fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 gap-2 border-t border-slate-200 bg-white/95 px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur min-[1025px]:hidden dark:border-slate-800 dark:bg-slate-950/95">
+          <button type="button" onClick={() => setMobileWorkspaceView((view) => view === "edit" ? "preview" : "edit")} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-2 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-100">
+            {mobileWorkspaceView === "edit" ? <Eye size={15} /> : <ChevronLeft size={15} />}
+            {mobileWorkspaceView === "edit" ? "Preview CV" : "Edit CV"}
+          </button>
+          <button type="button" disabled={!cv || saving} onClick={() => { void handleSaveCv(documentTitle.trim() || "My CV"); }} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-2 text-xs font-semibold text-slate-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-100">
+            <Save size={15} /> {saving ? "Saving" : "Save"}
+          </button>
+          <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-950 px-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-indigo-600">
+            <Download size={15} /> Export PDF
+          </button>
+        </nav>
+
         {/* 3. INTERACTIVE SLIDE-OUT ATS LIVE SCORE PANEL (RIGHT DRAWER) */}
         {showAtsDrawer && (
           <aside className="no-print fixed inset-x-0 bottom-0 z-50 max-h-[80dvh] w-full overflow-y-auto rounded-t-2xl border border-border bg-card p-4 pb-[calc(1rem+var(--safe-bottom))] shadow-xl animate-in slide-in-from-right duration-200 md:static md:max-h-none md:w-96 md:shrink-0 md:rounded-none md:border-y-0 md:border-r-0 md:p-5">
@@ -8522,7 +8539,7 @@ export default function CvBuilderPage() {
                   <input
                     ref={intakeUploadInputRef}
                     type="file"
-                    accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                    accept=".pdf,.docx,.doc,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/plain"
                     className="sr-only"
                     onChange={handleIntakeFileSelectionEvent}
                     disabled={extracting}

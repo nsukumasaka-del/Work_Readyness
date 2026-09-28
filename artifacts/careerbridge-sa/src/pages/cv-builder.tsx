@@ -5473,7 +5473,7 @@ export default function CvBuilderPage() {
               onClick={() => setMobileWorkspaceView("edit")}
               className={`min-h-10 flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${mobileWorkspaceView === "edit" ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"}`}
             >
-              ✏️ Edit CV
+              Edit CV
             </button>
             <button
               type="button"
@@ -5482,7 +5482,7 @@ export default function CvBuilderPage() {
               onClick={() => setMobileWorkspaceView("preview")}
               className={`min-h-10 flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${mobileWorkspaceView === "preview" ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"}`}
             >
-              👁️ Preview CV
+              Preview CV
             </button>
           </div>
         </div>
@@ -5503,11 +5503,11 @@ export default function CvBuilderPage() {
               <span className={`shrink-0 rounded-md px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${autoSaveStatus === "error" ? "bg-rose-50 text-rose-700" : saving ? "bg-slate-100 text-slate-500" : autoSaveStatus === "saved" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
                 {saving ? "Saving" : autoSaveStatus === "error" ? "Error" : autoSaveStatus === "saved" ? "Saved" : "Draft"}
               </span>
-              <button type="button" onClick={() => setIsTemplateModalOpen(true)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-100 px-2.5 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200 sm:px-3 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700" title="Choose a template" aria-label="Choose a template">
-                <Palette size={15} /><span className="hidden sm:inline">Template</span>
+              <button type="button" onClick={() => setIsTemplateModalOpen(true)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700" title="Choose a template" aria-label="Choose a template">
+                <Palette size={15} /><span>Templates</span>
               </button>
-              <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-100 px-2.5 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200 sm:px-3 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700" title="Open AI suggestions" aria-label="Open AI suggestions">
-                <Sparkles size={14} /><span className="hidden sm:inline">Suggestions</span><Crown size={12} className="text-amber-500" />
+              <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:from-amber-100 hover:to-orange-100 dark:border-amber-800 dark:from-amber-950/50 dark:to-orange-950/50 dark:text-amber-100" title="Open AI suggestions" aria-label="Open AI suggestions">
+                <Sparkles size={14} /><span>Suggestions</span><Crown size={12} className="text-amber-500" />
               </button>
               <button type="button" disabled={!cv || saving} onClick={() => { void handleSaveCv(documentTitle.trim() || "My CV").then(() => canvasRef.current?.focus()); }} className="ml-auto inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-black px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50" title="Save your CV">
                 <Save size={14} /><span>{saving ? "Saving…" : "Save"}</span>

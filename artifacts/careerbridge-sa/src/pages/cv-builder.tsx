@@ -643,6 +643,32 @@ function createBlankCvDraft(templateId = "serif_classic"): GeneratedCvResponse {
   };
 }
 
+const DEFAULT_TEMPLATE_THUMBNAIL_DOCUMENT: GeneratedCvDocument = sanitizeCvDocument({
+  ...createBlankCvDraft().document,
+  fullName: "John Doe",
+  headline: "Software Engineer / Professional",
+  contactLine: "john.doe@email.com | +27 82 555 0100 | Cape Town",
+  email: "john.doe@email.com",
+  phone: "+27 82 555 0100",
+  location: "Cape Town",
+  summary: "Results-driven professional with a record of delivering reliable solutions, improving team workflows and supporting measurable business outcomes.",
+  experiences: [{
+    id: "thumbnail-sample-experience",
+    role: "Software Engineer",
+    company: "Acme Studio",
+    startDate: "2022",
+    endDate: "Present",
+    bullets: ["Built reliable product features for customers.", "Improved delivery workflows across the team."],
+  }],
+  education: [{
+    id: "thumbnail-sample-education",
+    degree: "BSc Computer Science",
+    institution: "University of Cape Town",
+    graduationYear: "2021",
+  }],
+  skills: ["Product Development", "Communication", "Problem Solving", "TypeScript", "Teamwork", "Analysis"],
+});
+
 export interface QualityPillarScore {
   score: number;
   status: "Strong" | "Attention" | "Needs Improvement";
@@ -5442,7 +5468,20 @@ export default function CvBuilderPage() {
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredTemplates.map((template) => (
                   <article key={template.id} className="group flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-700 hover:shadow-lg">
-                    <TemplateThumbnail tpl={template} selected={selectedTemplate === template.id} onSelect={() => { handleTemplateChange(template.id); setIsTemplateModalOpen(false); }} doc={null} showDetails={false} />
+                    <TemplateThumbnail
+                      tpl={template}
+                      selected={selectedTemplate === template.id}
+                      onSelect={() => { handleTemplateChange(template.id); setIsTemplateModalOpen(false); }}
+                      doc={cv?.document && (
+                        cv.document.fullName?.trim() ||
+                        cv.document.headline?.trim() ||
+                        cv.document.summary?.trim() ||
+                        cv.document.experiences?.length ||
+                        cv.document.education?.length ||
+                        cv.document.skills?.length
+                      ) ? cv.document : DEFAULT_TEMPLATE_THUMBNAIL_DOCUMENT}
+                      showDetails={false}
+                    />
                     <div className="mt-3 flex min-w-0 items-center justify-between gap-2 px-1 pb-1">
                       <div className="min-w-0">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{template.category}</span>

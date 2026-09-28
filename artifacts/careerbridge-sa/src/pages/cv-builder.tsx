@@ -92,7 +92,7 @@ const REPORT_KEY = "bonlist-report";
 const CV_VERSIONS_KEY = "bonlist-cv-versions";
 
 const CV_WIZARD_STEPS = [
-  "PERSONAL", "SUMMARY", "EXPERIENCE", "EDUCATION", "SKILLS", "CUSTOM", "DESIGN", "REVIEW",
+  "PERSONAL", "SUMMARY", "EXPERIENCE", "EDUCATION", "SKILLS", "CUSTOM", "DESIGN", "AI",
 ] as const;
 
 const MAX_BULLETS_PER_ROLE = 12;
@@ -605,6 +605,45 @@ export interface GeneratedCvResponse {
 function normalizeCvResponse(response: GeneratedCvResponse): GeneratedCvResponse {
   if (!response?.document) return response;
   return { ...response, document: sanitizeCvDocument(response.document) };
+}
+
+function createBlankCvDraft(templateId = "serif_classic"): GeneratedCvResponse {
+  const structure = normalizeStructure(templateId);
+  const built = buildGeneratedCvLocally({
+    profile: { name: "", email: "", targetRole: "" },
+    structure,
+  }) as unknown as GeneratedCvDocument;
+  const document = sanitizeCvDocument({
+    ...built,
+    fullName: "",
+    headline: "",
+    contactLine: "",
+    email: "",
+    phone: "",
+    location: "",
+    linkedin: "",
+    website: "",
+    summary: "",
+    experiences: [],
+    education: [],
+    skills: [],
+    toolsAndSoftware: [],
+    competencies: [],
+    projects: [],
+    certifications: [],
+    languages: [],
+    references: [],
+    referenceDetails: [],
+    sections: [],
+  });
+  return {
+    id: 0,
+    version: 1,
+    structure,
+    title: "My CV",
+    createdAt: new Date().toISOString(),
+    document,
+  };
 }
 
 export interface QualityPillarScore {
@@ -1980,8 +2019,8 @@ export default function CvBuilderPage() {
   const [draggedSkillIndex, setDraggedSkillIndex] = useState<number | null>(null);
   const activeTextTargetRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
-  const [cv, setCv] = useState<GeneratedCvResponse | null>(null);
-  const [documentTitle, setDocumentTitle] = useState(`CV of ${profile?.name || "NSUKU CLIFORD MASAKA"}`);
+  const [cv, setCv] = useState<GeneratedCvResponse | null>(() => createBlankCvDraft());
+  const [documentTitle, setDocumentTitle] = useState("My CV");
   const documentTitleEditedRef = useRef(false);
   const documentTitleInputRef = useRef<HTMLInputElement>(null);
   const currentCvRef = useRef<GeneratedCvResponse | null>(null);
@@ -1993,11 +2032,6 @@ export default function CvBuilderPage() {
   const autoSaveInitializedRef = useRef(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    const candidateName = cv?.document.fullName || profile?.name;
-    if (candidateName && !documentTitleEditedRef.current) setDocumentTitle(`CV of ${candidateName}`);
-  }, [cv?.document.fullName, profile?.name]);
 
   // Styling & Customization (Enhancv Clone Architecture with Custom Brand Colors)
   const [selectedTemplate, setSelectedTemplate] = useState<string>("serif_classic");
@@ -2049,7 +2083,6 @@ export default function CvBuilderPage() {
     setActiveNavPanel("sections");
     setActiveWizardStep(1);
     setMobileWorkspaceView(window.innerWidth < 768 ? "edit" : "preview");
-    if (!currentCvRef.current && !hasGeneratedRef.current) setIsIntakeModalOpen(true);
   }, [routePath]);
 
   // Right Slide-Out Drawers
@@ -3234,18 +3267,16 @@ export default function CvBuilderPage() {
       })();
       return;
     }
-    if (isIntakeRequested) {
-      setIsIntakeModalOpen(true);
-      showTemplatesAfterGeneration();
-      return;
+    // Legacy links may still carry ?intake=1. Treat them as a request to open
+    // the builder, not as a reason to block the workstation with a setup modal.
+    if (isIntakeRequested && searchParams) {
+      searchParams.delete("intake");
+      const url = new URL(window.location.href);
+      url.searchParams.delete("intake");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
     }
     if (hasGeneratedRef.current) {
       setIsIntakeModalOpen(false);
-      if (isIntakeRequested) {
-        const url = new URL(window.location.href);
-        url.searchParams.delete("intake");
-        window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-      }
       return;
     }
     const panelParam = searchParams?.get("panel");
@@ -3269,11 +3300,11 @@ export default function CvBuilderPage() {
         /[\uFFFD]/.test(existing.document.fullName || "");
       if (looksBroken) {
         clearGeneratedCv();
-        setCv(null);
+        setCv(createBlankCvDraft(selectedTemplate));
         setMessage("Your previous CV was incomplete. Please re-upload your PDF/DOCX so we can rebuild all sections.");
         setTimeout(() => setMessage(""), 8000);
-        setIsIntakeModalOpen(isIntakeRequested);
-        showTemplatesAfterGeneration();
+        setIsIntakeModalOpen(false);
+        setActiveNavPanel("sections");
         return;
       }
       setCv(condensed);
@@ -3282,17 +3313,11 @@ export default function CvBuilderPage() {
       setIsIntakeModalOpen(false);
       setSelectedTemplate(existing.structure || "professional");
       void runQualityEvaluation(condensed.document);
-      if (isIntakeRequested) {
-        const url = new URL(window.location.href);
-        url.searchParams.delete("intake");
-        window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-      }
       return;
     }
 
-    if (!isIntakeRequested) {
-      setLoading(true);
-      void authFetch("/api/career/cv/latest")
+    setLoading(true);
+    void authFetch("/api/career/cv/latest")
         .then(async (response) => {
           if (response.status === 404) return null;
           const data = await response.json();
@@ -3300,7 +3325,11 @@ export default function CvBuilderPage() {
           return data as GeneratedCvResponse;
         })
         .then((loaded) => {
-          if (!loaded) return;
+          if (!loaded) {
+            setIsIntakeModalOpen(false);
+            setActiveNavPanel("sections");
+            return;
+          }
           const normalizedCv = normalizeCvResponse(loaded);
           setCv(normalizedCv);
           persistGeneratedCv(normalizedCv);
@@ -3322,13 +3351,18 @@ export default function CvBuilderPage() {
           if (preferences?.marginSize) setMarginSize(preferences.marginSize);
           hasGeneratedRef.current = true;
         })
-        .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load your saved CV."))
+        .catch((loadError) => {
+          setError(loadError instanceof Error ? loadError.message : "Could not load your saved CV.");
+          // Keep the blank, editable workstation available if the saved-CV
+          // request is unavailable; users can still start a draft immediately.
+          setCv((current) => current || createBlankCvDraft(selectedTemplate));
+          setIsIntakeModalOpen(false);
+          setActiveNavPanel("sections");
+        })
         .finally(() => setLoading(false));
-    }
 
-    // Only show intake automatically when the route explicitly requests it.
-    setIsIntakeModalOpen(isIntakeRequested);
-    showTemplatesAfterGeneration();
+    setIsIntakeModalOpen(false);
+    setActiveNavPanel("sections");
   }, [profile?.id, setLocation]);
 
   // Close download menu when clicking outside
@@ -5189,7 +5223,7 @@ export default function CvBuilderPage() {
               aria-label="CV document name"
               value={documentTitle}
               onChange={(event) => { documentTitleEditedRef.current = true; setDocumentTitle(event.target.value); }}
-              onBlur={() => { if (!documentTitle.trim()) setDocumentTitle(`CV of ${cv?.document.fullName || profile?.name || "Candidate"}`); }}
+              onBlur={() => { if (!documentTitle.trim()) setDocumentTitle("My CV"); }}
               className="min-w-0 w-0 max-w-[clamp(4.5rem,20vw,8.75rem)] flex-1 truncate rounded px-1 py-1 text-xs font-semibold text-slate-800 outline-none transition-all hover:bg-gray-100 focus:bg-white focus:ring-1 focus:ring-blue-500 sm:max-w-[14rem] sm:px-2 sm:text-sm md:max-w-xs"
             />
             <button type="button" onClick={() => documentTitleInputRef.current?.focus()} className="hidden shrink-0 text-gray-400 hover:text-gray-600 sm:block" aria-label="Edit CV title">
@@ -5235,10 +5269,10 @@ export default function CvBuilderPage() {
               type="button"
               disabled={!cv || saving}
               onClick={() => { void handleSaveCv(documentTitle.trim() || `CV of ${cv?.document.fullName || "Candidate"}`).then(() => canvasRef.current?.focus()); }}
-              className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[#00A884] px-2 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#008f70] disabled:cursor-not-allowed disabled:opacity-50 sm:gap-1.5 sm:px-2.5 md:px-3"
+              className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-slate-950 px-2 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 sm:gap-1.5 sm:px-2.5 md:px-3"
               title="Save your CV and continue"
             >
-              <Save size={14} /><span className="hidden md:inline">{saving ? "Saving…" : "Save & Next"}</span>
+              <Save size={14} /><span className="hidden md:inline">{saving ? "Saving…" : "Save"}</span>
             </button>
             <label className="hidden items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5 text-[11px] text-slate-600 sm:flex" title="Document locale">
               <span className="sr-only">Language and locale</span>
@@ -5347,8 +5381,8 @@ export default function CvBuilderPage() {
                 const complete = activeWizardStep > step;
                 return (
                   <button key={stepName} type="button" onClick={() => openWizardStep(step)} aria-current={selected ? "step" : undefined} title={`${step}. ${stepName}`} className="group flex min-w-0 flex-col items-center gap-1 text-center">
-                    <span className={`grid h-7 w-7 place-items-center rounded-full border text-[10px] font-bold transition ${selected ? "border-indigo-400 bg-indigo-600 text-white shadow-[0_0_16px_rgba(99,102,241,.45)] ring-2 ring-indigo-400/20" : complete ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-slate-600 dark:bg-slate-800 dark:text-indigo-300" : "border-slate-200 bg-white text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500"}`}>{step}</span>
-                    <span className={`w-full truncate text-[7px] font-bold tracking-wide sm:text-[8px] ${selected ? "text-indigo-700 dark:text-indigo-300" : "text-slate-400 dark:text-slate-500"}`}>{stepName}</span>
+                    <span className={`grid h-7 w-7 place-items-center rounded-full border text-[10px] font-bold transition ${selected ? "border-slate-950 bg-slate-950 text-white shadow-sm ring-2 ring-slate-400/20 dark:border-white dark:bg-white dark:text-slate-950" : complete ? "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300" : "border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500"}`}>{step}</span>
+                    <span className={`w-full truncate text-[7px] font-bold tracking-wide sm:text-[8px] ${selected ? "text-slate-950 dark:text-white" : "text-slate-500 dark:text-slate-500"}`}>{stepName}</span>
                   </button>
                 );
               })}
@@ -5565,20 +5599,41 @@ export default function CvBuilderPage() {
               <div className="space-y-4 text-xs">
                 {cv ? (
                   <div className="space-y-2.5">
-                    <p className="text-xs leading-relaxed text-slate-500">Update your details here; the A4 preview and saved document stay in sync as you edit.</p>
-                    <details open className={`group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/80 ${activeWizardStep === 1 ? "" : "hidden"}`}>
-                      <summary className="cursor-pointer list-none text-sm font-bold tracking-tight text-slate-900">Personal information <span className="float-right text-slate-400 transition group-open:rotate-180">⌄</span></summary>
-                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        {([
-                          ["Full name", "fullName"], ["Professional title", "headline"], ["Email", "email"], ["Phone", "phone"], ["Location", "location"],
-                        ] as const).map(([label, key]) => (
-                          <label key={key} className="block min-w-0 text-[10px] font-semibold text-slate-500">
-                            {label}
-                            <input value={cv.document[key] || ""} onChange={(event) => updateDocumentField(key, event.target.value)} className="mt-1 min-h-10 w-full rounded-xl border border-slate-200 bg-slate-50/80 px-3 text-sm text-slate-800 shadow-inner outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/15 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:bg-slate-800" />
+                    {activeWizardStep === 1 ? (
+                      <section className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/90 sm:p-5">
+                        <h3 className="text-base font-bold tracking-tight text-slate-900 dark:text-slate-100">Personal Information</h3>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">Your contact details and professional headline.</p>
+                        <div className="mt-4 space-y-3">
+                          <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+                            Full name
+                            <input value={cv.document.fullName} onChange={(event) => updateDocumentField("fullName", event.target.value)} placeholder="Your name" className="mt-1.5 min-h-11 w-full rounded-xl border-0 bg-slate-100/80 px-4 py-3 text-base text-slate-800 outline-none transition focus:ring-2 focus:ring-slate-400/30 md:text-sm dark:bg-slate-800 dark:text-slate-100" />
                           </label>
-                        ))}
-                      </div>
-                    </details>
+                          <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+                            <span className="flex items-center justify-between gap-2">Professional title
+                              <button type="button" onClick={() => openWizardStep(8)} className="inline-flex items-center gap-1 normal-case tracking-normal text-[11px] font-semibold text-slate-800 hover:text-indigo-700 dark:text-slate-200"><Sparkles size={13} /> AI Assist</button>
+                            </span>
+                            <input value={cv.document.headline} onChange={(event) => updateDocumentField("headline", event.target.value)} placeholder="e.g. Senior Software Engineer" className="mt-1.5 min-h-11 w-full rounded-xl border-0 bg-slate-100/80 px-4 py-3 text-base text-slate-800 outline-none transition focus:ring-2 focus:ring-slate-400/30 md:text-sm dark:bg-slate-800 dark:text-slate-100" />
+                          </label>
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Email
+                              <input value={cv.document.email} onChange={(event) => updateDocumentField("email", event.target.value)} placeholder="you@email.com" className="mt-1.5 min-h-11 w-full min-w-0 rounded-xl border-0 bg-slate-100/80 px-4 py-3 text-base text-slate-800 outline-none focus:ring-2 focus:ring-slate-400/30 md:text-sm dark:bg-slate-800 dark:text-slate-100" />
+                            </label>
+                            <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Phone
+                              <input value={cv.document.phone || ""} onChange={(event) => updateDocumentField("phone", event.target.value)} placeholder="+27 82 555 0100" className="mt-1.5 min-h-11 w-full min-w-0 rounded-xl border-0 bg-slate-100/80 px-4 py-3 text-base text-slate-800 outline-none focus:ring-2 focus:ring-slate-400/30 md:text-sm dark:bg-slate-800 dark:text-slate-100" />
+                            </label>
+                          </div>
+                          <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Location
+                            <input value={cv.document.location || ""} onChange={(event) => updateDocumentField("location", event.target.value)} placeholder="Cape Town, South Africa" className="mt-1.5 min-h-11 w-full rounded-xl border-0 bg-slate-100/80 px-4 py-3 text-base text-slate-800 outline-none focus:ring-2 focus:ring-slate-400/30 md:text-sm dark:bg-slate-800 dark:text-slate-100" />
+                          </label>
+                          <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">LinkedIn URL
+                            <input value={cv.document.linkedin || ""} onChange={(event) => updateDocumentField("linkedin", event.target.value)} placeholder="linkedin.com/in/yourname" className="mt-1.5 min-h-11 w-full rounded-xl border-0 bg-slate-100/80 px-4 py-3 text-base text-slate-800 outline-none focus:ring-2 focus:ring-slate-400/30 md:text-sm dark:bg-slate-800 dark:text-slate-100" />
+                          </label>
+                          <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">GitHub URL
+                            <input value={cv.document.website || ""} onChange={(event) => updateDocumentField("website", event.target.value)} placeholder="github.com/yourname" className="mt-1.5 min-h-11 w-full rounded-xl border-0 bg-slate-100/80 px-4 py-3 text-base text-slate-800 outline-none focus:ring-2 focus:ring-slate-400/30 md:text-sm dark:bg-slate-800 dark:text-slate-100" />
+                          </label>
+                        </div>
+                      </section>
+                    ) : null}
 
                     <details open className={`group rounded-2xl border border-slate-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/80 ${activeWizardStep === 2 ? "" : "hidden"}`}>
                       <summary className="cursor-pointer list-none text-sm font-bold tracking-tight text-slate-900">Professional summary <span className="float-right text-slate-400 transition group-open:rotate-180">⌄</span></summary>
@@ -6017,7 +6072,7 @@ export default function CvBuilderPage() {
               <div className="sticky bottom-0 mt-5 flex items-center justify-between gap-3 border-t border-border bg-background/95 py-3 backdrop-blur">
                 <button type="button" onClick={() => openWizardStep(6)} className="inline-flex min-h-10 items-center gap-1 rounded-xl border border-border px-3 text-sm font-semibold text-foreground transition hover:bg-secondary"><ChevronLeft size={15} /> Previous</button>
                 <span className="text-xs font-medium text-muted-foreground">Step 7 of 8</span>
-                <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700">Review <ChevronRight size={15} /></button>
+                <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800">AI Assistant <ChevronRight size={15} /></button>
               </div>
             ) : null}
             {activeNavPanel === "ai" ? (
@@ -6078,7 +6133,7 @@ export default function CvBuilderPage() {
                 <select aria-label="Choose CV template" value={selectedTemplate} onChange={(event) => handleTemplateChange(event.target.value)} className="max-w-28 rounded-full border-0 bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-800 outline-none focus:ring-2 focus:ring-indigo-200">
                   {TEMPLATE_CATALOG.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
                 </select>
-                <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-600 px-3 py-2 text-[10px] font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50" title="Export PDF">
+                <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-950 px-3 py-2 text-[10px] font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50" title="Export PDF">
                   <Download size={13} /><span className="hidden sm:inline">Export PDF</span>
                 </button>
               </div>
@@ -7313,93 +7368,20 @@ export default function CvBuilderPage() {
                 </div>
               </div>
             </div>
-          ) : loading ? (
-            <div className="flex w-full max-w-xl flex-col items-center justify-center rounded-3xl border border-border bg-card px-8 py-16 text-center shadow-sm">
-              <RefreshCw size={28} className="animate-spin text-primary" />
-              <h2 className="mt-4 text-lg font-bold text-foreground">Building your CV…</h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Structuring your details into an ATS-ready layout. This usually takes a few seconds.
-              </p>
-            </div>
           ) : (
-            <div className="w-full max-w-2xl rounded-3xl border border-border bg-card p-6 sm:p-8 shadow-sm space-y-6">
-              <div className="space-y-2 text-center sm:text-left">
-                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-primary">
-                  CV Builder Workstation
-                </p>
-                <h2 className="text-2xl font-bold text-foreground">Start here — add your CV details</h2>
-                <p className="text-sm leading-6 text-muted-foreground">
-                  Upload an existing CV or enter your information manually. We’ll generate a polished,
-                  ATS-friendly CV you can edit, style, and download.
-                </p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIntakeTab("upload");
-                    setIsIntakeModalOpen(true);
-                  }}
-                  className="flex flex-col items-start gap-2 rounded-2xl border border-border bg-secondary/30 p-4 text-left transition hover:border-primary/40 hover:bg-primary/5"
-                >
-                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
-                    <Upload size={18} />
-                  </span>
-                  <span className="text-sm font-bold text-foreground">Upload my CV</span>
-                  <span className="text-xs text-muted-foreground">
-                    PDF, DOCX, or paste text — we’ll extract your details.
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIntakeTab("manual");
-                    setIsIntakeModalOpen(true);
-                  }}
-                  className="flex flex-col items-start gap-2 rounded-2xl border border-border bg-secondary/30 p-4 text-left transition hover:border-primary/40 hover:bg-primary/5"
-                >
-                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500/10 text-emerald-600">
-                    <FileText size={18} />
-                  </span>
-                  <span className="text-sm font-bold text-foreground">Enter information manually</span>
-                  <span className="text-xs text-muted-foreground">
-                    Fill in your name, roles, skills, and education step by step.
-                  </span>
-                </button>
-              </div>
-
-              <div className="rounded-2xl border border-dashed border-border bg-secondary/20 px-4 py-3 text-xs text-muted-foreground">
-                <strong className="text-foreground">Tip:</strong> After setup, pick a modern template on the left,
-                edit on the canvas, then use <strong className="text-foreground">Download</strong> for PDF or Word.
-              </div>
-
-              <div className="flex flex-wrap justify-center gap-2 sm:justify-start">
-                <button
-                  type="button"
-                  onClick={() => setIsIntakeModalOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground shadow-xs hover:brightness-105"
-                >
-                  <Sparkles size={16} />
-                  Open setup &amp; generate
-                </button>
-                <button
-                  type="button"
-                  onClick={openImproveCvModal}
-                  className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2.5 text-sm font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20"
-                >
-                  <Wand2 size={16} />
-                  Improve CV
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveNavPanel("templates")}
-                  className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary"
-                >
-                  <Layers size={16} />
-                  Browse templates
-                </button>
+            <div className="cv-a4-viewport relative">
+              <div className="cv-a4-stack">
+                <article className="cv-a4-page relative min-h-[297mm] w-[210mm] max-w-[calc(100vw-2rem)] overflow-hidden rounded-sm border border-slate-200 bg-white shadow-2xl">
+                  <div className="grid min-h-[297mm] grid-cols-[31%_69%]">
+                    <aside className="min-h-full bg-[#203b5d] px-5 py-8 text-center text-white sm:px-8">
+                      <div className="mx-auto grid h-20 w-20 place-items-center rounded-full border-[3px] border-white/90 bg-blue-500/40 text-2xl font-bold" />
+                      <h2 className="mt-4 break-words text-base font-bold"><span className="text-white/65">Your Name</span></h2>
+                      <p className="mt-1 break-words text-[10px] uppercase tracking-wider text-white/70">Your Title</p>
+                      <div className="mt-8 border-b border-white/15 pb-2 text-left text-[10px] font-bold uppercase tracking-wide text-blue-200">Contact</div>
+                    </aside>
+                    <div className="min-h-full p-8 sm:p-12" />
+                  </div>
+                </article>
               </div>
             </div>
           )}

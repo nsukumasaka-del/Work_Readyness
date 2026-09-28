@@ -796,40 +796,12 @@ function AppShell({ children }: { children: ReactNode }) {
         />
       ) : null}
       <header className="app-safe-header sticky top-0 z-40 border-b border-border/70 bg-background/90 backdrop-blur-xl">
-        <div className={`mx-auto flex ${isCvBuilder ? 'min-h-14 w-full max-w-full gap-2 px-2 sm:gap-3 sm:px-4 md:px-5' : 'min-h-14 max-w-6xl gap-3 px-4 sm:min-h-16 sm:px-5 md:px-8'} items-center justify-between`}>
+          <div className="mx-auto flex min-h-14 w-full max-w-7xl items-center justify-between gap-2 px-3 sm:min-h-16 sm:gap-4 sm:px-5 md:px-8">
           <div className="min-w-0 shrink-0">
             <LogoMark />
           </div>
 
-          {/* AuraCV-style quick navigation for routes that are available today. */}
-          {isCvBuilder ? (
-            <div id="cv-builder-command-slot" className="flex h-full min-w-0 flex-1 items-center" />
-          ) : <>
-            <nav className="hidden min-w-0 flex-1 items-center justify-center gap-1 xl:flex" aria-label="Primary navigation">
-              {[
-                { href: '/', label: 'Home', Icon: House },
-                { href: '/jobs', label: 'Jobs', Icon: BriefcaseBusiness },
-                { href: '/cv-builder?intake=1', label: 'CV Builder', Icon: FileText },
-                { href: '/interview', label: 'AI Hub', Icon: Bot },
-                { href: '/coaching', label: 'Coaching', Icon: HeartHandshake },
-                { href: '/programme', label: 'Programme', Icon: ClipboardCheck },
-                { href: '/dashboard', label: 'My CVs', Icon: Layers },
-              ].map(({ href, label, Icon }) => {
-                const target = href.split('?')[0];
-                const active = location === target || (target !== '/' && location.startsWith(`${target}/`));
-                return (
-                  <Link key={label} href={href} className={`group relative flex min-w-[62px] flex-col items-center gap-1 rounded-xl px-2.5 py-2 text-[10px] font-semibold transition ${active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'}`}>
-                    <Icon size={17} strokeWidth={active ? 2.4 : 1.9} />
-                    <span>{label}</span>
-                    <span className={`absolute inset-x-3 -bottom-0.5 h-0.5 rounded-full bg-primary transition-opacity ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} />
-                  </Link>
-                );
-              })}
-            </nav>
-            <nav
-            className="hidden"
-            aria-label="Legacy navigation menus"
-          >
+          <nav className="hidden min-w-0 flex-1 items-center justify-center gap-1 md:flex" aria-label="Primary navigation">
             {/* Resume Mega-Menu Dropdown */}
             <div
               className="relative"
@@ -909,7 +881,7 @@ function AppShell({ children }: { children: ReactNode }) {
                         </Link>
 
                         <Link
-                          href="/cv-builder?panel=templates"
+                          href="/cv-builder/templates"
                           onClick={() => setActiveDropdown(null)}
                           className="group flex items-center gap-3.5 rounded-xl p-2.5 transition-colors hover:bg-muted/70"
                           data-testid="link-nav-resume-templates"
@@ -1189,17 +1161,14 @@ function AppShell({ children }: { children: ReactNode }) {
               Pricing
             </Link>
           </nav>
-          </>}
 
           {/* Right Header Actions */}
-          <div className={`flex shrink-0 items-center ${isCvBuilder ? 'gap-1 sm:gap-2' : 'gap-2'}`}>
-            {!isCvBuilder ? (
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               <Link href="/pricing" className="hidden rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 p-[1px] shadow-sm shadow-indigo-500/20 sm:inline-flex" data-testid="link-header-upgrade">
                 <span className="rounded-full bg-background px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-950/60">Go Pro</span>
               </Link>
-            ) : null}
             <ThemeToggle />
-            {!isCvBuilder && !inNativeApp ? (
+            {!inNativeApp ? (
             <button
               type="button"
               onClick={() => triggerAndroidApkDownload()}
@@ -1212,17 +1181,15 @@ function AppShell({ children }: { children: ReactNode }) {
               <Download size={13} className="md:hidden" />
             </button>
             ) : null}
-            {isCvBuilder ? (
-              <HeaderAuthActions profileReady={Boolean(profile)} profile={profile} isAdmin={isAdmin} onLogout={handleLogout} workspaceMode />
-            ) : <div className="hidden lg:flex">
+            <div className="hidden lg:flex">
               <HeaderAuthActions
                 profileReady={profileReady}
                 profile={profile}
                 isAdmin={isAdmin}
                 onLogout={handleLogout}
               />
-            </div>}
-            {!isCvBuilder && <button
+            </div>
+            <button
               className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-card xl:hidden"
               onClick={() => setMenuOpen(!menuOpen)}
               data-testid="button-mobile-menu"
@@ -1230,12 +1197,12 @@ function AppShell({ children }: { children: ReactNode }) {
               aria-expanded={menuOpen}
             >
               {menuOpen ? <X size={18} /> : <Menu size={18} />}
-            </button>}
+            </button>
           </div>
         </div>
 
         {/* Mobile Enhancv-Style Accordion Menu */}
-        {menuOpen && !isCvBuilder && (
+        {menuOpen && (
           <div className="max-h-[min(80vh,calc(100dvh-4rem))] overflow-y-auto border-t border-border bg-card px-4 py-4 xl:hidden animate-in slide-in-from-top-2 duration-200">
             {/* Resume Accordion */}
             <div className="border-b border-border/70 pb-3">
@@ -1283,7 +1250,7 @@ function AppShell({ children }: { children: ReactNode }) {
                     </Link>
 
                     <Link
-                      href="/cv-builder?panel=templates"
+                      href="/cv-builder/templates"
                       onClick={() => setMenuOpen(false)}
                       className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
                     >
@@ -1470,6 +1437,7 @@ function AppShell({ children }: { children: ReactNode }) {
             </div>
 
             {/* Pricing Link in Mobile */}
+            <Link href="/my-resumes" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-foreground hover:bg-muted"><Layers size={16} /> My Resumes</Link>
             <div className="py-2">
               <Link
                 href="/pricing"
@@ -3684,6 +3652,9 @@ function ProtectedApp() {
           <Route path="/interview" component={InterviewPage} />
           <Route path="/pricing" component={PricingPage} />
           <Route path="/programme" component={ProgrammePage} />
+          <Route path="/cv-builder/templates" component={CvBuilderPage} />
+          <Route path="/cv-builder/import" component={CvBuilderPage} />
+          <Route path="/cv-builder/edit" component={CvBuilderPage} />
           <Route path="/cv-builder" component={CvBuilderPage} />
           <Route path="/coaching" component={CoachingPage} />
           <Route component={NotFound} />

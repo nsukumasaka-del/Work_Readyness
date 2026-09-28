@@ -25,11 +25,11 @@ export type ParseUploadBody = {
   fileData?: string;
 };
 
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 function assertUploadSize(file: File) {
   if (file.size > MAX_UPLOAD_BYTES) {
-    throw new Error("This file is too large. Please upload a CV under 20MB or paste the text directly.");
+    throw new Error("This file is too large. Please upload a CV under 10MB or paste the text directly.");
   }
 }
 

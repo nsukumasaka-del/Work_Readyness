@@ -1962,7 +1962,8 @@ function A4PageSpacer({ id, height }: { id: string; height: number }) {
 // Main CvBuilderPage Component
 // ---------------------------------------------------------------------------
 export default function CvBuilderPage() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const routePath = location.split("?")[0] || "/cv-builder";
   const profile = readStoredProfile() || readAuthProfile();
   const printRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLElement>(null);
@@ -2020,6 +2021,7 @@ export default function CvBuilderPage() {
   }>({ pointers: new Map(), mode: null, startZoom: 100, startPan: { x: 0, y: 0 }, startDistance: 0, startPoint: { x: 0, y: 0 }, startScrollTop: 0 });
   const [bgPattern, setBgPattern] = useState<string>("none");
   const [templateFilter, setTemplateFilter] = useState<string>("all");
+  const [templateSearch, setTemplateSearch] = useState("");
   const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
   const [mobileWorkspaceView, setMobileWorkspaceView] = useState<"edit" | "preview">("preview");
   const [activeWizardStep, setActiveWizardStep] = useState(1);
@@ -2042,6 +2044,13 @@ export default function CvBuilderPage() {
     setActiveNavPanel(step === 7 ? "design" : step === 8 ? "ai" : "sections");
     if (window.innerWidth < 768 && step <= 6) setMobileWorkspaceView("edit");
   };
+  useEffect(() => {
+    if (routePath !== "/cv-builder/edit") return;
+    setActiveNavPanel("sections");
+    setActiveWizardStep(1);
+    setMobileWorkspaceView(window.innerWidth < 768 ? "edit" : "preview");
+    if (!currentCvRef.current && !hasGeneratedRef.current) setIsIntakeModalOpen(true);
+  }, [routePath]);
 
   // Right Slide-Out Drawers
   const [showAtsDrawer, setShowAtsDrawer] = useState(false);
@@ -2518,9 +2527,8 @@ export default function CvBuilderPage() {
       setAgentStepText("CV details captured. Review them below, then generate your CV.");
       setUploadReadStatus("Document read. Review the detected sections below.");
       setIntakeTab("upload");
-      setIsIntakeModalOpen(true);
-      setMessage(`CV details extracted from ${file.name}. Review the detected information, then select Generate Modern ATS CV.`);
-      setTimeout(() => setMessage(""), 7000);
+      setIsIntakeModalOpen(false);
+      setLocation("/cv-builder/import?step=confirm");
     } catch (err) {
       reportIntakeUploadError(err, file);
     } finally {
@@ -2542,12 +2550,12 @@ export default function CvBuilderPage() {
         setError("Unsupported file type. Choose a PDF, Word (.docx), or text (.txt) CV.");
         return;
       }
-      if (file.size > 20 * 1024 * 1024) {
+      if (file.size > 10 * 1024 * 1024) {
         if (input) input.value = "";
         selectedFileRef.current = null;
         setSelectedUploadMeta(null);
-        setUploadReadStatus("This file is over the 20 MB limit. Choose a smaller CV.");
-        setError("This file is over the 20 MB limit. Choose a smaller CV.");
+        setUploadReadStatus("This file is over the 10 MB limit. Choose a smaller CV.");
+        setError("This file is over the 10 MB limit. Choose a smaller CV.");
         return;
       }
       const selectionKey = `${file.name}:${file.size}:${file.lastModified}`;
@@ -2740,6 +2748,7 @@ export default function CvBuilderPage() {
       persistGeneratedCv(created);
 
       setShowPasteInsideUpload(false);
+      setLocation("/cv-builder/edit");
       showTemplatesAfterGeneration();
       setMessage("CV created from text! Use Templates to switch layouts.");
       setTimeout(() => setMessage(""), 6000);
@@ -2987,6 +2996,7 @@ export default function CvBuilderPage() {
       setIntakePasteText("");
       setShowPasteInsideUpload(false);
       if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = "";
+      setLocation("/cv-builder/edit");
       showTemplatesAfterGeneration();
       setMessage("Your modern ATS CV is ready! Use Templates to test layouts.");
       setTimeout(() => setMessage(""), 5000);
@@ -3001,6 +3011,46 @@ export default function CvBuilderPage() {
   } finally {
       setIsAgentWorking(false);
       setGeneratingFromIntake(false);
+    }
+  };
+
+  const parseImportPasteOnly = async () => {
+    const text = intakePasteText.trim();
+    if (!text) {
+      setError("Paste your resume text before parsing.");
+      return;
+    }
+    setError("");
+    setUploadReadStatus("Reading pasted resume text…");
+    setExtracting(true);
+    try {
+      const data = await parseCvText(text, "Pasted CV");
+      if (!hasUsableCvBody(data)) throw new Error("We could not find readable work history, education, skills, or a professional summary. Check the pasted text and try again.");
+      const content = data.cv_content!;
+      const experiences = (content.experiences || []).map((item, index) => ({
+        id: item.id || `exp-${index + 1}`, role: item.role || "", company: item.company || "",
+        startDate: item.startDate || "", endDate: item.endDate || "", bullets: item.bullets || [],
+        classification: "VERIFIED" as const,
+      }));
+      const education = (content.education || []).map((item, index) => ({
+        id: item.id || `edu-${index + 1}`, degree: item.degree || "", institution: item.institution || "",
+        graduationYear: item.graduationYear || "", classification: "VERIFIED" as const,
+      }));
+      setExtractedData(data);
+      setManualInput({
+        fullName: content.personal?.fullName || "", professionalTitle: content.personal?.professionalTitle || "",
+        email: content.personal?.email || "", phone: content.personal?.phone || "", location: content.personal?.location || "",
+        linkedin: content.personal?.linkedin || "", website: content.personal?.website || "", summary: content.summary || "",
+        experiences, education, skills: (content.skills || []).join(", "), projects: content.projects || [],
+        certifications: content.certifications || [], languages: (content.languages || []).join(", "),
+        references: (content.references || []).join("\n"),
+      });
+      setUploadReadStatus("Text parsed. Review the detected information before applying it.");
+      setLocation("/cv-builder/import?step=confirm");
+    } catch (parseError) {
+      setError(parseError instanceof Error ? parseError.message : "Could not parse the pasted resume. Please check the text and try again.");
+    } finally {
+      setExtracting(false);
     }
   };
 
@@ -4907,6 +4957,8 @@ export default function CvBuilderPage() {
   })();
 
   const filteredTemplates = TEMPLATE_CATALOG.filter((t) => {
+    const query = templateSearch.trim().toLowerCase();
+    if (query && !`${t.name} ${t.category} ${t.tagline} ${t.bestFor}`.toLowerCase().includes(query)) return false;
     if (templateFilter === "double") return t.columns === "double";
     if (templateFilter === "single") return t.columns === "single" && t.templateType !== "timeline";
     if (templateFilter === "timeline") return t.templateType === "timeline";
@@ -5016,8 +5068,114 @@ export default function CvBuilderPage() {
     }
   };
 
+  const selectLandingTemplate = (templateId: string) => {
+    setSelectedTemplate(templateId);
+    setLocation("/cv-builder/edit");
+  };
+  const importStep = new URLSearchParams(location.split("?")[1] || "").get("step");
+  const showingImportConfirmation = routePath === "/cv-builder/import" && importStep === "confirm" && Boolean(extractedData);
+
+  if (routePath === "/cv-builder/templates") {
+    const categories = ["All", "Professional", "Creative", "Tech", "Business", "Education", "Healthcare", "Finance", "Service", "Trade", "Modern", "Starter", "Local"];
+    const catalogTemplates = filteredTemplates.filter((template) => {
+      if (templateFilter === "all") return true;
+      const searchable = `${template.category} ${template.name} ${template.tagline} ${template.bestFor}`.toLowerCase();
+      const filterAliases: Record<string, string[]> = {
+        professional: ["professional", "executive", "corporate", "traditional"],
+        creative: ["creative", "design", "arts"], tech: ["tech", "software", "engineering", "analyst"],
+        business: ["business", "corporate", "finance", "operations"], education: ["education", "academic", "graduate"],
+        healthcare: ["healthcare", "medical", "nursing"], finance: ["finance", "accounting", "legal", "bank"],
+        service: ["service", "customer", "hospitality", "support"], trade: ["trade", "engineering", "construction", "technical"],
+        modern: ["modern", "minimal", "contemporary"], starter: ["starter", "graduate", "entry", "minimal"], local: ["south africa", "local", "mzansi", "operations"],
+      };
+      const aliases = filterAliases[templateFilter] || [templateFilter];
+      return aliases.some((alias) => searchable.includes(alias));
+    });
+    return (
+      <div className="min-h-[calc(100dvh-4rem-var(--safe-top))] bg-slate-100 px-4 py-8 text-slate-900 dark:bg-slate-950 dark:text-slate-100 sm:px-7 lg:px-10">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div><Link href="/cv-builder/edit" className="mb-3 inline-flex items-center gap-1 text-sm font-medium text-slate-500 transition hover:text-indigo-600"><ChevronLeft size={16} /> Back to CV Builder</Link><p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-600 dark:text-indigo-300">BonList CV Studio</p><h1 className="mt-1 text-3xl font-bold tracking-tight md:text-4xl">Choose a CV template</h1><p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-slate-400">Start with a layout that fits your experience, then personalize every section in the editor.</p></div>
+            <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+              <label className="flex min-h-12 min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:w-[330px]"><Search size={17} className="shrink-0 text-slate-400" /><input value={templateSearch} onChange={(event) => setTemplateSearch(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder="Search templates..." aria-label="Search templates" /></label>
+              <button type="button" onClick={() => { setIntakeTab("upload"); setIsIntakeModalOpen(false); setError(""); setLocation("/cv-builder/import"); }} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 dark:bg-indigo-600 dark:hover:bg-indigo-500"><Upload size={16} /> Import Existing CV</button>
+            </div>
+          </div>
+          <div className="mb-6 flex gap-2 overflow-x-auto pb-2" role="tablist" aria-label="Template categories">
+            {categories.map((category) => {
+              const key = category.toLowerCase();
+              const active = (templateFilter === "all" && key === "all") || templateFilter === key;
+              return <button key={category} type="button" role="tab" aria-selected={active} onClick={() => setTemplateFilter(key)} className={`shrink-0 rounded-full border px-4 py-2 text-xs font-semibold transition ${active ? "border-slate-950 bg-slate-950 text-white dark:border-indigo-500 dark:bg-indigo-600" : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"}`}>{category}</button>;
+            })}
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <button type="button" onClick={() => { setSelectedTemplate("serif_classic"); setLocation("/cv-builder/edit?intake=1"); }} className="flex min-h-[330px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white/60 p-6 text-center transition hover:border-indigo-500 hover:bg-indigo-50/60 dark:border-slate-700 dark:bg-slate-900/50 dark:hover:bg-indigo-950/20"><span className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-slate-100 text-3xl font-light text-slate-500 dark:bg-slate-800 dark:text-slate-300">+</span><strong className="text-base">Start from Scratch</strong><span className="mt-2 max-w-48 text-xs leading-5 text-slate-500 dark:text-slate-400">Open the editor and enter your information in a clean ATS-friendly layout.</span></button>
+            {catalogTemplates.map((template, index) => {
+              const premium = ["editorial_gold", "creative", "stylish", "polished", "high_performer"].includes(template.id);
+              const categoryLabel = template.category === "Traditional" ? "PROFESSIONAL" : template.category.toUpperCase();
+              return <article key={template.id} className="group relative rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900">
+                {premium ? <span className="absolute right-5 top-5 z-10 rounded-full bg-amber-100 px-2.5 py-1 text-[9px] font-black tracking-wide text-amber-800 shadow-sm dark:bg-amber-950 dark:text-amber-200">PRO</span> : null}
+                <TemplateThumbnail tpl={template} selected={selectedTemplate === template.id} onSelect={() => selectLandingTemplate(template.id)} doc={cv?.document} />
+                <div className="mt-3 flex items-start justify-between gap-2"><div className="min-w-0"><span className="text-[9px] font-bold tracking-[0.12em] text-indigo-600 dark:text-indigo-300">{categoryLabel}</span><h2 className="mt-1 truncate text-sm font-bold">{template.name}</h2><p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500 dark:text-slate-400">{template.tagline}</p></div><span className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-[9px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{index === 0 ? "1–2 pages" : template.pageDensity}</span></div>
+                <button type="button" onClick={() => selectLandingTemplate(template.id)} className="mt-3 min-h-10 w-full rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 transition hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-indigo-950/40">Use this template</button>
+              </article>;
+            })}
+          </div>
+          {!catalogTemplates.length ? <p className="mt-8 rounded-2xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No templates match those filters. Try another category or search.</p> : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (routePath === "/cv-builder/import") {
+    const candidateName = extractedData?.cv_content?.personal?.fullName || extractedData?.personal?.fullName || manualInput.fullName || "Candidate";
+    const content = extractedData?.cv_content;
+    const handleImportFileParse = () => {
+      const file = selectedFileRef.current;
+      if (!file) { setError("Choose a PDF, Word (.docx), or text file first."); return; }
+      void processIntakeCvFile(file);
+    };
+    return (
+      <div className="min-h-[calc(100dvh-4rem-var(--safe-top))] bg-slate-100 px-4 py-7 text-slate-900 dark:bg-slate-950 dark:text-slate-100 sm:px-7">
+        <div className="mx-auto max-w-5xl">
+          {showingImportConfirmation ? <section className="mb-7 flex flex-col gap-4 rounded-2xl border border-slate-200 border-l-4 border-l-slate-950 bg-white p-5 shadow-md dark:border-slate-800 dark:border-l-indigo-500 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"><Briefcase size={19} /></span><div><span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Suggested next step</span><h2 className="mt-1 text-lg font-bold">Your CV is ready — find matching roles</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Browse curated job listings and save roles that fit your profile.</p></div></div><Link href="/jobs" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white dark:bg-indigo-600">Browse jobs <ArrowRight size={16} /></Link></section> : null}
+          <Link href="/cv-builder/templates" className="inline-flex items-center gap-1 text-sm font-medium text-slate-500 transition hover:text-indigo-600"><ChevronLeft size={16} /> Back to CV Builder</Link>
+          <h1 className="mt-5 text-3xl font-bold tracking-tight sm:text-4xl">Import Resume</h1>
+          <p className="mt-2 border-b border-slate-200 pb-5 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-400">Upload your existing CV or paste the text — we'll extract your details and pre-fill the builder.</p>
+          <div className="mx-auto mt-7 max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
+            {showingImportConfirmation ? <div className="space-y-5 p-5 sm:p-8">
+              <div className="flex items-start gap-3 rounded-xl border border-emerald-300/70 bg-emerald-50/80 p-4 dark:border-emerald-900 dark:bg-emerald-950/40"><CheckCircle2 size={23} className="mt-0.5 shrink-0 text-emerald-700 dark:text-emerald-300" /><div><h2 className="font-bold text-emerald-950 dark:text-emerald-100">Resume parsed successfully!</h2><p className="mt-1 text-sm text-emerald-800 dark:text-emerald-200">Found: {candidateName}</p></div></div>
+              <div className="flex flex-wrap gap-2 text-[11px]">{[`${content?.experiences?.length || 0} work roles`, `${content?.education?.length || 0} qualifications`, `${content?.skills?.length || 0} skills`].map((item) => <span key={item} className="rounded-full bg-slate-100 px-3 py-1.5 font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{item}</span>)}</div>
+              <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">Apply the extracted details to your CV Builder draft, then review and edit them before saving.</p>
+              <button type="button" disabled={generatingFromIntake} onClick={() => void handleGenerateFromIntake()} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60 dark:bg-indigo-600 dark:hover:bg-indigo-500">{generatingFromIntake ? "Applying extracted details…" : "Apply to CV Builder"} <ArrowRight size={17} /></button>
+              <button type="button" onClick={() => { selectedFileRef.current = null; setSelectedUploadMeta(null); setExtractedData(null); setUploadReadStatus(""); setError(""); setLocation("/cv-builder/import"); }} className="min-h-12 w-full rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Import a different file</button>
+            </div> : <>
+              <div className="grid grid-cols-2 border-b border-slate-200 dark:border-slate-800"><button type="button" onClick={() => { setIntakeTab("upload"); setError(""); }} className={`min-h-14 border-b-2 text-sm font-semibold ${intakeTab === "upload" ? "border-slate-950 text-slate-950 dark:border-indigo-400 dark:text-indigo-200" : "border-transparent text-slate-500"}`}><Upload className="mr-2 inline" size={16} />Upload file</button><button type="button" onClick={() => { setIntakeTab("manual"); setError(""); }} className={`min-h-14 border-b-2 text-sm font-semibold ${intakeTab === "manual" ? "border-slate-950 text-slate-950 dark:border-indigo-400 dark:text-indigo-200" : "border-transparent text-slate-500"}`}><FileText className="mr-2 inline" size={16} />Paste text</button></div>
+              <div className="space-y-4 p-5 sm:p-7">
+                {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">{error}</p> : null}
+                {intakeTab === "upload" ? <>
+                  <div onDragOver={(event) => { event.preventDefault(); setIsUploadDropActive(true); }} onDragLeave={() => setIsUploadDropActive(false)} onDrop={handleIntakeFileDrop} onClick={() => intakeUploadInputRef.current?.click()} className={`flex min-h-[235px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-5 text-center transition ${isUploadDropActive ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30" : "border-slate-300 bg-slate-50/70 hover:border-slate-500 dark:border-slate-700 dark:bg-slate-950/50"}`}>
+                    <input ref={intakeUploadInputRef} type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" className="sr-only" onChange={handleIntakeFileSelectionEvent} aria-label="Choose resume file" />
+                    <span className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-100"><Upload size={27} /></span><strong className="text-base">{selectedUploadMeta?.name || "Drop your resume here"}</strong><span className="mt-2 text-sm text-slate-600 dark:text-slate-400">{selectedUploadMeta ? `${(selectedUploadMeta.size / 1024 / 1024).toFixed(2)} MB · click to change` : "or click to browse"}</span><span className="mt-4 text-xs text-slate-400">PDF, DOCX, or TXT · Max 10MB</span>
+                  </div>
+                  {uploadReadStatus ? <p className="text-center text-xs text-slate-500 dark:text-slate-400">{uploadReadStatus}</p> : null}
+                  <button type="button" disabled={!selectedUploadMeta || extracting} onClick={handleImportFileParse} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-600 dark:hover:bg-indigo-500">{extracting ? <><RefreshCw className="animate-spin" size={16} /> Parsing resume…</> : <><Upload size={16} /> Parse &amp; Import</>}</button>
+                </> : <>
+                  <label className="block text-sm font-semibold">Paste resume text<textarea value={intakePasteText} onChange={(event) => setIntakePasteText(event.target.value)} rows={10} className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" placeholder="Paste the text from your resume here…" /></label>
+                  <button type="button" disabled={!intakePasteText.trim() || extracting} onClick={() => void parseImportPasteOnly()} className="min-h-12 w-full rounded-xl bg-slate-950 px-4 text-sm font-bold text-white disabled:bg-slate-400 dark:bg-indigo-600">{extracting ? "Parsing resume…" : "Parse & Import"}</button>
+                </>}
+                <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-950/70"><h3 className="text-xs font-bold">What we extract:</h3><ul className="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-600 dark:text-slate-400 sm:grid-cols-2">{["Full name & contact", "Work experience", "Education history", "Skills & tools", "Professional summary", "LinkedIn & GitHub URLs"].map((item) => <li key={item} className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" />{item}</li>)}</ul></div>
+              </div>
+            </>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="cv-builder relative flex h-[calc(100dvh-3.5rem-var(--safe-top))] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+      <div id="cv-builder-command-slot" className="h-14 w-full shrink-0 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95" />
       {commandHeaderHost ? createPortal(
         <div className="h-full min-w-0 flex-1 overflow-hidden px-1 sm:px-3">
         <div className="flex h-full min-w-0 items-center justify-between gap-1 sm:gap-2">
@@ -5905,7 +6063,13 @@ export default function CvBuilderPage() {
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
             <div className="cv-a4-viewport relative">
-              <div className="no-print sticky top-2 z-30 mb-2 mr-2 flex max-w-[calc(100vw-1.5rem)] shrink-0 self-end items-center gap-0.5 overflow-x-auto rounded-2xl border border-white/70 bg-white/85 p-1 text-slate-700 shadow-lg shadow-slate-900/10 backdrop-blur-xl sm:top-3 sm:mr-3" role="toolbar" aria-label="Canvas zoom and export controls">
+              <div className="no-print sticky top-2 z-30 mb-2 mr-2 flex max-w-[calc(100vw-1.5rem)] shrink-0 self-end items-center gap-0.5 overflow-x-auto rounded-2xl border border-white/70 bg-white/90 p-1 text-slate-700 shadow-lg shadow-slate-900/10 backdrop-blur-xl sm:top-3 sm:mr-3" role="toolbar" aria-label="Canvas preview and export controls">
+                <span className="inline-flex shrink-0 items-center gap-1.5 px-2 text-[10px] font-bold tracking-wide text-slate-600"><Eye size={13} /> PREVIEW</span>
+                <span className="hidden shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-slate-600 sm:inline-flex">{TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "ATS template"}</span>
+                <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-slate-200 sm:block" />
+                <button type="button" onClick={() => setLocation("/cv-builder/import")} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-semibold text-slate-600 hover:bg-slate-100" title="Import an existing resume">
+                  <FileUp size={14} /><span className="hidden sm:inline">Import Resume</span>
+                </button>
                 <button type="button" onClick={handleZoomOut} className="grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100" title="Zoom out" aria-label="Zoom out"><ZoomOut size={15} /></button>
                 <span className="min-w-10 text-center text-[10px] font-semibold tabular-nums">{Math.round(zoomLevel)}%</span>
                 <button type="button" onClick={handleZoomIn} className="grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100" title="Zoom in" aria-label="Zoom in"><ZoomIn size={15} /></button>
@@ -5915,7 +6079,7 @@ export default function CvBuilderPage() {
                   {TEMPLATE_CATALOG.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
                 </select>
                 <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-600 px-3 py-2 text-[10px] font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50" title="Export PDF">
-                  <Download size={13} /><span className="hidden sm:inline">Download PDF</span>
+                  <Download size={13} /><span className="hidden sm:inline">Export PDF</span>
                 </button>
               </div>
                 <div

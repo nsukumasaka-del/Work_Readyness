@@ -5463,7 +5463,30 @@ export default function CvBuilderPage() {
       ), document.body) : null}
 
       {/* Persistent split workstation: form remains in the left pane while the live paper preview stays on the right. */}
-      <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-100/70">
+      <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100/70 min-[1025px]:flex-row">
+        <div className="no-print flex shrink-0 items-center justify-center border-b border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur min-[1025px]:hidden dark:border-slate-800 dark:bg-slate-950/95">
+          <div role="tablist" aria-label="CV workspace view" className="inline-flex w-full max-w-xs rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobileWorkspaceView === "edit"}
+              onClick={() => setMobileWorkspaceView("edit")}
+              className={`min-h-10 flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${mobileWorkspaceView === "edit" ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"}`}
+            >
+              ✏️ Edit CV
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobileWorkspaceView === "preview"}
+              onClick={() => setMobileWorkspaceView("preview")}
+              className={`min-h-10 flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${mobileWorkspaceView === "preview" ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"}`}
+            >
+              👁️ Preview CV
+            </button>
+          </div>
+        </div>
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <aside className={`no-print ${mobileWorkspaceView === "edit" ? "flex" : "hidden"} w-full min-w-0 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white p-4 pb-24 dark:border-slate-800 dark:bg-slate-950 min-[1025px]:!flex min-[1025px]:pb-6 min-[1025px]:w-[min(38vw,640px)] xl:w-[min(36vw,640px)]`}>
             <div className="mb-4 flex w-full flex-wrap items-center gap-2">
               <Link href="/dashboard" title="Back to saved CVs" aria-label="Back to saved CVs" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100">
@@ -6213,7 +6236,7 @@ export default function CvBuilderPage() {
         {/* Pinned desktop preview, with an Edit/Preview toggle on phone and tablet widths. */}
         <main
           ref={canvasRef}
-          className={`relative ${mobileWorkspaceView === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 w-full flex-1 flex-col overflow-auto bg-slate-100/70 min-[1025px]:!flex min-[1025px]:w-auto`}
+          className={`relative ${mobileWorkspaceView === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 w-full flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-pt-4 bg-slate-100/70 min-[1025px]:!flex min-[1025px]:w-auto`}
         >
           <header className="no-print sticky top-0 z-20 flex w-full shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-950">
             <div className="flex min-w-0 items-center">
@@ -6231,7 +6254,7 @@ export default function CvBuilderPage() {
           </header>
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
-            <div className="flex w-full flex-1 justify-center bg-slate-100/70 p-6">
+            <div className="flex min-h-max w-full shrink-0 flex-1 justify-center bg-slate-100/70 px-2 pt-6 pb-32 sm:px-6 min-[1025px]:pb-6">
             <div className="cv-a4-viewport relative mx-auto">
                 <div
                 className="cv-zoom-outer"
@@ -7484,12 +7507,9 @@ export default function CvBuilderPage() {
             </div>
           )}
         </main>
+        </div>
 
-        <nav aria-label="Mobile CV actions" className="no-print fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 gap-2 border-t border-slate-200 bg-white/95 px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur min-[1025px]:hidden dark:border-slate-800 dark:bg-slate-950/95">
-          <button type="button" onClick={() => setMobileWorkspaceView((view) => view === "edit" ? "preview" : "edit")} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-2 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-100">
-            {mobileWorkspaceView === "edit" ? <Eye size={15} /> : <ChevronLeft size={15} />}
-            {mobileWorkspaceView === "edit" ? "Preview CV" : "Edit CV"}
-          </button>
+        <nav aria-label="Mobile CV actions" className="no-print fixed inset-x-0 bottom-0 z-40 grid grid-cols-2 gap-2 border-t border-slate-200 bg-white/95 px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur min-[1025px]:hidden dark:border-slate-800 dark:bg-slate-950/95">
           <button type="button" disabled={!cv || saving} onClick={() => { void handleSaveCv(documentTitle.trim() || "My CV"); }} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-2 text-xs font-semibold text-slate-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-100">
             <Save size={15} /> {saving ? "Saving" : "Save"}
           </button>

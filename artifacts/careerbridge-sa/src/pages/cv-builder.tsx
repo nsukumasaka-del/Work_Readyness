@@ -2017,7 +2017,6 @@ export default function CvBuilderPage() {
   const [draggedCustomSection, setDraggedCustomSection] = useState<number | null>(null);
   const [draggedExperienceIndex, setDraggedExperienceIndex] = useState<number | null>(null);
   const [draggedSkillIndex, setDraggedSkillIndex] = useState<number | null>(null);
-  const activeTextTargetRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
   const [cv, setCv] = useState<GeneratedCvResponse | null>(() => createBlankCvDraft());
   const [documentTitle, setDocumentTitle] = useState("My CV");
@@ -2056,33 +2055,28 @@ export default function CvBuilderPage() {
   const [bgPattern, setBgPattern] = useState<string>("none");
   const [templateFilter, setTemplateFilter] = useState<string>("all");
   const [templateSearch, setTemplateSearch] = useState("");
-  const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
-  const [mobileWorkspaceView, setMobileWorkspaceView] = useState<"edit" | "preview">("preview");
   const [activeWizardStep, setActiveWizardStep] = useState(1);
   const [showPopiaNotice, setShowPopiaNotice] = useState(true);
 
   // Enhancv-Style Left Navigation Rail State
   // 5 Main Options: "templates" | "design" | "sections" | "ai" | "ats" (null if collapsed)
-  const [activeNavPanel, setActiveNavPanel] = useState<"templates" | "design" | "sections" | "ai" | "ats" | null>(() =>
-    typeof window !== "undefined" && window.innerWidth >= 768 ? "sections" : null,
-  );
+  const [activeNavPanel, setActiveNavPanel] = useState<"templates" | "design" | "sections" | "ai" | "ats" | null>("sections");
   const [commandHeaderHost, setCommandHeaderHost] = useState<HTMLElement | null>(null);
   useEffect(() => {
     setCommandHeaderHost(document.getElementById("cv-builder-command-slot"));
   }, []);
   const showTemplatesAfterGeneration = () => {
-    setActiveNavPanel(window.innerWidth >= 768 ? "templates" : null);
+    setActiveNavPanel("sections");
+    setActiveWizardStep(1);
   };
   const openWizardStep = (step: number) => {
     setActiveWizardStep(step);
     setActiveNavPanel(step === 7 ? "design" : step === 8 ? "ai" : "sections");
-    if (window.innerWidth < 768 && step <= 6) setMobileWorkspaceView("edit");
   };
   useEffect(() => {
     if (routePath !== "/cv-builder/edit") return;
     setActiveNavPanel("sections");
     setActiveWizardStep(1);
-    setMobileWorkspaceView(window.innerWidth < 768 ? "edit" : "preview");
   }, [routePath]);
 
   // Right Slide-Out Drawers
@@ -3280,7 +3274,10 @@ export default function CvBuilderPage() {
       return;
     }
     const panelParam = searchParams?.get("panel");
-    if (panelParam === "templates" || panelParam === "design" || panelParam === "sections" || panelParam === "ai") {
+    if (panelParam === "templates") {
+      setActiveNavPanel("design");
+      setActiveWizardStep(7);
+    } else if (panelParam === "design" || panelParam === "sections" || panelParam === "ai") {
       setActiveNavPanel(panelParam);
     }
 
@@ -3693,30 +3690,6 @@ export default function CvBuilderPage() {
     const updatedCv = { ...cv, document: updatedDoc };
     setCv(updatedCv);
     persistGeneratedCv(updatedCv);
-  };
-
-  const applyTextFormat = (format: "bold" | "italic" | "bullet" | "numbered" | "link") => {
-    const target = activeTextTargetRef.current;
-    if (!target || !cv) return;
-    const start = target.selectionStart ?? 0;
-    const selectedEnd = target.selectionEnd ?? start;
-    const lineEnd = target.value.indexOf("\n", start);
-    const end = selectedEnd === start ? (lineEnd < 0 ? target.value.length : lineEnd) : selectedEnd;
-    const selected = target.value.slice(start, end);
-    if (!selected) return;
-    let replacement = selected;
-    if (format === "bold") replacement = `**${selected}**`;
-    if (format === "italic") replacement = `_${selected}_`;
-    if (format === "bullet") replacement = selected.split("\n").map((line) => `• ${line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")}`).join("\n");
-    if (format === "numbered") replacement = selected.split("\n").map((line, index) => `${index + 1}. ${line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")}`).join("\n");
-    if (format === "link") {
-      const url = window.prompt("Enter a link URL (https://…)", "https://");
-      if (!url || !/^https?:\/\//i.test(url.trim())) return;
-      replacement = `[${selected}](${url.trim()})`;
-    }
-    target.setRangeText(replacement, start, end, "select");
-    target.dispatchEvent(new Event("input", { bubbles: true }));
-    target.focus();
   };
 
   const moveCustomSection = (from: number, to: number) => {
@@ -4973,7 +4946,7 @@ export default function CvBuilderPage() {
       observer?.disconnect();
       window.removeEventListener("resize", updateCanvasScale);
     };
-  }, [cv, activeNavPanel, isPreviewMode]);
+  }, [cv, activeNavPanel]);
 
   const meta = resolveTemplate(selectedTemplate);
   const liveAtsMetrics = (() => {
@@ -5239,7 +5212,7 @@ export default function CvBuilderPage() {
           </div>
 
           <div className="flex shrink-0 items-center justify-end gap-0 sm:gap-1 md:gap-1.5">
-            <button type="button" onClick={() => { setActiveNavPanel("templates"); setMobileWorkspaceView("preview"); }} className="hidden shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 sm:inline-flex" title="Choose a template">
+            <button type="button" onClick={() => openWizardStep(7)} className="hidden shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 sm:inline-flex" title="Choose a template">
               <LayoutTemplate size={14} /><span className="hidden xl:inline">Template</span>
             </button>
             <button type="button" onClick={() => openWizardStep(8)} className="hidden shrink-0 items-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 lg:inline-flex" title="Open AI suggestions">
@@ -5299,81 +5272,9 @@ export default function CvBuilderPage() {
         </div>
       ) : null}
 
-      <div className="no-print grid grid-cols-2 gap-1 border-b border-slate-200/80 bg-white/90 p-1.5 shadow-sm backdrop-blur md:hidden">
-        <button
-          type="button"
-          aria-pressed={mobileWorkspaceView === "edit"}
-          onClick={() => { setMobileWorkspaceView("edit"); setActiveNavPanel("sections"); }}
-          className={`min-h-10 rounded-xl px-3 text-sm font-semibold transition ${mobileWorkspaceView === "edit" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
-        >Edit Content</button>
-        <button
-          type="button"
-          aria-pressed={mobileWorkspaceView === "preview"}
-          onClick={() => { setMobileWorkspaceView("preview"); setActiveNavPanel(null); }}
-          className={`min-h-10 rounded-xl px-3 text-sm font-semibold transition ${mobileWorkspaceView === "preview" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
-        >Live Preview</button>
-      </div>
-
-      {/* 2. ENHANCV-STYLE WORKSPACE (LEFT ICON RAIL + FLYOUT PANEL + A4 CANVAS + RIGHT DRAWERS) */}
-      <div className="cv-builder-workspace relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
-        {/* DARK STUDIO TOOL DOCK */}
-        <nav className="no-print z-30 hidden h-full w-[65px] shrink-0 flex-col items-center justify-start border-r border-slate-800 bg-[#121629] py-3 text-white md:flex" aria-label="CV studio tools">
-          <div className="flex w-full flex-col items-center gap-5">
-            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "templates" ? null : "templates")} aria-expanded={activeNavPanel === "templates"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "templates" ? "text-white" : "text-slate-300 hover:text-white"}`}>
-              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "templates" ? "bg-blue-600" : "hover:bg-white/10"}`}><LayoutTemplate size={18} /></span>
-              <span>Templates</span>
-            </button>
-            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "design" ? null : "design")} aria-expanded={activeNavPanel === "design"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "design" ? "text-white" : "text-slate-300 hover:text-white"}`}>
-              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "design" ? "bg-blue-600" : "hover:bg-white/10"}`}><Type size={18} /></span>
-              <span>Formatting</span>
-            </button>
-            <button type="button" onClick={() => setActiveNavPanel(activeNavPanel === "sections" ? null : "sections")} aria-expanded={activeNavPanel === "sections"} className={`flex w-full flex-col items-center gap-1 px-1 text-[9px] font-medium transition ${activeNavPanel === "sections" ? "text-white" : "text-slate-300 hover:text-white"}`}>
-              <span className={`grid h-10 w-10 place-items-center rounded-xl ${activeNavPanel === "sections" ? "bg-blue-600" : "hover:bg-white/10"}`}><ListChecks size={18} /></span>
-              <span>Content</span>
-            </button>
-          </div>
-          <div className="text-[8px] font-semibold tracking-widest text-slate-500 [writing-mode:vertical-rl]">BONLIST STUDIO</div>
-        </nav>
-        <nav className="no-print absolute inset-x-0 bottom-0 z-50 flex h-16 items-center justify-around border-t border-slate-700 bg-[#121629] px-2 pb-[max(0.25rem,var(--safe-bottom))] text-white md:hidden" aria-label="CV studio tools">
-          {([
-            { id: "templates" as const, label: "Templates", Icon: LayoutTemplate },
-            { id: "design" as const, label: "Formatting", Icon: Type },
-            { id: "sections" as const, label: "Content", Icon: ListChecks },
-          ]).map(({ id, label, Icon }) => (
-            <button key={id} type="button" onClick={() => {
-              if (activeNavPanel === id) {
-                setActiveNavPanel(null);
-                setMobileWorkspaceView("preview");
-              } else {
-                setActiveNavPanel(id);
-                setMobileWorkspaceView(id === "sections" ? "edit" : "preview");
-              }
-            }} aria-expanded={activeNavPanel === id} className={`flex min-w-[76px] flex-col items-center justify-center gap-1 rounded-xl px-3 py-1.5 text-[10px] font-medium ${activeNavPanel === id ? "text-white" : "text-slate-300"}`}>
-              <span className={`grid h-8 w-10 place-items-center rounded-lg ${activeNavPanel === id ? "bg-blue-600" : ""}`}><Icon size={17} /></span>
-              {label}
-            </button>
-          ))}
-        </nav>
-        {/* LEFT EXPANDABLE DRAWER PANEL (340px) */}
-        {activeNavPanel && (
-          <aside className="no-print fixed inset-x-0 bottom-16 top-auto z-40 max-h-[72dvh] w-full min-w-0 shrink-0 overflow-y-auto rounded-t-2xl border border-slate-200/70 bg-white/95 p-4 pb-6 shadow-xl backdrop-blur-xl animate-in slide-in-from-bottom duration-200 md:relative md:inset-auto md:z-10 md:h-full md:max-h-none md:w-[min(44vw,560px)] md:shrink-0 md:rounded-none md:border-y-0 md:border-l-0 md:p-5 md:shadow-lg md:animate-in md:slide-in-from-left xl:w-[min(42vw,600px)]">
-            <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                {activeNavPanel === "templates" && "Layout & Templates"}
-                {activeNavPanel === "design" && "Design, Typography & Spacing"}
-                {activeNavPanel === "sections" && `Step ${activeWizardStep} · ${CV_WIZARD_STEPS[activeWizardStep - 1]}`}
-                {activeNavPanel === "ai" && "AI Assistant & Career Intelligence"}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setActiveNavPanel(null)}
-                className="rounded-lg p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                title="Collapse panel"
-              >
-                <X size={15} />
-              </button>
-            </div>
-
+      {/* Persistent split workstation: form remains in the left pane while the live paper preview stays on the right. */}
+      <div className="cv-builder-workspace flex min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-100/70">
+          <aside className="no-print flex w-full min-w-0 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white p-4 pb-6 dark:border-slate-800 dark:bg-slate-950 lg:w-[460px] xl:w-[500px]">
             <div className="mb-5 grid grid-cols-8 gap-1.5" aria-label="CV Builder steps">
               {CV_WIZARD_STEPS.map((stepName, index) => {
                 const step = index + 1;
@@ -5434,6 +5335,12 @@ export default function CvBuilderPage() {
             {/* PANEL 2: DESIGN & TYPOGRAPHY */}
             {activeNavPanel === "design" && (
               <div className="space-y-5 text-xs">
+                <div>
+                  <label htmlFor="left-template-selector" className="mb-2 block font-bold text-foreground">Choose Template</label>
+                  <select id="left-template-selector" value={selectedTemplate} onChange={(event) => handleTemplateChange(event.target.value)} className="min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                    {TEMPLATE_CATALOG.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                  </select>
+                </div>
                 {/* Accent Color Palette (10 Custom Color Themes) */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -6061,13 +5968,13 @@ export default function CvBuilderPage() {
                 </div>
               </div>
             )}
-            {activeNavPanel === "sections" && activeWizardStep <= 6 ? (
+                {activeNavPanel === "sections" && activeWizardStep <= 6 ? (
               <div className="sticky bottom-0 mt-5 flex items-center justify-between gap-3 border-t border-border bg-background/95 py-3 backdrop-blur">
                 <button type="button" disabled={activeWizardStep === 1} onClick={() => openWizardStep(activeWizardStep - 1)} className="inline-flex min-h-10 items-center gap-1 rounded-xl border border-border px-3 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:invisible"><ChevronLeft size={15} /> Previous</button>
                 <span className="text-xs font-medium text-muted-foreground">Step {activeWizardStep} of 8</span>
                 <button type="button" onClick={() => openWizardStep(activeWizardStep + 1)} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700">Continue <ChevronRight size={15} /></button>
               </div>
-            ) : null}
+                ) : null}
             {activeNavPanel === "design" ? (
               <div className="sticky bottom-0 mt-5 flex items-center justify-between gap-3 border-t border-border bg-background/95 py-3 backdrop-blur">
                 <button type="button" onClick={() => openWizardStep(6)} className="inline-flex min-h-10 items-center gap-1 rounded-xl border border-border px-3 text-sm font-semibold text-foreground transition hover:bg-secondary"><ChevronLeft size={15} /> Previous</button>
@@ -6079,42 +5986,21 @@ export default function CvBuilderPage() {
               <div className="sticky bottom-0 mt-5 flex items-center justify-between gap-3 border-t border-border bg-background/95 py-3 backdrop-blur">
                 <button type="button" onClick={() => openWizardStep(7)} className="inline-flex min-h-10 items-center gap-1 rounded-xl border border-border px-3 text-sm font-semibold text-foreground transition hover:bg-secondary"><ChevronLeft size={15} /> Previous</button>
                 <span className="text-xs font-medium text-muted-foreground">Step 8 of 8</span>
-                <button type="button" onClick={() => { setActiveNavPanel(null); setMobileWorkspaceView("preview"); }} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-[#00A884] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#008f70]">Finish <Check size={15} /></button>
+                <button type="button" onClick={() => openWizardStep(1)} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-[#00A884] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#008f70]">Finish <Check size={15} /></button>
               </div>
             ) : null}
           </aside>
-        )}
 
-        {/* CENTER CANVAS: LIGHT NEUTRAL BACKGROUND (#F4F5F7) + REALISTIC A4 PAGE */}
+        {/* Pinned live preview panel. It is intentionally hidden below desktop width so the form remains usable. */}
         <main
           ref={canvasRef}
           tabIndex={-1}
-          onFocusCapture={(event) => {
-            const target = event.target;
-            if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) activeTextTargetRef.current = target;
-          }}
           onScroll={(event) => {
             const pageHeight = (canvasPageWidthPx / 210) * 297 * (zoomLevel / 100);
             if (pageHeight > 0) setCurrentCanvasPage(Math.min(a4PageCount, Math.max(1, Math.floor((event.currentTarget.scrollTop + 16) / pageHeight) + 1)));
           }}
-          className={`relative min-h-0 min-w-0 h-full flex-1 flex-col items-center overflow-auto bg-gradient-to-br from-slate-100 via-slate-50 to-indigo-50/40 px-3 pb-24 pt-4 sm:p-8 md:pb-8 ${mobileWorkspaceView === "edit" ? "hidden md:flex" : "flex"}`}
+          className="relative hidden min-h-0 min-w-0 flex-1 flex-col items-center overflow-auto bg-slate-100/70 p-6 lg:flex"
         >
-          {cv && !isPreviewMode ? (
-            <div className="no-print sticky top-0 z-20 mb-3 flex max-w-full items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-sm backdrop-blur" role="toolbar" aria-label="Text formatting">
-              <span className="px-2 text-[10px] font-semibold text-slate-500">Format selection</span>
-              {[
-                { label: "Bold", icon: Bold, format: "bold" as const },
-                { label: "Italic", icon: Italic, format: "italic" as const },
-                { label: "Bullets", icon: List, format: "bullet" as const },
-                { label: "Numbered list", icon: ListOrdered, format: "numbered" as const },
-                { label: "Hyperlink", icon: Link2, format: "link" as const },
-              ].map((item) => (
-                <button key={item.format} type="button" title={item.label} aria-label={item.label} onMouseDown={(event) => event.preventDefault()} onClick={() => applyTextFormat(item.format)} className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
-                  <item.icon size={14} /><span className="hidden sm:inline">{item.label}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
             <div className="cv-a4-viewport relative">
@@ -6987,6 +6873,7 @@ export default function CvBuilderPage() {
                 return (
                   <article
                     ref={printRef}
+                    inert
                     id="bonlist-cv-document"
                     style={{
                       fontFamily: selectedFont.family,

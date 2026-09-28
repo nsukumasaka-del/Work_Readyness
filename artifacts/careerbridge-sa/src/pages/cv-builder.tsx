@@ -1005,6 +1005,24 @@ function normalizeExtractedCvData(value: unknown): ExtractedCvData {
   } as ExtractedCvData;
 }
 
+function intakeFileValidationError(file: File): string | null {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  const mimeType = file.type.trim().toLowerCase();
+  const supportedExtensions = new Set(["pdf", "docx", "txt"]);
+  const supportedMimeTypes = new Set([
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/plain",
+  ]);
+  if ((!extension || !supportedExtensions.has(extension)) && !supportedMimeTypes.has(mimeType)) {
+    return "Unsupported file type. Choose a PDF, Word (.docx), or text (.txt) CV.";
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    return "This file is over the 10 MB limit. Choose a smaller CV.";
+  }
+  return null;
+}
+
 /**
  * Keep CV intake usable if the edge parser route is temporarily unavailable.
  * The browser already has readable text for PDF, DOCX and TXT uploads, so use
@@ -2221,6 +2239,7 @@ export default function CvBuilderPage() {
   const [intakePasteText, setIntakePasteText] = useState("");
   const [showPasteInsideUpload, setShowPasteInsideUpload] = useState(false);
   const [selectedUploadMeta, setSelectedUploadMeta] = useState<{ name: string; size: number; type: string } | null>(null);
+  const [showImportSuccessBanner, setShowImportSuccessBanner] = useState(false);
   const [isUploadDropActive, setIsUploadDropActive] = useState(false);
   const [uploadReadStatus, setUploadReadStatus] = useState("");
   const intakeUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -2229,6 +2248,12 @@ export default function CvBuilderPage() {
   // Keep the non-serializable browser File outside React state. React only
   // receives a small, render-safe description of the selected document.
   const selectedFileRef = useRef<File | null>(null);
+  const getSelectedIntakeFile = () => {
+    const inputFile = intakeUploadInputRef.current?.files?.item(0) || null;
+    const file = selectedFileRef.current || inputFile;
+    if (file) selectedFileRef.current = file;
+    return file;
+  };
 
   // Agent Working State: Animated High-Trust Progress Screen
   const [isAgentWorking, setIsAgentWorking] = useState(false);
@@ -2449,6 +2474,7 @@ export default function CvBuilderPage() {
     if (file) {
       selectedFileRef.current = file;
       setSelectedUploadMeta({ name: file.name, size: file.size, type: file.type });
+      setShowImportSuccessBanner(false);
     }
     setError(message);
     setUploadReadStatus(file
@@ -2457,12 +2483,15 @@ export default function CvBuilderPage() {
     setIntakeTab("upload");
     setIsAgentWorking(false);
     setExtracting(false);
-    setIsIntakeModalOpen(true);
+    if (routePath !== "/cv-builder/import") setIsIntakeModalOpen(true);
   };
 
   const processIntakeCvFile = async (file: File) => {
     try {
+      const validationError = intakeFileValidationError(file);
+      if (validationError) throw new Error(validationError);
       setIntakeTab("upload");
+      selectedFileRef.current = file;
       setSelectedUploadMeta({ name: file.name, size: file.size, type: file.type });
       setUploadReadStatus(`Reading ${file.name}…`);
       setError("");
@@ -2557,21 +2586,21 @@ export default function CvBuilderPage() {
   const handleIntakeFileUpload = (input: HTMLInputElement | null, file: File) => {
     try {
       if (!file) return;
-      const extension = file.name.split(".").pop()?.toLowerCase();
-      if (!extension || !["pdf", "docx", "txt"].includes(extension)) {
+      const validationError = intakeFileValidationError(file);
+      if (validationError?.startsWith("Unsupported file type")) {
         if (input) input.value = "";
         selectedFileRef.current = null;
         setSelectedUploadMeta(null);
-        setUploadReadStatus("Unsupported file type. Choose a PDF, Word (.docx), or text (.txt) CV.");
-        setError("Unsupported file type. Choose a PDF, Word (.docx), or text (.txt) CV.");
+        setUploadReadStatus(validationError);
+        setError(validationError);
         return;
       }
-      if (file.size > 10 * 1024 * 1024) {
+      if (validationError) {
         if (input) input.value = "";
         selectedFileRef.current = null;
         setSelectedUploadMeta(null);
-        setUploadReadStatus("This file is over the 10 MB limit. Choose a smaller CV.");
-        setError("This file is over the 10 MB limit. Choose a smaller CV.");
+        setUploadReadStatus(validationError);
+        setError(validationError);
         return;
       }
       const selectionKey = `${file.name}:${file.size}:${file.lastModified}`;
@@ -2602,11 +2631,11 @@ export default function CvBuilderPage() {
       const size = file.size < 1024 * 1024
         ? `${Math.max(1, Math.round(file.size / 1024))} KB`
         : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
-       setUploadReadStatus(`${isDifferentDocument ? "New CV detected" : "File selected"}: ${file.name} (${size}). Click Generate Modern ATS CV to read it.`);
+      setUploadReadStatus(`${isDifferentDocument ? "New CV detected" : "File selected"}: ${file.name} (${size}). Click Parse & Import to read it.`);
       setError("");
-      // Clear the native control after capturing the File so selecting the
-      // same document again still emits a change event. The ref retains it.
-      if (input) input.value = "";
+      setShowImportSuccessBanner(false);
+      // Keep the native input's FileList as a recovery source in case a route
+      // update clears the component ref before the user starts parsing.
     } catch (err) {
       reportIntakeUploadError(err, file);
     }
@@ -2782,7 +2811,7 @@ export default function CvBuilderPage() {
     setGeneratingFromIntake(true);
     setError("");
 
-    const pendingFile = selectedFileRef.current || intakeUploadInputRef.current?.files?.[0];
+    const pendingFile = getSelectedIntakeFile();
     if (intakeTab === "upload" && !extractedData && !intakePasteText.trim() && pendingFile) {
       setGeneratingFromIntake(false);
       void processIntakeCvFile(pendingFile);
@@ -3014,7 +3043,10 @@ export default function CvBuilderPage() {
       if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = "";
       setLocation("/cv-builder/edit");
       showTemplatesAfterGeneration();
-      setMessage("Your modern ATS CV is ready! Use Templates to test layouts.");
+      setShowImportSuccessBanner(Boolean(extractedData));
+      setMessage(extractedData
+        ? "CV imported successfully! Review and edit the extracted data below, then save."
+        : "Your modern ATS CV is ready! Use Templates to test layouts.");
       setTimeout(() => setMessage(""), 5000);
       void runQualityEvaluation(created.document, jobDescription);
       window.requestAnimationFrame(() => {
@@ -3072,6 +3104,7 @@ export default function CvBuilderPage() {
 
   const handleResetCvIntake = () => {
     selectedFileRef.current = null;
+    setShowImportSuccessBanner(false);
     lastHandledUploadRef.current = "";
     lastSelectedUploadFingerprintRef.current = "";
     if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = "";
@@ -3134,33 +3167,33 @@ export default function CvBuilderPage() {
     const imported = normalizeExtractedCvData(extractedData).cv_content!;
     setManualInput((previous) => ({
       ...previous,
-      fullName: previous.fullName || imported.personal.fullName,
-      professionalTitle: previous.professionalTitle || imported.personal.professionalTitle || "",
-      email: previous.email || imported.personal.email,
-      phone: previous.phone || imported.personal.phone || "",
-      location: previous.location || imported.personal.location || "",
-      linkedin: previous.linkedin || imported.personal.linkedin || "",
-      website: previous.website || imported.personal.website || "",
-      summary: previous.summary || imported.summary,
-      experiences: previous.experiences.length ? previous.experiences : imported.experiences.map((exp, index) => ({
+      fullName: imported.personal.fullName || "",
+      professionalTitle: imported.personal.professionalTitle || "",
+      email: imported.personal.email || "",
+      phone: imported.personal.phone || "",
+      location: imported.personal.location || "",
+      linkedin: imported.personal.linkedin || "",
+      website: imported.personal.website || "",
+      summary: imported.summary || "",
+      experiences: imported.experiences.length ? imported.experiences.map((exp, index) => ({
         id: exp.id || `restored-exp-${index + 1}`,
         role: exp.role || "",
         company: exp.company || "",
         startDate: exp.startDate || "",
         endDate: exp.endDate || "",
         bullets: exp.bullets || [],
-      })),
-      education: previous.education.length ? previous.education : imported.education.map((item, index) => ({
+      })) : [],
+      education: imported.education.length ? imported.education.map((item, index) => ({
         id: item.id || `restored-edu-${index + 1}`,
         degree: item.degree || "",
         institution: item.institution || "",
         graduationYear: item.graduationYear || "",
-      })),
-      skills: previous.skills || imported.skills.join(", "),
-      projects: previous.projects.length ? previous.projects : imported.projects || [],
-      certifications: previous.certifications.length ? previous.certifications : imported.certifications || [],
-      languages: previous.languages || (imported.languages || []).join(", "),
-      references: previous.references || (imported.references || []).join("\n"),
+      })) : [],
+      skills: imported.skills.join(", "),
+      projects: imported.projects || [],
+      certifications: imported.certifications || [],
+      languages: (imported.languages || []).join(", "),
+      references: (imported.references || []).join("\n"),
     }));
   // This hydrates only the upload restored during the first render. Later parser
   // results populate manualInput directly in processIntakeCvFile.
@@ -5106,8 +5139,16 @@ export default function CvBuilderPage() {
     const candidateName = extractedData?.cv_content?.personal?.fullName || extractedData?.personal?.fullName || manualInput.fullName || "Candidate";
     const content = extractedData?.cv_content;
     const handleImportFileParse = () => {
-      const file = selectedFileRef.current;
-      if (!file) { setError("Choose a PDF, Word (.docx), or text file first."); return; }
+      const file = getSelectedIntakeFile();
+      if (!file) {
+        const message = selectedUploadMeta
+          ? "The selected file is no longer available to the reader. Choose the file again, then parse it."
+          : "Choose a PDF, Word (.docx), or text file first.";
+        setError(message);
+        setUploadReadStatus(message);
+        return;
+      }
+      setError("");
       void processIntakeCvFile(file);
     };
     return (
@@ -5123,13 +5164,13 @@ export default function CvBuilderPage() {
               <div className="flex flex-wrap gap-2 text-[11px]">{[`${content?.experiences?.length || 0} work roles`, `${content?.education?.length || 0} qualifications`, `${content?.skills?.length || 0} skills`].map((item) => <span key={item} className="rounded-full bg-slate-100 px-3 py-1.5 font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{item}</span>)}</div>
               <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">Apply the extracted details to your CV Builder draft, then review and edit them before saving.</p>
               <button type="button" disabled={generatingFromIntake} onClick={() => void handleGenerateFromIntake()} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60 dark:bg-indigo-600 dark:hover:bg-indigo-500">{generatingFromIntake ? "Applying extracted details…" : "Apply to CV Builder"} <ArrowRight size={17} /></button>
-              <button type="button" onClick={() => { selectedFileRef.current = null; setSelectedUploadMeta(null); setExtractedData(null); setUploadReadStatus(""); setError(""); setLocation("/cv-builder/import"); }} className="min-h-12 w-full rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Import a different file</button>
+              <button type="button" onClick={() => { selectedFileRef.current = null; lastHandledUploadRef.current = ""; lastSelectedUploadFingerprintRef.current = ""; if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = ""; setSelectedUploadMeta(null); setExtractedData(null); setUploadReadStatus(""); setError(""); setLocation("/cv-builder/import"); }} className="min-h-12 w-full rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Import a different file</button>
             </div> : <>
               <div className="grid grid-cols-2 border-b border-slate-200 dark:border-slate-800"><button type="button" onClick={() => { setIntakeTab("upload"); setError(""); }} className={`min-h-14 border-b-2 text-sm font-semibold ${intakeTab === "upload" ? "border-slate-950 text-slate-950 dark:border-indigo-400 dark:text-indigo-200" : "border-transparent text-slate-500"}`}><Upload className="mr-2 inline" size={16} />Upload file</button><button type="button" onClick={() => { setIntakeTab("manual"); setError(""); }} className={`min-h-14 border-b-2 text-sm font-semibold ${intakeTab === "manual" ? "border-slate-950 text-slate-950 dark:border-indigo-400 dark:text-indigo-200" : "border-transparent text-slate-500"}`}><FileText className="mr-2 inline" size={16} />Paste text</button></div>
               <div className="space-y-4 p-5 sm:p-7">
                 {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">{error}</p> : null}
                 {intakeTab === "upload" ? <>
-                  <div onDragOver={(event) => { event.preventDefault(); setIsUploadDropActive(true); }} onDragLeave={() => setIsUploadDropActive(false)} onDrop={handleIntakeFileDrop} onClick={() => intakeUploadInputRef.current?.click()} className={`flex min-h-[235px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-5 text-center transition ${isUploadDropActive ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30" : "border-slate-300 bg-slate-50/70 hover:border-slate-500 dark:border-slate-700 dark:bg-slate-950/50"}`}>
+                  <div onDragOver={(event) => { event.preventDefault(); setIsUploadDropActive(true); }} onDragLeave={() => setIsUploadDropActive(false)} onDrop={handleIntakeFileDrop} onClick={() => { if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = ""; intakeUploadInputRef.current?.click(); }} className={`flex min-h-[235px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-5 text-center transition ${isUploadDropActive ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30" : "border-slate-300 bg-slate-50/70 hover:border-slate-500 dark:border-slate-700 dark:bg-slate-950/50"}`}>
                     <input ref={intakeUploadInputRef} type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" className="sr-only" onChange={handleIntakeFileSelectionEvent} aria-label="Choose resume file" />
                     <span className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-100"><Upload size={27} /></span><strong className="text-base">{selectedUploadMeta?.name || "Drop your resume here"}</strong><span className="mt-2 text-sm text-slate-600 dark:text-slate-400">{selectedUploadMeta ? `${(selectedUploadMeta.size / 1024 / 1024).toFixed(2)} MB · click to change` : "or click to browse"}</span><span className="mt-4 text-xs text-slate-400">PDF, DOCX, or TXT · Max 10MB</span>
                   </div>
@@ -5190,6 +5231,12 @@ export default function CvBuilderPage() {
                 <Save size={14} /><span>{saving ? "Saving…" : "Save"}</span>
               </button>
             </div>
+            {showImportSuccessBanner ? (
+              <div role="status" aria-live="polite" className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-medium leading-5 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+                <span><CheckCircle2 size={15} className="mr-1.5 inline-block align-[-3px]" />CV imported successfully! Review and edit the extracted data below, then save.</span>
+                <button type="button" onClick={() => setShowImportSuccessBanner(false)} className="shrink-0 rounded px-1 text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900/60" aria-label="Dismiss import confirmation">×</button>
+              </div>
+            ) : null}
             <div className="mb-5 grid grid-cols-8 gap-1.5" aria-label="CV Builder steps">
               {CV_WIZARD_STEPS.map((stepName, index) => {
                 const step = index + 1;
@@ -8214,6 +8261,7 @@ export default function CvBuilderPage() {
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
+                        if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = "";
                         intakeUploadInputRef.current?.click();
                       }}
                       disabled={extracting}

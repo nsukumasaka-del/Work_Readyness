@@ -162,7 +162,7 @@ async function syncAndApplyOta(release: Release, onProgress?: (percent: number |
     });
     onProgress?.(100);
   } catch (error) {
-    console.error("[OTA Download Error] CapacitorUpdater.download() rejected", {
+    console.error("[OTA Download Error] CapacitorUpdater.download() rejected:", error, {
       platform: Capacitor.getPlatform(),
       version: release.bundleVersion,
       url: safeBundleUrl,
@@ -170,7 +170,14 @@ async function syncAndApplyOta(release: Release, onProgress?: (percent: number |
         ? { name: error.name, message: error.message, stack: error.stack }
         : error,
     });
-    throw new Error("OTA Update server maintenance, please try again later.");
+    let nativeMessage: string;
+    if (error instanceof Error && error.message) nativeMessage = error.message;
+    else if (typeof error === "string" && error.trim()) nativeMessage = error;
+    else {
+      try { nativeMessage = JSON.stringify(error) || String(error); }
+      catch { nativeMessage = String(error); }
+    }
+    throw new Error(`OTA Download Failed: ${nativeMessage || "Unknown native updater error"}`);
   } finally {
     await Promise.all(listenerHandles.map(async (handle) => {
       try { await handle.remove(); }

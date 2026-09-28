@@ -64,6 +64,7 @@ const config = {
       appReadyTimeout: 20000,
       statsUrl: "",
       resetWhenUpdate: false,
+      resetWhenUpdateUninstalled: true,
       responseTimeout: 120,
       keepUrlPathAfterReload: true,
     },

@@ -1747,11 +1747,13 @@ function TemplateThumbnail({
   selected,
   onSelect,
   doc,
+  showDetails = true,
 }: {
   tpl: TemplateDefinition;
   selected: boolean;
   onSelect: () => void;
   doc?: GeneratedCvDocument | null;
+  showDetails?: boolean;
 }) {
   const accent = tpl.previewAccent;
   const isDouble = tpl.columns === "double";
@@ -1763,16 +1765,16 @@ function TemplateThumbnail({
   const isAnalystClean = tpl.id === "analyst_clean" || tpl.id === "minimal";
   const isCreative = tpl.id === "creative";
 
-  const name = (doc?.fullName || "").trim();
-  const title = (doc?.headline || "").trim();
-  const contact = [doc?.email, doc?.phone, doc?.location].filter(Boolean).join(" · ");
-  const summaryRaw = (doc?.summary || "").trim();
+  const name = (doc?.fullName || "John Doe").trim();
+  const title = (doc?.headline || "Software Engineer / Professional").trim();
+  const contact = [doc?.email || "john.doe@email.com", doc?.phone || "+27 82 555 0100", doc?.location || "Cape Town"].join(" · ");
+  const summaryRaw = (doc?.summary || "Results-driven professional with a record of delivering reliable solutions, improving team workflows and supporting measurable business outcomes.").trim();
   const summary = summaryRaw.slice(0, 90) + (summaryRaw.length > 90 ? "…" : "");
-  const experiences = (doc?.experiences || []).slice(0, 2);
-  const skills = (doc?.skills || []).slice(0, 6);
-  const education = (doc?.education || []).slice(0, 2);
-  const languages = (doc?.languages || []).slice(0, 3);
-  const certs = (doc?.certifications || []).slice(0, 1);
+  const experiences = doc?.experiences?.length ? doc.experiences.slice(0, 2) : [{ role: "Software Engineer", company: "Acme Studio", startDate: "2022", endDate: "Present", bullets: ["Built reliable product features for customers.", "Improved delivery workflows across the team."] }];
+  const skills = doc?.skills?.length ? doc.skills.slice(0, 6) : ["Product Development", "Communication", "Problem Solving", "TypeScript", "Teamwork", "Analysis"];
+  const education = doc?.education?.length ? doc.education.slice(0, 2) : [{ degree: "BSc Computer Science", institution: "University of Cape Town", graduationYear: "2021" }];
+  const languages = doc?.languages?.length ? doc.languages.slice(0, 3) : ["English"];
+  const certs = doc?.certifications?.length ? doc.certifications.slice(0, 1) : [{ name: "Professional Certification" }];
 
   const sectionLabel = (label: string) => {
     if (isAnalystClean) return label.toUpperCase().split("").join(" ");
@@ -1794,17 +1796,17 @@ function TemplateThumbnail({
           : "border-border bg-card hover:border-primary/50 hover:bg-secondary/40 hover:shadow-sm"
       }`}
     >
-      <div className="relative mb-2 aspect-[210/297] w-full overflow-hidden rounded-md border border-slate-300 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.14)]">
+      <div className="relative mb-2 aspect-[16/10] w-full overflow-hidden rounded-xl border border-slate-300 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.14)]">
         <div
           className="origin-top-left"
           style={{
             width: "310%",
-            height: "310%",
+            height: "440%",
             transform: "scale(0.323)",
             fontFamily: isSerifClassic || isEditorialGold ? "Georgia, 'Times New Roman', serif" : "system-ui, sans-serif",
           }}
         >
-          <div className="bg-white p-3.5 text-[8.5px] leading-[1.3] text-slate-800">
+          <div className="min-h-full bg-white p-3.5 text-[8.5px] leading-[1.3] text-slate-800">
             {isStylish ? (
               <div className="-mx-3.5 -mt-3.5 mb-2 px-3.5 py-2.5 text-white" style={{ backgroundColor: accent }}>
                 <div className="text-[14px] font-black tracking-tight">{name}</div>
@@ -1993,12 +1995,14 @@ function TemplateThumbnail({
         )}
       </div>
 
-      <div className="min-w-0 px-0.5">
-        <div className="truncate text-xs font-bold text-foreground">{tpl.name}</div>
-        <div className="mt-0.5 text-[10px] text-muted-foreground">
-          {tpl.category} · {isDouble ? "2-Column" : isTimeline ? "Timeline" : "Single-Column"} · {tpl.pageDensity}
+      {showDetails ? (
+        <div className="min-w-0 px-0.5">
+          <div className="truncate text-xs font-bold text-foreground">{tpl.name}</div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground">
+            {tpl.category} · {isDouble ? "2-Column" : isTimeline ? "Timeline" : "Single-Column"} · {tpl.pageDensity}
+          </div>
         </div>
-      </div>
+      ) : null}
     </button>
   );
 }
@@ -5136,6 +5140,10 @@ export default function CvBuilderPage() {
   const filteredTemplates = TEMPLATE_CATALOG.filter((t) => {
     const query = templateSearch.trim().toLowerCase();
     if (query && !`${t.name} ${t.category} ${t.tagline} ${t.bestFor}`.toLowerCase().includes(query)) return false;
+    if (templateFilter === "professional") return t.category === "Traditional" || t.category === "ATS-Friendly";
+    if (templateFilter === "creative") return t.category === "Creative";
+    if (templateFilter === "tech") return /tech|software|developer|engineer|data|analyst|it\b|cyber/i.test(`${t.name} ${t.tagline} ${t.bestFor}`);
+    if (templateFilter === "business") return /business|corporate|management|finance|consult|sales|operations|executive/i.test(`${t.name} ${t.tagline} ${t.bestFor}`);
     if (templateFilter === "double") return t.columns === "double";
     if (templateFilter === "single") return t.columns === "single" && t.templateType !== "timeline";
     if (templateFilter === "timeline") return t.templateType === "timeline";
@@ -5371,14 +5379,15 @@ export default function CvBuilderPage() {
             </header>
             <div className="flex flex-wrap gap-2 border-b border-slate-200 px-5 py-3 dark:border-slate-700">
               {[
-                { id: "all", label: `All (${TEMPLATE_CATALOG.length})` },
-                { id: "double", label: "Two-Column" },
-                { id: "single", label: "Single-Column" },
-                { id: "timeline", label: "Timeline" },
+                { id: "all", label: "All" },
+                { id: "professional", label: "Professional" },
+                { id: "creative", label: "Creative" },
+                { id: "tech", label: "Tech" },
+                { id: "business", label: "Business" },
                 { id: "executive", label: "Executive" },
                 { id: "modern", label: "Modern" },
               ].map((filter) => (
-                <button key={filter.id} type="button" onClick={() => setTemplateFilter(filter.id)} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${templateFilter === filter.id ? "bg-slate-950 text-white dark:bg-indigo-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"}`}>
+                <button key={filter.id} type="button" onClick={() => setTemplateFilter(filter.id)} className={`rounded-full px-4 py-1.5 text-xs transition ${templateFilter === filter.id ? "bg-indigo-600 font-semibold text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>
                   {filter.label}
                 </button>
               ))}
@@ -5390,14 +5399,15 @@ export default function CvBuilderPage() {
               </label>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredTemplates.map((template) => (
-                  <article key={template.id} className="group rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow-lg dark:border-slate-700 dark:bg-slate-900">
-                    <TemplateThumbnail tpl={template} selected={selectedTemplate === template.id} onSelect={() => { handleTemplateChange(template.id); setIsTemplateModalOpen(false); }} doc={cv?.document} />
-                    <div className="mt-3 flex min-w-0 items-start justify-between gap-2 px-1">
+                  <article key={template.id} className="group flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-700 hover:shadow-lg">
+                    <TemplateThumbnail tpl={template} selected={selectedTemplate === template.id} onSelect={() => { handleTemplateChange(template.id); setIsTemplateModalOpen(false); }} doc={null} showDetails={false} />
+                    <div className="mt-3 flex min-w-0 items-center justify-between gap-2 px-1 pb-1">
                       <div className="min-w-0">
-                        <h3 className="truncate text-sm font-bold text-slate-900 dark:text-white">{template.name}</h3>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{template.category} · {template.bestFor}</p>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{template.category}</span>
+                        <h3 className="truncate text-sm font-semibold text-white">{template.name}</h3>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{template.tagline}</p>
                       </div>
-                      <button type="button" onClick={() => { handleTemplateChange(template.id); setIsTemplateModalOpen(false); }} className={`inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition ${selectedTemplate === template.id ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-slate-950 text-white hover:bg-slate-700 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"}`}>
+                      <button type="button" onClick={() => { handleTemplateChange(template.id); setIsTemplateModalOpen(false); }} className={`inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition ${selectedTemplate === template.id ? "bg-emerald-600 text-white" : "bg-black text-white hover:bg-slate-700"}`}>
                         {selectedTemplate === template.id ? <><Check size={14} /> Selected</> : "Use Template"}
                       </button>
                     </div>

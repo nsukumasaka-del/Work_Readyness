@@ -51,9 +51,8 @@ import {
   MoveDown,
   MoveUp,
   Palette,
-  Pencil,
+  Crown,
   Plus,
-  Printer,
   RefreshCw,
   Save,
   Search,
@@ -71,8 +70,6 @@ import {
   Wand2,
   X,
   Zap,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import { readStoredProfile } from "@/lib/entitlements";
 import { authFetch, readProfile as readAuthProfile } from "@/lib/auth-session";
@@ -2010,10 +2007,7 @@ export default function CvBuilderPage() {
   const [a4PageCount, setA4PageCount] = useState(1);
   const [a4StackHeightPx, setA4StackHeightPx] = useState(0);
   const [a4Spacers, setA4Spacers] = useState<Record<string, number>>({});
-  const [canvasFitScale, setCanvasFitScale] = useState(1);
   const [canvasPageWidthPx, setCanvasPageWidthPx] = useState(794);
-  const [currentCanvasPage, setCurrentCanvasPage] = useState(1);
-  const [documentLocale, setDocumentLocale] = useState("en-GB");
   const [draggedCustomSection, setDraggedCustomSection] = useState<number | null>(null);
   const [draggedExperienceIndex, setDraggedExperienceIndex] = useState<number | null>(null);
   const [draggedSkillIndex, setDraggedSkillIndex] = useState<number | null>(null);
@@ -2021,7 +2015,6 @@ export default function CvBuilderPage() {
   const [cv, setCv] = useState<GeneratedCvResponse | null>(() => createBlankCvDraft());
   const [documentTitle, setDocumentTitle] = useState("My CV");
   const documentTitleEditedRef = useRef(false);
-  const documentTitleInputRef = useRef<HTMLInputElement>(null);
   const currentCvRef = useRef<GeneratedCvResponse | null>(null);
   currentCvRef.current = cv;
   const [loading, setLoading] = useState(false);
@@ -2061,10 +2054,6 @@ export default function CvBuilderPage() {
   // Enhancv-Style Left Navigation Rail State
   // 5 Main Options: "templates" | "design" | "sections" | "ai" | "ats" (null if collapsed)
   const [activeNavPanel, setActiveNavPanel] = useState<"templates" | "design" | "sections" | "ai" | "ats" | null>("sections");
-  const [commandHeaderHost, setCommandHeaderHost] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    setCommandHeaderHost(document.getElementById("cv-builder-command-slot"));
-  }, []);
   const showTemplatesAfterGeneration = () => {
     setActiveNavPanel("sections");
     setActiveWizardStep(1);
@@ -4930,10 +4919,7 @@ export default function CvBuilderPage() {
 
     const updateCanvasScale = () => {
       const pageWidth = printRef.current?.offsetWidth || 794;
-      const availableWidth = Math.max(240, canvas.clientWidth - 24);
       setCanvasPageWidthPx((previous) => (previous === pageWidth ? previous : pageWidth));
-      const nextScale = Math.min(1, availableWidth / pageWidth);
-      setCanvasFitScale((previous) => (Math.abs(previous - nextScale) < 0.01 ? previous : nextScale));
     };
 
     updateCanvasScale();
@@ -4976,24 +4962,6 @@ export default function CvBuilderPage() {
     return true;
   });
 
-  const scrollToCanvasPage = (requestedPage: number) => {
-    const page = Math.max(1, Math.min(a4PageCount, requestedPage));
-    setCurrentCanvasPage(page);
-    const scale = zoomLevel / 100;
-    const pageHeight = (canvasPageWidthPx / 210) * 297 * scale;
-    canvasRef.current?.scrollTo({ top: Math.max(0, (page - 1) * pageHeight), behavior: "smooth" });
-  };
-
-  const handleZoomIn = () => setZoomLevel((previous) => Math.min(250, previous + 15));
-  const handleZoomOut = () => setZoomLevel((previous) => Math.max(40, previous - 15));
-  const handleFitCanvas = () => {
-    setCanvasPan({ x: 0, y: 0 });
-    setZoomLevel(Math.max(40, Math.min(100, Math.round(canvasFitScale * 100))));
-  };
-  const handleResetZoom = () => {
-    setCanvasPan({ x: 0, y: 0 });
-    setZoomLevel(100);
-  };
   const handleCanvasPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== "touch") return;
     if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, button, a, [contenteditable='true']")) return;
@@ -5182,84 +5150,6 @@ export default function CvBuilderPage() {
 
   return (
     <div className="cv-builder relative flex h-[calc(100dvh-3.5rem-var(--safe-top))] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
-      <div id="cv-builder-command-slot" className="h-14 w-full shrink-0 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95" />
-      {commandHeaderHost ? createPortal(
-        <div className="h-full min-w-0 flex-1 overflow-hidden px-1 sm:px-3">
-        <div className="flex h-full min-w-0 items-center justify-between gap-1 sm:gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-1 sm:gap-2">
-            <Link href="/dashboard" title="Back to saved CVs" aria-label="Back to saved CVs" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
-              <ChevronLeft size={17} />
-            </Link>
-            <input
-              ref={documentTitleInputRef}
-              type="text"
-              aria-label="CV document name"
-              value={documentTitle}
-              onChange={(event) => { documentTitleEditedRef.current = true; setDocumentTitle(event.target.value); }}
-              onBlur={() => { if (!documentTitle.trim()) setDocumentTitle("My CV"); }}
-              className="min-w-0 w-0 max-w-[clamp(4.5rem,20vw,8.75rem)] flex-1 truncate rounded px-1 py-1 text-xs font-semibold text-slate-800 outline-none transition-all hover:bg-gray-100 focus:bg-white focus:ring-1 focus:ring-blue-500 sm:max-w-[14rem] sm:px-2 sm:text-sm md:max-w-xs"
-            />
-            <button type="button" onClick={() => documentTitleInputRef.current?.focus()} className="hidden shrink-0 text-gray-400 hover:text-gray-600 sm:block" aria-label="Edit CV title">
-              <Pencil size={14} />
-            </button>
-            <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${autoSaveStatus === "error" ? "bg-red-50 text-red-700" : saving ? "bg-slate-100 text-slate-600" : autoSaveStatus === "unsaved" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>
-              {autoSaveStatus === "saved" && !saving ? <Check size={11} /> : null}
-              <span>{saving ? "Saving" : autoSaveStatus === "error" ? "Error" : autoSaveStatus === "unsaved" ? "Draft" : "Saved"}</span>
-            </span>
-            <span className="hidden shrink-0 rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 sm:inline-flex dark:bg-indigo-950/60 dark:text-indigo-200" title="Profile completeness based on your CV details">
-              Profile {cv ? calculateCvCompletion(cv.document) : 0}%
-            </span>
-          </div>
-
-          <div className="flex shrink-0 items-center justify-end gap-0 sm:gap-1 md:gap-1.5">
-            <button type="button" onClick={() => openWizardStep(7)} className="hidden shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 sm:inline-flex" title="Choose a template">
-              <LayoutTemplate size={14} /><span className="hidden xl:inline">Template</span>
-            </button>
-            <button type="button" onClick={() => openWizardStep(8)} className="hidden shrink-0 items-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 lg:inline-flex" title="Open AI suggestions">
-              <Sparkles size={14} /><span>Suggestions</span>
-            </button>
-            <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="max-[420px]:hidden inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40" title="Print CV">
-              <Printer size={15} /><span className="hidden lg:inline">Print</span>
-            </button>
-            <button
-              type="button"
-              disabled={!cv}
-              onClick={() => {
-                const candidate = cv?.document.fullName || currentVersionName || "Candidate";
-                const subject = encodeURIComponent("CV - " + candidate);
-                const body = encodeURIComponent("My CV is ready. Download the PDF from the CV Builder and attach it to this email.");
-                window.location.href = "mailto:?subject=" + subject + "&body=" + body;
-              }}
-              className="max-[420px]:hidden inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40"
-              title="Compose an email about your CV"
-            >
-              <Mail size={15} /><span className="hidden lg:inline">Email</span>
-            </button>
-            <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40" title="Download CV as PDF">
-              <Download size={15} /><span className="hidden lg:inline">Download</span>
-            </button>
-            <button
-              type="button"
-              disabled={!cv || saving}
-              onClick={() => { void handleSaveCv(documentTitle.trim() || `CV of ${cv?.document.fullName || "Candidate"}`).then(() => canvasRef.current?.focus()); }}
-              className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-slate-950 px-2 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 sm:gap-1.5 sm:px-2.5 md:px-3"
-              title="Save your CV and continue"
-            >
-              <Save size={14} /><span className="hidden md:inline">{saving ? "Saving…" : "Save"}</span>
-            </button>
-            <label className="hidden items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5 text-[11px] text-slate-600 sm:flex" title="Document locale">
-              <span className="sr-only">Language and locale</span>
-              <select value={documentLocale} onChange={(event) => setDocumentLocale(event.target.value)} className="max-w-24 bg-transparent text-xs outline-none">
-                <option value="en-GB">English (UK)</option>
-                <option value="en-ZA">English (SA)</option>
-                <option value="en-US">English (US)</option>
-              </select>
-            </label>
-          </div>
-        </div>
-        </div>,
-        commandHeaderHost,
-      ) : null}
       {/* Notifications / Toast */}
       {message ? (
         <div className="no-print pointer-events-none absolute right-4 top-2 z-50 rounded-lg border border-emerald-500/20 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-800 shadow-md">
@@ -5274,7 +5164,32 @@ export default function CvBuilderPage() {
 
       {/* Persistent split workstation: form remains in the left pane while the live paper preview stays on the right. */}
       <div className="cv-builder-workspace flex min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-100/70">
-          <aside className="no-print flex w-full min-w-0 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white p-4 pb-6 dark:border-slate-800 dark:bg-slate-950 lg:w-[460px] xl:w-[500px]">
+          <aside className="no-print flex w-full min-w-0 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white p-4 pb-6 dark:border-slate-800 dark:bg-slate-950 lg:w-[min(38vw,640px)] xl:w-[min(36vw,640px)]">
+            <div className="mb-4 flex w-full flex-wrap items-center gap-2">
+              <Link href="/dashboard" title="Back to saved CVs" aria-label="Back to saved CVs" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100">
+                <ChevronLeft size={18} />
+              </Link>
+              <input
+                type="text"
+                aria-label="CV document name"
+                value={documentTitle}
+                onChange={(event) => { documentTitleEditedRef.current = true; setDocumentTitle(event.target.value); }}
+                onBlur={() => { if (!documentTitle.trim()) setDocumentTitle("My CV"); }}
+                className="w-[4.5rem] min-w-0 max-w-32 border-none bg-transparent px-0 py-1 text-base font-bold text-slate-800 outline-none focus:ring-0 dark:text-slate-100"
+              />
+              <span className={`shrink-0 rounded-md px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${autoSaveStatus === "error" ? "bg-rose-50 text-rose-700" : saving ? "bg-slate-100 text-slate-500" : autoSaveStatus === "saved" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                {saving ? "Saving" : autoSaveStatus === "error" ? "Error" : autoSaveStatus === "saved" ? "Saved" : "Draft"}
+              </span>
+              <button type="button" onClick={() => openWizardStep(7)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700" title="Choose a template">
+                <Palette size={15} /><span className="hidden sm:inline">Template</span>
+              </button>
+              <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700" title="Open AI suggestions">
+                <Sparkles size={14} /><span className="hidden sm:inline">Suggestions</span><Crown size={12} className="text-amber-500" />
+              </button>
+              <button type="button" disabled={!cv || saving} onClick={() => { void handleSaveCv(documentTitle.trim() || "My CV").then(() => canvasRef.current?.focus()); }} className="ml-auto inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-black px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50" title="Save your CV">
+                <Save size={14} /><span>{saving ? "Saving…" : "Save"}</span>
+              </button>
+            </div>
             <div className="mb-5 grid grid-cols-8 gap-1.5" aria-label="CV Builder steps">
               {CV_WIZARD_STEPS.map((stepName, index) => {
                 const step = index + 1;
@@ -5994,35 +5909,26 @@ export default function CvBuilderPage() {
         {/* Pinned live preview panel. It is intentionally hidden below desktop width so the form remains usable. */}
         <main
           ref={canvasRef}
-          tabIndex={-1}
-          onScroll={(event) => {
-            const pageHeight = (canvasPageWidthPx / 210) * 297 * (zoomLevel / 100);
-            if (pageHeight > 0) setCurrentCanvasPage(Math.min(a4PageCount, Math.max(1, Math.floor((event.currentTarget.scrollTop + 16) / pageHeight) + 1)));
-          }}
-          className="relative hidden min-h-0 min-w-0 flex-1 flex-col items-center overflow-auto bg-slate-100/70 p-6 lg:flex"
+          className="relative hidden min-h-0 min-w-0 flex-1 flex-col overflow-auto bg-slate-100/70 lg:flex"
         >
+          <header className="no-print sticky top-0 z-20 flex w-full shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex min-w-0 items-center">
+              <span className="inline-flex shrink-0 items-center gap-2 text-xs font-bold tracking-widest text-slate-400 uppercase"><Eye size={14} /> PREVIEW</span>
+              <span className="ml-3 max-w-40 truncate rounded-full bg-slate-200/80 px-3 py-1 text-xs font-semibold uppercase text-slate-700">{TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "ATS template"}</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button type="button" onClick={() => setLocation("/cv-builder/import")} className="inline-flex min-h-10 items-center gap-2 rounded-2xl bg-slate-100 px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-200" title="Import an existing resume">
+                <FileUp size={15} /><span>Import Resume</span>
+              </button>
+              <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex min-h-10 items-center gap-2 rounded-2xl bg-black px-5 py-2.5 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50" title="Export PDF">
+                <Download size={15} /><span>Export PDF</span>
+              </button>
+            </div>
+          </header>
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
-            <div className="cv-a4-viewport relative">
-              <div className="no-print sticky top-2 z-30 mb-2 mr-2 flex max-w-[calc(100vw-1.5rem)] shrink-0 self-end items-center gap-0.5 overflow-x-auto rounded-2xl border border-white/70 bg-white/90 p-1 text-slate-700 shadow-lg shadow-slate-900/10 backdrop-blur-xl sm:top-3 sm:mr-3" role="toolbar" aria-label="Canvas preview and export controls">
-                <span className="inline-flex shrink-0 items-center gap-1.5 px-2 text-[10px] font-bold tracking-wide text-slate-600"><Eye size={13} /> PREVIEW</span>
-                <span className="hidden shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-slate-600 sm:inline-flex">{TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "ATS template"}</span>
-                <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-slate-200 sm:block" />
-                <button type="button" onClick={() => setLocation("/cv-builder/import")} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-semibold text-slate-600 hover:bg-slate-100" title="Import an existing resume">
-                  <FileUp size={14} /><span className="hidden sm:inline">Import Resume</span>
-                </button>
-                <button type="button" onClick={handleZoomOut} className="grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100" title="Zoom out" aria-label="Zoom out"><ZoomOut size={15} /></button>
-                <span className="min-w-10 text-center text-[10px] font-semibold tabular-nums">{Math.round(zoomLevel)}%</span>
-                <button type="button" onClick={handleZoomIn} className="grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100" title="Zoom in" aria-label="Zoom in"><ZoomIn size={15} /></button>
-                <button type="button" onClick={handleResetZoom} className="rounded-full px-2 py-1 text-[10px] font-semibold hover:bg-slate-100" title="Reset zoom to 100%">Reset</button>
-                <button type="button" onClick={handleFitCanvas} className="whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-semibold hover:bg-slate-100" title="Fit canvas to screen">Fit width</button>
-                <select aria-label="Choose CV template" value={selectedTemplate} onChange={(event) => handleTemplateChange(event.target.value)} className="max-w-28 rounded-full border-0 bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-800 outline-none focus:ring-2 focus:ring-indigo-200">
-                  {TEMPLATE_CATALOG.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-                </select>
-                <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-950 px-3 py-2 text-[10px] font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50" title="Export PDF">
-                  <Download size={13} /><span className="hidden sm:inline">Export PDF</span>
-                </button>
-              </div>
+            <div className="flex w-full flex-1 justify-center bg-slate-100/70 p-6">
+            <div className="cv-a4-viewport relative mx-auto">
                 <div
                 className="cv-zoom-outer"
                 style={{
@@ -7255,6 +7161,7 @@ export default function CvBuilderPage() {
                 </div>
               </div>
             </div>
+            </div>
           ) : (
             <div className="cv-a4-viewport relative">
               <div className="cv-a4-stack">
@@ -7271,15 +7178,6 @@ export default function CvBuilderPage() {
                 </article>
               </div>
             </div>
-          )}
-          {cv && (
-            <>
-              <div className="no-print absolute bottom-20 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-xs text-slate-600 shadow-md backdrop-blur md:bottom-4">
-                <button type="button" onClick={() => scrollToCanvasPage(currentCanvasPage - 1)} disabled={currentCanvasPage <= 1} className="px-1 font-semibold hover:text-slate-950 disabled:opacity-30" aria-label="Previous page">‹</button>
-                <span className="min-w-12 text-center font-medium">{currentCanvasPage} / {a4PageCount}</span>
-                <button type="button" onClick={() => scrollToCanvasPage(currentCanvasPage + 1)} disabled={currentCanvasPage >= a4PageCount} className="px-1 font-semibold hover:text-slate-950 disabled:opacity-30" aria-label="Next page">›</button>
-              </div>
-            </>
           )}
         </main>
 

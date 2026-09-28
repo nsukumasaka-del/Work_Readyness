@@ -2966,6 +2966,7 @@ export default function CvBuilderPage() {
   const handleGenerateFromIntake = async () => {
     setGeneratingFromIntake(true);
     setError("");
+    let importedDraftCommitted = false;
 
     const pendingFile = getSelectedIntakeFile();
     if (intakeTab === "upload" && !extractedData && !intakePasteText.trim() && pendingFile) {
@@ -3170,21 +3171,26 @@ export default function CvBuilderPage() {
       }
 
       setAgentStepIndex(2);
-      setAgentStepText("Formatting semantic ATS hierarchy and layout…");
+      setAgentStepText("Preparing your CV preview…");
 
-      const created = await generateCv({
-        structure: selectedTemplate,
-        extracted: extractedPayload,
-        regenerate: true,
-      });
-
-      setAgentStepIndex(3);
-      setAgentStepText("Finalizing CV canvas…");
-      await new Promise((r) => setTimeout(r, 500));
-
-      // Persist first so a remount/rehydration immediately sees the completed CV.
-      persistGeneratedCv(created);
+      // Hydrate the canvas from the parsed payload before making any network
+      // request. This makes the imported document immediately available on
+      // mobile and resilient to a route or WebView remount.
+      const importedDraft = buildLocalCvResponse(
+        { structure: selectedTemplate, extracted: extractedPayload },
+        {
+          name: mergedName,
+          email: mergedEmail,
+          phone: manualInput.phone.trim() || authProfile?.phone || "",
+          location: manualInput.location.trim() || authProfile?.location || "",
+          targetRole: manualInput.professionalTitle.trim() || authProfile?.targetRole || "",
+        },
+        "Imported CV details are ready to review.",
+      );
+      persistGeneratedCv(importedDraft);
+      setCv(importedDraft);
       hasGeneratedRef.current = true;
+      importedDraftCommitted = true;
       const currentUrl = new URL(window.location.href);
       currentUrl.searchParams.delete("intake");
       window.history.replaceState(
@@ -3192,16 +3198,10 @@ export default function CvBuilderPage() {
         "",
         `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`,
       );
-      setCv(created);
-      if (created.ai_feedback) {
-        setAiFeedback(created.ai_feedback);
-      } else if (created.document.aiFeedback) {
-        setAiFeedback(created.document.aiFeedback);
-      }
       setIsIntakeModalOpen(false);
       setIsPasteModalOpen(false);
       setIsExtractModalOpen(false);
-      setMobileWorkspaceView("edit");
+      setMobileWorkspaceView(window.innerWidth < 1025 ? "preview" : "edit");
       selectedFileRef.current = null;
       setSelectedUploadMeta(null);
       setUploadReadStatus("");
@@ -3218,13 +3218,35 @@ export default function CvBuilderPage() {
         ? "CV imported successfully! Review and edit the extracted data below, then save."
         : "Your modern ATS CV is ready! Use Templates to test layouts.");
       setTimeout(() => setMessage(""), 5000);
-      void runQualityEvaluation(created.document, jobDescription);
+      // Dismiss the blocking progress overlay now that a populated document is
+      // on screen; the server can finish enhancing it in the background.
+      setIsAgentWorking(false);
       window.requestAnimationFrame(() => {
         canvasRef.current?.focus({ preventScroll: true });
         canvasRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
+
+      const created = await generateCv({
+        structure: selectedTemplate,
+        extracted: extractedPayload,
+        regenerate: true,
+      });
+      persistGeneratedCv(created);
+      setCv(created);
+      if (created.ai_feedback) {
+        setAiFeedback(created.ai_feedback);
+      } else if (created.document.aiFeedback) {
+        setAiFeedback(created.document.aiFeedback);
+      }
+      void runQualityEvaluation(created.document, jobDescription);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not generate CV");
+      if (importedDraftCommitted) {
+        console.warn("CV enhancement could not complete; keeping the imported document preview.", err);
+        setMessage("Your CV is ready to review. Some AI enhancements could not be loaded.");
+        window.setTimeout(() => setMessage(""), 5000);
+      } else {
+        setError(err instanceof Error ? err.message : "Could not generate CV");
+      }
       // The standalone import page is already active. Reopening the intake
       // modal resets its view to Upload and appears to send users in a loop.
       if (routePath !== "/cv-builder/import") setIsIntakeModalOpen(true);

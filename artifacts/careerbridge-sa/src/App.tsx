@@ -668,15 +668,15 @@ function CareerGuideModal({
 function AppShell({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activeMobileDropdown, setActiveMobileDropdown] = useState<'resume' | 'tools' | null>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
+  const mobileDropdownRef = useRef<HTMLDivElement>(null);
   const [cvReady, setCvReady] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [logoutError, setLogoutError] = useState('');
   const [activeDropdown, setActiveDropdown] = useState<'resume' | 'tools' | null>(null);
   const [guideModalTopic, setGuideModalTopic] = useState<string | null>(null);
-  const [mobileResumeOpen, setMobileResumeOpen] = useState(true);
-  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const closeTimeoutRef = useRef<number | null>(null);
   const profileReady = Boolean(profile);
 
@@ -701,6 +701,7 @@ function AppShell({ children }: { children: ReactNode }) {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setActiveDropdown(null);
+        setActiveMobileDropdown(null);
         setGuideModalTopic(null);
         setMenuOpen(false);
       }
@@ -710,13 +711,16 @@ function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !activeMobileDropdown) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const closeOnOutside = (event: MouseEvent | TouchEvent) => {
       const target = event.target;
-      if (target instanceof Node && !mobileMenuRef.current?.contains(target)) {
+      const insideMenu = target instanceof Node && mobileMenuRef.current?.contains(target);
+      const insideDropdown = target instanceof Node && mobileDropdownRef.current?.contains(target);
+      if (!insideMenu && !insideDropdown) {
         setMenuOpen(false);
+        setActiveMobileDropdown(null);
       }
     };
     document.addEventListener('mousedown', closeOnOutside);
@@ -726,11 +730,12 @@ function AppShell({ children }: { children: ReactNode }) {
       document.removeEventListener('mousedown', closeOnOutside);
       document.removeEventListener('touchstart', closeOnOutside);
     };
-  }, [menuOpen]);
+  }, [menuOpen, activeMobileDropdown]);
 
   useEffect(() => {
     setActiveDropdown(null);
     setMenuOpen(false);
+    setActiveMobileDropdown(null);
     // Always land at the top of the new route (fixes empty screen after long pages like Diagnostic)
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [location]);
@@ -1189,26 +1194,30 @@ function AppShell({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={() => {
-                setMobileResumeOpen(true);
-                setMobileToolsOpen(false);
-                setMenuOpen(true);
+                setMenuOpen(false);
+                setActiveMobileDropdown((current) => current === 'resume' ? null : 'resume');
               }}
-              className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted md:hidden"
+              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted md:hidden"
               aria-label="Open Resume navigation"
+              aria-haspopup="menu"
+              aria-expanded={activeMobileDropdown === 'resume'}
             >
               Resume
+              <ChevronDown size={13} className={`transition-transform ${activeMobileDropdown === 'resume' ? 'rotate-180' : ''}`} />
             </button>
             <button
               type="button"
               onClick={() => {
-                setMobileResumeOpen(false);
-                setMobileToolsOpen(true);
-                setMenuOpen(true);
+                setMenuOpen(false);
+                setActiveMobileDropdown((current) => current === 'tools' ? null : 'tools');
               }}
-              className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted md:hidden"
+              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted md:hidden"
               aria-label="Open Tools navigation"
+              aria-haspopup="menu"
+              aria-expanded={activeMobileDropdown === 'tools'}
             >
               Tools
+              <ChevronDown size={13} className={`transition-transform ${activeMobileDropdown === 'tools' ? 'rotate-180' : ''}`} />
             </button>
               <Link href="/pricing" className="hidden rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 p-[1px] shadow-sm shadow-indigo-500/20 sm:inline-flex" data-testid="link-header-upgrade">
                 <span className="rounded-full bg-background px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-950/60">Go Pro</span>
@@ -1237,7 +1246,10 @@ function AppShell({ children }: { children: ReactNode }) {
             </div>
             <button
               className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-card xl:hidden"
-              onClick={() => setMenuOpen(!menuOpen)}
+              onClick={() => {
+                setActiveMobileDropdown(null);
+                setMenuOpen((open) => !open);
+              }}
               data-testid="button-mobile-menu"
               aria-label="Toggle navigation"
               aria-expanded={menuOpen}
@@ -1247,299 +1259,103 @@ function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        {/* Mobile Enhancv-Style Accordion Menu */}
+        {/* Mobile account and general navigation menu */}
         {menuOpen && typeof document !== 'undefined' && createPortal((
           <>
-          <button
-            type="button"
-            className="fixed inset-x-0 bottom-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-[100] bg-slate-950/40 backdrop-blur-[2px] xl:hidden"
-            onClick={() => setMenuOpen(false)}
-            aria-label="Close navigation menu"
-          />
-          <div
-            ref={mobileMenuRef}
-            onClickCapture={(event) => {
-              const target = event.target;
-              if (target instanceof Element && target.closest('a, button') && !target.closest('[data-mobile-menu-stay-open]')) {
-                setMenuOpen(false);
-              }
-            }}
-            className="fixed left-4 right-4 top-[calc(3.5rem+env(safe-area-inset-top))] z-[101] mx-auto max-h-[calc(100dvh-5rem-env(safe-area-inset-top))] max-w-lg overflow-y-auto rounded-2xl border border-border bg-card px-4 py-4 shadow-2xl xl:hidden animate-in fade-in slide-in-from-top-2 duration-200"
-          >
-            {/* Resume Accordion */}
-            <div className="border-b border-border/70 pb-3">
-              <button
-                type="button"
-                onClick={() => setMobileResumeOpen(!mobileResumeOpen)}
-                data-mobile-menu-stay-open
-                className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm font-bold text-foreground"
-              >
-                <span>Resume</span>
-                <ChevronDown
-                  size={16}
-                  className={`transition-transform duration-200 ${mobileResumeOpen ? 'rotate-180' : ''}`}
-                />
-              </button>
-              {mobileResumeOpen && (
-                <div className="mt-2 space-y-3 pl-2">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Tools</p>
-                  <div className="space-y-1">
-                    <Link
-                      href="/cv-builder?intake=1"
-                      onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
-                    >
-                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                        <Sparkles size={16} />
-                      </div>
-                      <div>
-                        <div className="font-semibold text-foreground">AI Resume Builder</div>
-                        <div className="text-xs text-muted-foreground">Helps you to land interviews</div>
-                      </div>
-                    </Link>
-
-                    <Link
-                      href="/diagnostic"
-                      onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
-                    >
-                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                        <FileCheck2 size={16} />
-                      </div>
-                      <div>
-                        <div className="font-semibold text-foreground">Resume Checker</div>
-                        <div className="text-xs text-muted-foreground">Is your resume good enough?</div>
-                      </div>
-                    </Link>
-
-                    <Link
-                      href="/cv-builder/templates"
-                      onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
-                    >
-                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                        <Layers size={16} />
-                      </div>
-                      <div>
-                        <div className="font-semibold text-foreground">Resume Templates</div>
-                        <div className="text-xs text-muted-foreground">Free and premium templates</div>
-                      </div>
-                    </Link>
-
-                    <Link
-                      href="/cv-builder?intake=1"
-                      onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
-                    >
-                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                        <FileText size={16} />
-                      </div>
-                      <div>
-                        <div className="font-semibold text-foreground">Resume Examples</div>
-                        <div className="text-xs text-muted-foreground">Generate or explore</div>
-                      </div>
-                    </Link>
-                  </div>
-
-                  <p className="pt-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Learning</p>
-                  <div className="space-y-1 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        setGuideModalTopic('how-to-write-a-resume');
-                      }}
-                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
-                    >
-                      How to write a resume
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        setGuideModalTopic('resume-format');
-                      }}
-                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
-                    >
-                      Choosing a resume format
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        setGuideModalTopic('resume-summary');
-                      }}
-                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
-                    >
-                      Writing a resume summary
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        setGuideModalTopic('one-page-resume');
-                      }}
-                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
-                    >
-                      Fit your experience on one page
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Tools Accordion */}
-            <div className="border-b border-border/70 py-3">
-              <button
-                type="button"
-                onClick={() => setMobileToolsOpen(!mobileToolsOpen)}
-                data-mobile-menu-stay-open
-                className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm font-bold text-foreground"
-              >
-                <span>Tools</span>
-                <ChevronDown
-                  size={16}
-                  className={`transition-transform duration-200 ${mobileToolsOpen ? 'rotate-180' : ''}`}
-                />
-              </button>
-              {mobileToolsOpen && (
-                <div className="mt-2 space-y-3 pl-2">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Job Search</p>
-                  <div className="space-y-1">
-                    <Link
-                      href="/interview"
-                      onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
-                    >
-                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400">
-                        <Bot size={16} />
-                      </div>
-                      <div>
-                        <div className="font-semibold text-foreground">Interview Help</div>
-                        <div className="text-xs text-muted-foreground">Practice with AI mock interviews</div>
-                      </div>
-                    </Link>
-
-                    <Link
-                      href="/jobs"
-                      onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
-                    >
-                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                        <BriefcaseBusiness size={16} />
-                      </div>
-                      <div>
-                        <div className="font-semibold text-foreground">Job Matches</div>
-                        <div className="text-xs text-muted-foreground">Find roles that match you</div>
-                      </div>
-                    </Link>
-
-                    <Link
-                      href="/coaching"
-                      onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
-                    >
-                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400">
-                        <HeartHandshake size={16} />
-                      </div>
-                      <div>
-                        <div className="font-semibold text-foreground">Career Coaching</div>
-                        <div className="text-xs text-muted-foreground">1-on-1 personalized mentorship</div>
-                      </div>
-                    </Link>
-
-                    <Link
-                      href="/programme"
-                      onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-muted"
-                    >
-                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                        <ClipboardCheck size={16} />
-                      </div>
-                      <div>
-                        <div className="font-semibold text-foreground">Work Readiness Programme</div>
-                        <div className="text-xs text-muted-foreground">Structured pathway to employment</div>
-                      </div>
-                    </Link>
-                  </div>
-
-                  <p className="pt-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Learning</p>
-                  <div className="space-y-1 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        setGuideModalTopic('interview-tips');
-                      }}
-                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
-                    >
-                      Job Interview Guides
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        setGuideModalTopic('sa-trends');
-                      }}
-                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
-                    >
-                      Career Resources
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        setGuideModalTopic('salary-insights');
-                      }}
-                      className="block w-full rounded-md px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted"
-                    >
-                      Job Interview Questions
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Pricing Link in Mobile */}
-            <Link href="/my-resumes" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-foreground hover:bg-muted"><Layers size={16} /> My Resumes</Link>
-            <div className="py-2">
-              <Link
-                href="/pricing"
-                onClick={() => setMenuOpen(false)}
-                className="flex items-center justify-between rounded-lg px-2 py-2 text-sm font-bold text-foreground hover:bg-muted"
-              >
-                <span>Pricing</span>
-              </Link>
-            </div>
-
-            {!inNativeApp ? (
-            <div className="py-2">
-              <button
-                type="button"
-                onClick={() => {
+            <button
+              type="button"
+              className="fixed inset-x-0 bottom-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-[100] bg-slate-950/40 backdrop-blur-[2px] xl:hidden"
+              onClick={() => setMenuOpen(false)}
+              aria-label="Close navigation menu"
+            />
+            <div
+              ref={mobileMenuRef}
+              onClickCapture={(event) => {
+                const target = event.target;
+                if (target instanceof Element && target.closest('a, button') && !target.closest('[data-mobile-menu-stay-open]')) {
                   setMenuOpen(false);
-                  triggerAndroidApkDownload();
-                }}
-                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-bold text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300"
-                data-testid="link-mobile-download-apk"
-              >
-                <Smartphone size={16} />
-                <span>Download Android APK</span>
-              </button>
+                }
+              }}
+              className="fixed left-4 right-4 top-[calc(4rem+env(safe-area-inset-top))] z-[101] mx-auto flex max-h-[min(78vh,42rem)] max-w-lg flex-col gap-3 overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-2xl xl:hidden"
+              aria-label="Account and app navigation"
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-foreground">Account & BonList</p>
+                <button type="button" onClick={() => setMenuOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="Close menu"><X size={18} /></button>
+              </div>
+              <nav className="grid gap-1" aria-label="General navigation">
+                <Link href="/my-resumes" className="rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted">My Resumes</Link>
+                <Link href="/pricing" className="rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted">Pricing</Link>
+                {!inNativeApp && <button type="button" onClick={() => triggerAndroidApkDownload()} className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-medium text-foreground hover:bg-muted"><Smartphone size={17} />Download Android APK</button>}
+              </nav>
+              <div className="border-t border-border pt-3">
+                <HeaderAuthActions profileReady={profileReady} profile={profile} isAdmin={isAdmin} onLogout={handleLogout} compact />
+              </div>
             </div>
-            ) : null}
+          </>
+        ), document.body)}
 
-            {/* Candidate Auth / Profile Actions */}
-            <div className="mt-4 border-t border-border pt-4">
-              <HeaderAuthActions
-                profileReady={profileReady}
-                profile={profile}
-                isAdmin={isAdmin}
-                onLogout={handleLogout}
-                compact
-              />
+        {/* Independent mobile Resume and Tools dropdowns */}
+        {activeMobileDropdown && typeof document !== 'undefined' && createPortal((
+          <>
+            <button
+              type="button"
+              className="fixed inset-x-0 bottom-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-[100] bg-slate-950/35 backdrop-blur-[1px] md:hidden"
+              onClick={() => setActiveMobileDropdown(null)}
+              aria-label="Close navigation dropdown"
+            />
+            <div
+              ref={mobileDropdownRef}
+              onClickCapture={(event) => {
+                const target = event.target;
+                if (target instanceof Element && target.closest('a, button')) setActiveMobileDropdown(null);
+              }}
+              className="fixed left-3 right-3 top-[calc(4rem+env(safe-area-inset-top))] z-[101] mx-auto max-h-[min(78vh,42rem)] max-w-lg overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-2xl md:hidden"
+              aria-label={activeMobileDropdown === 'resume' ? 'Resume navigation' : 'Tools navigation'}
+              role="menu"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{activeMobileDropdown === 'resume' ? 'Resume' : 'Tools'}</p>
+                  <h2 className="mt-1 text-base font-bold text-foreground">{activeMobileDropdown === 'resume' ? 'Resume resources' : 'Career tools'}</h2>
+                </div>
+                <button type="button" onClick={() => setActiveMobileDropdown(null)} className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="Close dropdown"><X size={18} /></button>
+              </div>
+              {activeMobileDropdown === 'resume' ? (
+                <div className="grid gap-5">
+                  <section>
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Tools</p>
+                    <div className="grid gap-1">
+                      <Link role="menuitem" href="/cv-builder?intake=1" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">AI Resume Builder</Link>
+                      <Link role="menuitem" href="/diagnostic" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Resume Checker</Link>
+                      <Link role="menuitem" href="/cv-builder/templates" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Resume Templates</Link>
+                      <Link role="menuitem" href="/cv-builder?intake=1" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Resume Examples</Link>
+                    </div>
+                  </section>
+                  <section>
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Learning</p>
+                    <div className="grid gap-1">
+                      <button role="menuitem" type="button" onClick={() => setGuideModalTopic('how-to-write-a-resume')} className="rounded-xl px-3 py-2.5 text-left text-sm font-medium text-foreground hover:bg-muted">How to write a resume</button>
+                      <button role="menuitem" type="button" onClick={() => setGuideModalTopic('resume-format')} className="rounded-xl px-3 py-2.5 text-left text-sm font-medium text-foreground hover:bg-muted">Choosing a resume format</button>
+                      <button role="menuitem" type="button" onClick={() => setGuideModalTopic('resume-summary')} className="rounded-xl px-3 py-2.5 text-left text-sm font-medium text-foreground hover:bg-muted">Writing a resume summary</button>
+                      <button role="menuitem" type="button" onClick={() => setGuideModalTopic('one-page-resume')} className="rounded-xl px-3 py-2.5 text-left text-sm font-medium text-foreground hover:bg-muted">Fit your experience on one page</button>
+                    </div>
+                  </section>
+                </div>
+              ) : (
+                <section>
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Career utilities</p>
+                  <div className="grid gap-1">
+                    <Link role="menuitem" href="/diagnostic" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">CV Diagnostic</Link>
+                    <Link role="menuitem" href="/diagnostic" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">ATS Optimizer</Link>
+                    <Link role="menuitem" href="/cv-builder?intake=1" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Cover Letter Generator</Link>
+                    <Link role="menuitem" href="/jobs" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Job Matcher</Link>
+                    <Link role="menuitem" href="/interview" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Interview Prep</Link>
+                    <Link role="menuitem" href="/coaching" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Career Coaching</Link>
+                  </div>
+                </section>
+              )}
             </div>
-          </div>
           </>
         ), document.body)}
       </header>

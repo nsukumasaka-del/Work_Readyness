@@ -95,6 +95,66 @@ const CV_WIZARD_STEPS = [
 const MAX_BULLETS_PER_ROLE = 12;
 const MAX_BULLET_CHARS = 280;
 
+const MODERN_COLOR_RE = /(?:oklab|oklch|color-mix)\s*\(/i;
+
+function normalizeCanvasColor(value: string, fallback: string): string {
+  if (!MODERN_COLOR_RE.test(value)) return value;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return fallback;
+    const marker = "#010203";
+    context.fillStyle = marker;
+    context.fillStyle = value;
+    // Unsupported values leave fillStyle unchanged; do not mistake that for a conversion.
+    if (context.fillStyle === marker) return fallback;
+    context.fillRect(0, 0, 1, 1);
+    const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data;
+    return `rgba(${red}, ${green}, ${blue}, ${(alpha / 255).toFixed(3)})`;
+  } catch {
+    return fallback;
+  }
+}
+
+function sanitizeStylesForCanvas(clonedDoc: Document) {
+  const view = clonedDoc.defaultView ?? window;
+  const colorProperties = [
+    "color", "background-color", "border-top-color", "border-right-color",
+    "border-bottom-color", "border-left-color", "outline-color", "text-decoration-color",
+    "text-emphasis-color", "column-rule-color", "caret-color", "fill", "stroke",
+  ];
+  const colorFallback = (property: string) => property === "color"
+    ? "rgb(15, 23, 42)"
+    : property === "background-color"
+      ? "rgb(255, 255, 255)"
+      : property === "fill" || property === "stroke"
+        ? "rgb(15, 23, 42)"
+        : "rgb(226, 232, 240)";
+
+  clonedDoc.querySelectorAll("*").forEach((element) => {
+    const computed = view.getComputedStyle(element);
+    const styledElement = element as Element & { style: CSSStyleDeclaration };
+    colorProperties.forEach((property) => {
+      const value = computed.getPropertyValue(property);
+      if (value && MODERN_COLOR_RE.test(value)) {
+        styledElement.style.setProperty(property, normalizeCanvasColor(value, colorFallback(property)), "important");
+      }
+    });
+
+    // These properties can contain color functions nested inside gradients or
+    // compound shadow syntax. Drop only the affected decoration if it cannot
+    // be represented as a plain browser-resolved color.
+    ["background-image", "border-image-source", "mask-image", "box-shadow", "text-shadow"].forEach((property) => {
+      const value = computed.getPropertyValue(property);
+      if (value && MODERN_COLOR_RE.test(value)) {
+        styledElement.style.setProperty(property, "none", "important");
+      }
+    });
+  });
+}
+
 const PDF_JUNK_RE =
   /\b(?:\d+\s+\d+\s+obj|endobj|endstream|stream\b|xref\b|trailer\b|startxref|\/Type\s*\/|\/Filter\s*\/|\/Length\s+\d+|<<|>>)\b/i;
 const UI_PLACEHOLDER_RE =
@@ -4854,7 +4914,11 @@ export default function CvBuilderPage() {
         margin: 0,
         filename: `${safeBaseName}_${safeTemplateName}.pdf`,
         image: { type: "jpeg" as const, quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false, scrollX: 0, scrollY: 0, windowWidth: 794, backgroundColor: "#ffffff" },
+        html2canvas: {
+          scale: 2, useCORS: true, logging: false, scrollX: 0, scrollY: 0,
+          windowWidth: 794, backgroundColor: "#ffffff",
+          onclone: (clonedDoc: Document) => sanitizeStylesForCanvas(clonedDoc),
+        },
         jsPDF: { unit: "mm" as const, format: "a4", orientation: "portrait" as const },
         pagebreak: { mode: ["css", "legacy"], avoid: [".experience-item", ".education-item", "li", "header", ".cv-section-heading", "h2", "h3"] },
       };

@@ -81,6 +81,7 @@
     "@capacitor/preferences": "^7.0.4",
     "@capgo/capacitor-updater": "^7.51.23",
     "@simplewebauthn/browser": "^14.0.0",
+    "html2pdf.js": "^0.14.0",
     "jszip": "3.10.2",
     "pdfjs-dist": "^6.3.289"
   }

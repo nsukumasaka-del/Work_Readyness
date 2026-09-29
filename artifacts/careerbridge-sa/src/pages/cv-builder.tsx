@@ -2381,6 +2381,7 @@ export default function CvBuilderPage() {
   const [preFlightReport, setPreFlightReport] = useState<PreFlightAuditReport | null>(null);
   const [isPreFlightModalOpen, setIsPreFlightModalOpen] = useState(false);
   const [preFlightLoading, setPreFlightLoading] = useState(false);
+  const [isPdfDownloading, setIsPdfDownloading] = useState(false);
   const [pendingDownloadAction, setPendingDownloadAction] = useState<"print" | "html" | "txt" | "doc" | null>(null);
 
   // Career Positioning Engine (Section 30)
@@ -4779,55 +4780,95 @@ export default function CvBuilderPage() {
     setTimeout(() => setMessage(""), 3000);
   };
 
-  /**
-   * Prints the on-canvas CV (selected template + colours) so Save as PDF
-   * matches exactly what the user sees on the workstation.
-   */
-  const executeDownloadPdf = (options?: { onReady?: () => void }) => {
+  /** Generate the selected CV design directly from a live DOM clone. */
+  const executeDownloadPdf = async (options?: { onReady?: () => void }) => {
     if (!cv || !printRef.current) {
       setError("Generate a CV and keep it open on the canvas before downloading PDF.");
       options?.onReady?.();
       return;
     }
-    // Ensure canvas content is cleaned before print/PDF
+    setIsPdfDownloading(true);
+    let exportHost: HTMLDivElement | null = null;
+    // Ensure canvas content is cleaned before export.
     const cleaned = sanitizeCvDocument(cv.document);
     if (JSON.stringify(cleaned) !== JSON.stringify(cv.document)) {
       const updated = { ...cv, document: cleaned };
       setCv(updated);
       persistGeneratedCv(updated);
     }
-    const previousZoom = zoomLevel;
-    const previousDocumentTitle = document.title;
-    const safePdfName = (documentTitle.trim() || `CV of ${cleaned.fullName || "Candidate"}`)
-      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
-      .replace(/\s+/g, "_");
-    document.title = `${safePdfName}.pdf`;
-    const restoreDocumentTitle = () => {
-      document.title = previousDocumentTitle;
-      window.removeEventListener("afterprint", restoreDocumentTitle);
-    };
-    window.addEventListener("afterprint", restoreDocumentTitle, { once: true });
-    setZoomLevel(100);
-    const runPrint = () => {
-      try {
-        if (printRef.current) {
-          printRef.current
-            .querySelectorAll<HTMLTextAreaElement>("textarea")
-            .forEach((el) => fitTextareaHeight(el));
-        }
-        window.print();
-        setMessage("Choose “Save as PDF” in the print dialog to download your final CV.");
-        setTimeout(() => setMessage(""), 5000);
-        options?.onReady?.();
-      } catch {
-        restoreDocumentTitle();
-        setError("Could not open the print dialog. Allow printing for this site and try again.");
-        options?.onReady?.();
-      } finally {
-        setZoomLevel(previousZoom);
-      }
-    };
-    window.setTimeout(runPrint, 100);
+    try {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const source = printRef.current;
+      if (!source) throw new Error("CV preview is not available for export.");
+
+      // html2canvas cannot capture display:none or unmounted previews. Mount a
+      // visible, fixed-width clone off-screen so export works from every view.
+      exportHost = document.createElement("div");
+      exportHost.setAttribute("aria-hidden", "true");
+      Object.assign(exportHost.style, {
+        position: "absolute", left: "-10000px", top: "0", width: "794px",
+        minHeight: "297mm", overflow: "visible", background: "#ffffff",
+        pointerEvents: "none", zIndex: "-1",
+      });
+      const clone = source.cloneNode(true) as HTMLDivElement;
+      clone.removeAttribute("inert");
+      Object.assign(clone.style, {
+        display: "block", position: "static", left: "auto", top: "auto",
+        width: "210mm", maxWidth: "210mm", minHeight: "297mm", height: "auto",
+        margin: "0", transform: "none", overflow: "visible", boxShadow: "none",
+        border: "0", backgroundColor: "#ffffff",
+      });
+      clone.querySelectorAll(".no-print, .cv-page-guides, .cv-page-guide, .cv-page-guide-label, .cv-page-badge, .contextual-action-bar, .floating-actions").forEach((node) => node.remove());
+
+      // Form controls are the editable canvas. Convert their live values to
+      // ordinary text nodes so the rasterizer captures exactly what is shown.
+      clone.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea").forEach((field) => {
+        const text = field.value;
+        const replacement = document.createElement(field instanceof HTMLTextAreaElement ? "div" : "span");
+        replacement.className = field.className;
+        replacement.textContent = text;
+        const computed = window.getComputedStyle(field);
+        ["fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing", "textAlign", "color", "padding", "margin", "width", "minHeight", "whiteSpace", "overflowWrap"].forEach((property) => {
+          const value = computed.getPropertyValue(property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`));
+          if (value) replacement.style.setProperty(property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`), value);
+        });
+        if (field instanceof HTMLTextAreaElement) replacement.style.whiteSpace = "pre-wrap";
+        field.replaceWith(replacement);
+      });
+      clone.querySelectorAll<HTMLElement>(".experience-item, .education-item, li, header, .cv-section-heading, h2, h3").forEach((node) => {
+        node.style.breakInside = "avoid";
+        node.style.pageBreakInside = "avoid";
+      });
+      exportHost.appendChild(clone);
+      document.body.appendChild(exportHost);
+      await document.fonts.ready;
+
+      const html2pdfModule = await import("html2pdf.js");
+      const html2pdf = html2pdfModule.default;
+      const safeBaseName = (documentTitle.trim() || `CV of ${cleaned.fullName || "Candidate"}`)
+        .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
+        .trim().replace(/\s+/g, "_");
+      const templateName = TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "CV";
+      const safeTemplateName = templateName.replace(/[^a-z0-9_-]/gi, "_");
+      const pdfOptions = {
+        margin: 0,
+        filename: `${safeBaseName}_${safeTemplateName}.pdf`,
+        image: { type: "jpeg" as const, quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false, scrollX: 0, scrollY: 0, windowWidth: 794, backgroundColor: "#ffffff" },
+        jsPDF: { unit: "mm" as const, format: "a4", orientation: "portrait" as const },
+        pagebreak: { mode: ["css", "legacy"], avoid: [".experience-item", ".education-item", "li", "header", ".cv-section-heading", "h2", "h3"] },
+      };
+      await html2pdf().set(pdfOptions).from(clone).save();
+      setMessage("Your PDF CV has been downloaded.");
+      setTimeout(() => setMessage(""), 4000);
+    } catch (exportError) {
+      console.error("[CV PDF export error]", exportError);
+      setError(exportError instanceof Error ? `PDF generation failed: ${exportError.message}` : "PDF generation failed. Please try again.");
+    } finally {
+      exportHost?.remove();
+      setIsPdfDownloading(false);
+      options?.onReady?.();
+    }
   };
 
   const handleConfirmPreFlightDownload = async () => {
@@ -4844,7 +4885,7 @@ export default function CvBuilderPage() {
 
     // Start download/print immediately — close the modal as the download begins, not before
     if (action === "print") {
-      executeDownloadPdf({ onReady: finish });
+      void executeDownloadPdf({ onReady: finish });
       return;
     }
     try {
@@ -8903,9 +8944,11 @@ export default function CvBuilderPage() {
                   <button
                     type="button"
                     onClick={handleConfirmPreFlightDownload}
-                    className="rounded-xl bg-primary px-5 py-2 text-xs font-bold text-primary-foreground hover:opacity-90"
+                    disabled={isPdfDownloading}
+                    aria-busy={isPdfDownloading}
+                    className="rounded-xl bg-primary px-5 py-2 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
                   >
-                    Download Final CV
+                    {isPdfDownloading ? "Generating PDF…" : "Download Final CV"}
                   </button>
                 </div>
               </div>

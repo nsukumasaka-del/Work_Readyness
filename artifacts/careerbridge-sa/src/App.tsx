@@ -78,6 +78,7 @@ import {
   isAdminUser as isAuthAdminUser,
   persistAdminAccess,
   persistProfile,
+  persistSessionToken,
   readApiJson,
   readProfile,
   shouldShowSecurityNudge,
@@ -3666,34 +3667,46 @@ function ProtectedApp() {
       }
 
       const hasSavedToken = Boolean(getSessionToken() || getAdminToken());
-      if (!hasSavedToken) {
-        clearAuthSession();
-        queryClient.clear();
-        setLocation(`/login?returnTo=${encodeURIComponent(location)}`);
-        return;
-      }
-
       const endpoints = ['/api/career/auth/me', '/api/auth/me'];
       let lastError: unknown = null;
+      let rejectedSession = false;
+      let verificationUnavailable = false;
 
       for (const endpoint of endpoints) {
         try {
           const response = await authFetch(endpoint);
           if (response.status === 401 || response.status === 403) {
+            rejectedSession = true;
             lastError = new Error('Session expired');
             continue;
           }
-          if (!response.ok) throw new Error('Session check failed');
-          const profile = await response.json() as UserProfile & { isAdmin?: boolean; adminToken?: string };
+          if (!response.ok) {
+            verificationUnavailable = true;
+            throw new Error('Session check failed');
+          }
+          const profile = await response.json() as UserProfile & {
+            authenticated?: boolean;
+            token?: string;
+            sessionToken?: string;
+            isAdmin?: boolean;
+            adminToken?: string;
+          };
+          if (profile.authenticated === false) {
+            rejectedSession = true;
+            lastError = new Error('Session expired');
+            continue;
+          }
           if (!profile.id || !profile.email) throw new Error('Invalid session response');
+          const hydratedToken = profile.sessionToken || profile.token;
+          if (hydratedToken) persistSessionToken(hydratedToken);
           const storedProfile = readProfile();
           if (!storedProfile || storedProfile.email.toLowerCase() !== profile.email.toLowerCase()) {
             sessionStorage.removeItem(REPORT_KEY);
             sessionStorage.removeItem('bonlist-report');
             sessionStorage.removeItem(SELECTED_JOB_KEY);
             queryClient.clear();
-            persistProfile(profile);
           }
+          persistProfile(profile);
           if (profile.isAdmin && profile.adminToken && getAdminToken() !== profile.adminToken) {
             persistAdminAccess(profile.adminToken, true);
           } else if (profile.isAdmin === false && isAuthAdminUser()) {
@@ -3702,22 +3715,35 @@ function ProtectedApp() {
           if (current) setAccess({ location, check, status: 'allowed' });
           return;
         } catch (error) {
+          if (!(error instanceof Error && error.message === 'Session expired')) {
+            verificationUnavailable = true;
+          }
           lastError = error;
         }
       }
 
       if (!current) return;
       if (hasSavedToken) {
-        if (current) setAccess({ location, check, status: 'allowed' });
+        if (rejectedSession && !verificationUnavailable) {
+          clearAuthSession();
+          queryClient.clear();
+          setLocation(`/login?returnTo=${encodeURIComponent(location)}`);
+          return;
+        }
+        setAccess({ location, check, status: 'allowed' });
         return;
       }
-      if (lastError) {
+      if (rejectedSession && !verificationUnavailable) {
         clearAuthSession();
         queryClient.clear();
         setLocation(`/login?returnTo=${encodeURIComponent(location)}`);
         return;
       }
-      setAccess({ location, check, status: 'unavailable' });
+      if (lastError) {
+        setAccess({ location, check, status: 'unavailable' });
+        return;
+      }
+      setLocation(`/login?returnTo=${encodeURIComponent(location)}`);
     };
 
     void verifySession();

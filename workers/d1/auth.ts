@@ -132,7 +132,8 @@ function readBearer(request: Request): string | null {
 }
 
 function readSessionToken(request: Request): string | null {
-  return readBearer(request) || parseCookies(request.headers.get("cookie"))[SESSION_COOKIE] || null;
+  const cookies = parseCookies(request.headers.get("cookie"));
+  return readBearer(request) || cookies[SESSION_COOKIE] || cookies.session_token || cookies.session || null;
 }
 
 export function sessionCookie(token: string, expiresAt: Date, secure: boolean, request?: Request, rememberMe = true): string {
@@ -545,10 +546,14 @@ export async function handleMe(request: Request, env: D1Env): Promise<Response> 
 
   const user = resolved.user;
   return json(
-    toAuthPayload(user, token, {
-      adminToken: user.is_admin ? token : undefined,
-      isPrimaryAdmin: Boolean(user.is_admin),
-    }),
+    {
+      authenticated: true,
+      token,
+      ...toAuthPayload(user, token, {
+        adminToken: user.is_admin ? token : undefined,
+        isPrimaryAdmin: Boolean(user.is_admin),
+      }),
+    },
   );
 }
 

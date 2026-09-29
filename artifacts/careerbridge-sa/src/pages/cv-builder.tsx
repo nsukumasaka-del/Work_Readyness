@@ -2271,6 +2271,7 @@ export default function CvBuilderPage() {
 
   // Export Menu State
   const [showExportDropdown, setShowExportDropdown] = useState(false);
+  const [isExportFormatModalOpen, setIsExportFormatModalOpen] = useState(false);
 
   // CV Strategic Advisor State
   const [advisorQuestion, setAdvisorQuestion] = useState("");
@@ -4731,21 +4732,28 @@ export default function CvBuilderPage() {
     setTimeout(() => setMessage(""), 3000);
   };
 
-  // Word Document (.doc) Export
-  const executeDownloadDoc = () => {
+  // Word-compatible DOCX export, carrying the same styled HTML as the CV renderer.
+  const executeDownloadDoc = async () => {
     if (!cv) return;
     const clean = sanitizeCvDocument(cv.document);
     const html = generateSemanticHtml(clean, selectedColor, selectedFont, selectedTemplate);
-    const blob = new Blob(["\ufeff", html], { type: "application/msword;charset=utf-8" });
+    const JSZip = (await import("jszip")).default;
+    const zip = new JSZip();
+    zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="html" ContentType="application/xhtml+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`);
+    zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="document" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`);
+    zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:altChunk r:id="htmlChunk"/><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720"/></w:sectPr></w:body></w:document>`);
+    zip.file("word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="htmlChunk" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk" Target="afchunk.html"/></Relationships>`);
+    zip.file("word/afchunk.html", html);
+    const blob = await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", compression: "DEFLATE", compressionOptions: { level: 6 } });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${(cv.document.fullName || "BonList_CV").replace(/\s+/g, "_")}_CV_BonList.doc`;
+    a.download = `${(cv.document.fullName || "BonList_CV").replace(/\s+/g, "_")}_CV_BonList.docx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    setMessage("Word CV downloaded.");
+    setMessage("Word (.docx) CV downloaded.");
     setTimeout(() => setMessage(""), 3000);
   };
 
@@ -4800,7 +4808,7 @@ export default function CvBuilderPage() {
     window.setTimeout(runPrint, 100);
   };
 
-  const handleConfirmPreFlightDownload = () => {
+  const handleConfirmPreFlightDownload = async () => {
     const action = pendingDownloadAction;
     if (!action) {
       setIsPreFlightModalOpen(false);
@@ -4817,14 +4825,33 @@ export default function CvBuilderPage() {
       executeDownloadPdf({ onReady: finish });
       return;
     }
-    if (action === "html") {
-      executeDownloadHtml();
-    } else if (action === "txt") {
-      executeDownloadTxt();
-    } else if (action === "doc") {
-      executeDownloadDoc();
+    try {
+      if (action === "html") {
+        executeDownloadHtml();
+      } else if (action === "txt") {
+        executeDownloadTxt();
+      } else if (action === "doc") {
+        await executeDownloadDoc();
+      }
+    } catch (downloadError) {
+      console.error("[CV export error]", downloadError);
+      setError("The CV export could not be prepared. Please try again.");
+    } finally {
+      finish();
     }
-    finish();
+  };
+
+  const openExportFormatModal = () => {
+    if (!cv) {
+      setError("Generate or load a CV before downloading.");
+      return;
+    }
+    setIsExportFormatModalOpen(true);
+  };
+
+  const selectExportFormat = (action: "print" | "doc") => {
+    setIsExportFormatModalOpen(false);
+    handleDirectDownload(action);
   };
 
   const handleDirectDownload = (action: "print" | "html" | "txt" | "doc") => {
@@ -5237,7 +5264,7 @@ export default function CvBuilderPage() {
       gesture.startPan = canvasPan;
       gesture.startDistance = Math.hypot(second.x - first.x, second.y - first.y);
       const origin = event.currentTarget.parentElement?.getBoundingClientRect() || event.currentTarget.getBoundingClientRect();
-      gesture.startPoint = { x: (first.x + second.x) / 2 - origin.left, y: (first.y + second.y) / 2 - origin.top };
+      gesture.startPoint = { x: origin.width / 2, y: 0 };
     } else if (zoomLevel > 100) {
       event.currentTarget.setPointerCapture(event.pointerId);
       gesture.mode = "pan";
@@ -5256,15 +5283,9 @@ export default function CvBuilderPage() {
     if (gesture.mode === "pinch" && gesture.pointers.size >= 2) {
       const [first, second] = [...gesture.pointers.values()];
       if (!first || !second || gesture.startDistance <= 0) return;
-      const midpoint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
-      const rect = event.currentTarget.parentElement?.getBoundingClientRect() || event.currentTarget.getBoundingClientRect();
-      const focal = { x: midpoint.x - rect.left, y: midpoint.y - rect.top };
       const nextZoom = Math.max(40, Math.min(250, gesture.startZoom * Math.hypot(second.x - first.x, second.y - first.y) / gesture.startDistance));
-      const ratio = nextZoom / gesture.startZoom;
-      setCanvasPan({
-        x: focal.x - (gesture.startPoint.x - gesture.startPan.x) * ratio,
-        y: focal.y - (gesture.startPoint.y - gesture.startPan.y) * ratio,
-      });
+      // The stage is centered in a locked viewport, so zoom remains anchored
+      // at its center instead of chasing the moving pinch centroid.
       setZoomLevel(nextZoom);
     } else if (gesture.mode === "pan" && gesture.pointers.size === 1) {
       setCanvasPan({
@@ -5285,7 +5306,7 @@ export default function CvBuilderPage() {
         gesture.startPan = canvasPan;
         gesture.startDistance = Math.hypot(second.x - first.x, second.y - first.y);
         const origin = event.currentTarget.parentElement?.getBoundingClientRect() || event.currentTarget.getBoundingClientRect();
-        gesture.startPoint = { x: (first.x + second.x) / 2 - origin.left, y: (first.y + second.y) / 2 - origin.top };
+        gesture.startPoint = { x: origin.width / 2, y: 0 };
       }
     } else if (gesture.pointers.size === 1) {
       const remaining = [...gesture.pointers.values()][0]!;
@@ -6276,17 +6297,18 @@ export default function CvBuilderPage() {
           className={`cv-preview-scroll-container relative ${mobileWorkspaceView === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 w-full flex-1 flex-col overflow-auto scroll-pt-4 bg-slate-100/70 min-[1025px]:!flex min-[1025px]:w-auto`}
           style={{ touchAction: "pan-x pan-y pinch-zoom", WebkitOverflowScrolling: "touch" }}
         >
-          <header className="no-print sticky top-0 z-20 flex w-full shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-950">
-            <div className="flex min-w-0 items-center">
-              <span className="inline-flex shrink-0 items-center gap-2 text-xs font-bold tracking-widest text-slate-400 uppercase"><Eye size={14} /> PREVIEW</span>
-              <span className="ml-3 max-w-40 truncate rounded-full bg-slate-200/80 px-3 py-1 text-xs font-semibold uppercase text-slate-700">{TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "ATS template"}</span>
+          <header className="no-print sticky top-0 z-20 flex w-full shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950 sm:flex-nowrap sm:gap-3 sm:px-5 sm:py-4">
+            <div className="flex min-w-0 flex-1 items-center">
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-bold tracking-widest text-slate-400 uppercase sm:gap-2 sm:text-xs"><Eye size={14} /> PREVIEW</span>
+              <span className="ml-2 max-w-32 truncate rounded-full bg-slate-200/80 px-2 py-1 text-[10px] font-semibold uppercase text-slate-700 sm:ml-3 sm:max-w-40 sm:px-3 sm:text-xs">{TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "ATS template"}</span>
+              <span className="ml-2 shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-500 sm:text-xs">{a4PageCount} {a4PageCount === 1 ? "page" : "pages"}</span>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <button type="button" onClick={() => { setImportStep("upload"); setLocation("/cv-builder/import"); }} className="inline-flex min-h-10 items-center gap-2 rounded-2xl bg-slate-100 px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-200" title="Import an existing resume">
-                <FileUp size={15} /><span>Import Resume</span>
+            <div className="flex w-full shrink-0 items-center justify-end gap-1.5 sm:w-auto sm:gap-2">
+              <button type="button" onClick={() => { setImportStep("upload"); setLocation("/cv-builder/import"); }} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-200 sm:min-h-10 sm:gap-2 sm:rounded-2xl sm:px-4 sm:py-2.5 sm:text-xs" title="Import an existing resume">
+                <FileUp size={14} /><span>Import Resume</span>
               </button>
-              <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex min-h-10 items-center gap-2 rounded-2xl bg-black px-5 py-2.5 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50" title="Export PDF">
-                <Download size={15} /><span>Export PDF</span>
+              <button type="button" disabled={!cv} onClick={openExportFormatModal} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-black px-3 py-1.5 text-[11px] font-bold tracking-wide text-white transition hover:bg-slate-800 disabled:opacity-50 sm:min-h-10 sm:gap-2 sm:rounded-2xl sm:px-5 sm:py-2.5 sm:text-xs" title="Export CV">
+                <Download size={14} /><span>EXPORT CV</span>
               </button>
             </div>
           </header>
@@ -6305,8 +6327,9 @@ export default function CvBuilderPage() {
               >
                 <div
                   style={{
+                    marginLeft: `${Math.ceil(canvasPageWidthPx * ((zoomLevel / 100) - 1) / 2)}px`,
                     transform: `translate(${canvasPan.x}px, ${canvasPan.y}px) scale(${zoomLevel / 100})`,
-                    transformOrigin: "top left",
+                    transformOrigin: "top center",
                     transition: canvasGestureRef.current.mode ? "none" : "transform 0.15s ease-out",
                     touchAction: "pan-x pan-y pinch-zoom",
                   }}
@@ -7551,8 +7574,8 @@ export default function CvBuilderPage() {
           <button type="button" disabled={!cv || saving} onClick={() => { void handleSaveCv(documentTitle.trim() || "My CV"); }} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-2 text-xs font-semibold text-slate-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-100">
             <Save size={15} /> {saving ? "Saving" : "Save"}
           </button>
-          <button type="button" disabled={!cv} onClick={() => handleDirectDownload("print")} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-950 px-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-indigo-600">
-            <Download size={15} /> Export PDF
+          <button type="button" disabled={!cv} onClick={openExportFormatModal} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-950 px-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-indigo-600">
+            <Download size={15} /> Export CV
           </button>
         </nav>
 
@@ -8773,6 +8796,35 @@ export default function CvBuilderPage() {
         </div>,
         document.body,
       )}
+
+      {isExportFormatModalOpen && typeof document !== "undefined" ? createPortal(
+        <div
+          className="no-print fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setIsExportFormatModalOpen(false); }}
+        >
+          <section role="dialog" aria-modal="true" aria-labelledby="export-format-title" className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Download</p>
+                <h2 id="export-format-title" className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Export CV</h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Choose a format for your current CV design.</p>
+              </div>
+              <button type="button" onClick={() => setIsExportFormatModalOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close export format dialog">×</button>
+            </div>
+            <div className="mt-5 grid gap-3">
+              <button type="button" onClick={() => selectExportFormat("print")} className="flex min-h-16 items-center gap-3 rounded-xl border border-slate-200 p-4 text-left transition hover:border-indigo-400 hover:bg-indigo-50/60 dark:border-slate-700 dark:hover:bg-slate-800">
+                <span className="grid h-10 w-10 place-items-center rounded-lg bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"><FileText size={19} /></span>
+                <span><span className="block text-sm font-bold text-slate-900 dark:text-white">PDF</span><span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">Print-ready layout matching the canvas</span></span>
+              </button>
+              <button type="button" onClick={() => selectExportFormat("doc")} className="flex min-h-16 items-center gap-3 rounded-xl border border-slate-200 p-4 text-left transition hover:border-indigo-400 hover:bg-indigo-50/60 dark:border-slate-700 dark:hover:bg-slate-800">
+                <span className="grid h-10 w-10 place-items-center rounded-lg bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"><FileText size={19} /></span>
+                <span><span className="block text-sm font-bold text-slate-900 dark:text-white">Word (.docx)</span><span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">Editable document with the selected CV styling</span></span>
+              </button>
+            </div>
+          </section>
+        </div>,
+        document.body,
+      ) : null}
 
       {/* 5. PRE-FLIGHT QUALITY AUDIT MODAL (BONLIST FINAL CHECK - SECTION 37) */}
       {isPreFlightModalOpen && createPortal(

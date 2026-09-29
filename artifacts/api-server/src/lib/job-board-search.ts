@@ -39,14 +39,17 @@ type SearchInput = {
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
+const JOB_PLACEMENTS_BOARD = { host: "jobplacements.com", label: "Job Placements", siteQuery: "jobplacements.com" } as const;
+
 const TRUSTED_BOARDS = [
-  { host: "careers24.com", label: "Careers24", siteQuery: "careers24.com" },
   { host: "pnet.co.za", label: "PNet", siteQuery: "pnet.co.za" },
-  { host: "careerjunction.co.za", label: "CareerJunction", siteQuery: "careerjunction.co.za" },
+  { host: "linkedin.com", label: "LinkedIn", siteQuery: "linkedin.com/jobs" },
   { host: "indeed.co.za", label: "Indeed SA", siteQuery: "indeed.co.za" },
   { host: "za.indeed.com", label: "Indeed SA", siteQuery: "za.indeed.com" },
+  JOB_PLACEMENTS_BOARD,
+  { host: "careers24.com", label: "Careers24", siteQuery: "careers24.com" },
+  { host: "careerjunction.co.za", label: "CareerJunction", siteQuery: "careerjunction.co.za" },
   { host: "offerzen.com", label: "OfferZen", siteQuery: "offerzen.com" },
-  { host: "linkedin.com", label: "LinkedIn", siteQuery: "linkedin.com/jobs" },
   { host: "jobmail.co.za", label: "JobMail", siteQuery: "jobmail.co.za" },
   { host: "adzuna.co.za", label: "Adzuna", siteQuery: "adzuna.co.za" },
   { host: "executiveplacements.com", label: "Executive Placements", siteQuery: "executiveplacements.com" },
@@ -84,7 +87,7 @@ function hostAllowed(hostname: string): (typeof TRUSTED_BOARDS)[number] | undefi
 }
 
 function looksLikeListingUrl(url: string): boolean {
-  return /(?:-id-\d+|job-\d+\.aspx|\/jobs\/adverts\/|\/viewjob\?|\/jobs\/view\/|\/job\/\d+|\/jobs--.+--\d+-inline\.html|[?&](?:jk|vjk)=[a-z0-9]+)/i.test(
+  return /(?:-id-\d+|-job-search-\d+-|job-\d+\.aspx|\/jobs\/adverts\/|\/viewjob\?|\/jobs\/view\/|\/job\/\d+|\/jobs--.+--\d+-inline\.html|[?&](?:jk|vjk)=[a-z0-9]+)/i.test(
     url,
   );
 }
@@ -180,7 +183,7 @@ function decodeDuckDuckGoUrl(raw: string): string | null {
 
 function cleanTitle(title: string): string {
   return title
-    .replace(/\s+[-|–]\s+(Careers24|PNet|Indeed|LinkedIn|CareerJunction|OfferZen|JobMail|Adzuna).*$/i, "")
+    .replace(/\s+[-|–]\s+(Careers24|PNet|Indeed|LinkedIn|CareerJunction|OfferZen|JobMail|Adzuna|Job Placements).*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -688,6 +691,10 @@ export function optimizeJobSearchQuery(role: string): string {
 function boardSearchLinks(role: string, location?: string) {
   const where = location && location !== "Hybrid" ? location : "South Africa";
   return [
+    { board: "PNet", url: `https://www.pnet.co.za/jobs?what=${encodeURIComponent(role)}&where=${encodeURIComponent(where)}` },
+    { board: "LinkedIn", url: `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(role)}&location=${encodeURIComponent(where)}` },
+    { board: "Indeed SA", url: `https://za.indeed.com/jobs?q=${encodeURIComponent(role)}&l=${encodeURIComponent(where)}` },
+    { board: "Job Placements", url: "https://www.jobplacements.com/jobList.asp" },
     { board: "CareerJunction", url: `https://www.careerjunction.co.za/jobs?keywords=${encodeURIComponent(role)}&location=${encodeURIComponent(where)}` },
     { board: "JobMail", url: `https://www.jobmail.co.za/jobs?q=${encodeURIComponent(role)}&l=${encodeURIComponent(where)}` },
     { board: "Careers24", url: `https://www.careers24.com/jobs/?keywords=${encodeURIComponent(role)}` },
@@ -861,7 +868,7 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   const limit = input.limit ?? 6;
   const optimizedRoleQuery = optimizeJobSearchQuery(role);
   const query = [optimizedRoleQuery, location || "South Africa"].filter(Boolean).join(" · ");
-  const queriedBoards = ["Indeed SA", "PNet", "LinkedIn"];
+  const queriedBoards = ["PNet", "LinkedIn", "Indeed SA", "Job Placements"];
   const expertise = [...new Set((input.expertise ?? [])
     .map((term) => term.trim())
     .filter((term) => term.length >= 4))].slice(0, 20);
@@ -882,10 +889,10 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
 
   // A blocked or changed board must not discard results from every other board.
   const settled = await Promise.allSettled([
-    searchIndeed(optimizedRoleQuery, location),
     searchPNet(optimizedRoleQuery, location),
     searchLinkedIn(optimizedRoleQuery, location),
-    searchBoardViaDuckDuckGo(TRUSTED_BOARDS[1], optimizedRoleQuery, location),
+    searchIndeed(optimizedRoleQuery, location),
+    searchBoardViaDuckDuckGo(JOB_PLACEMENTS_BOARD, optimizedRoleQuery, location),
   ]);
   for (const result of settled) {
     if (result.status === "fulfilled") addMatches(result.value);
@@ -894,7 +901,7 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   const priorityJobs = rankJobs([...deduped.values()]).slice(0, limit);
   if (input.includeAllBoards || priorityJobs.length < limit) {
     const fallbackBoards = TRUSTED_BOARDS.filter((board) =>
-      !["Indeed SA", "PNet", "LinkedIn"].includes(board.label));
+      !["Indeed SA", "PNet", "LinkedIn", "Job Placements"].includes(board.label));
     queriedBoards.push(...[...new Set(fallbackBoards.map((board) => board.label))]);
     const fallback = await Promise.allSettled([
       searchCareerJunction(optimizedRoleQuery, location),
@@ -907,9 +914,9 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
     }
   }
   const preferred = rankJobs([...deduped.values()].filter((job) =>
-    ["Indeed SA", "PNet", "LinkedIn"].includes(job.source))).slice(0, limit);
+    ["PNet", "LinkedIn", "Indeed SA", "Job Placements"].includes(job.source))).slice(0, limit);
   const other = rankJobs([...deduped.values()].filter((job) =>
-    !["Indeed SA", "PNet", "LinkedIn"].includes(job.source))).slice(0, limit - preferred.length);
+    !["PNet", "LinkedIn", "Indeed SA", "Job Placements"].includes(job.source))).slice(0, limit - preferred.length);
   const ranked = [...preferred, ...other];
 
   return {

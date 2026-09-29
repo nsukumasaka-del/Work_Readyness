@@ -138,26 +138,36 @@ export async function scoreJobListingsWithGemini(input: {
     yearsExperience?: number;
   };
   jobs: LiveJobListing[];
+  searchPreferences?: { industry?: string; postedRange?: string };
 }): Promise<LiveJobListing[] | null> {
   if (!input.apiKey?.trim() || !input.jobs.length) return null;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
-    const result = await generateGeminiJson<{
+    const scoring = generateGeminiJson<{
       scores: Array<{ id: number; score: number; rationale?: string }>;
     }>({
       apiKey: input.apiKey,
       model: input.model,
-      instruction: "Score each real job listing against the candidate CV from 0 to 100 using evidence only. Weight core skills and domain relevance most, then seniority and location. Do not invent candidate qualifications or job requirements. Return {scores:[{id:number,score:number,rationale:string}]} with exactly one score per supplied listing id. Keep rationales under 24 words.",
+      instruction: "Score each real job listing against the candidate CV from 0 to 100 using evidence only. Weight core skills and domain relevance most, then seniority and location. Search preferences are soft ranking context: do not discard valid jobs solely because the industry or posting date differs. Do not invent candidate qualifications or job requirements. Return {scores:[{id:number,score:number,rationale:string}]} with exactly one score per supplied listing id. Keep rationales under 24 words.",
       evidence: {
         candidate: input.candidateProfile,
+        searchPreferences: input.searchPreferences || {},
         listings: input.jobs.map(({ id, title, company, location, sector, description, tags, source }) => ({ id, title, company, location, sector, description: description.slice(0, 1200), tags, source })),
       },
       maxOutputTokens: 1_800,
     });
+    const result = await Promise.race([
+      scoring,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("Gemini job scoring timed out.")), 8_000);
+      }),
+    ]);
     if (!Array.isArray(result.scores)) return null;
     const byId = new Map(result.scores
       .filter((entry) => Number.isFinite(entry.id) && Number.isFinite(entry.score))
       .map((entry) => [String(entry.id), entry]));
     if (!byId.size) return null;
+    if (input.jobs.every((job) => (byId.get(String(job.id))?.score ?? 0) <= 0)) return null;
     return input.jobs.map((job) => {
       const score = byId.get(String(job.id));
       if (!score) return job;
@@ -171,6 +181,8 @@ export async function scoreJobListingsWithGemini(input: {
   } catch (error) {
     console.error("Gemini job match scoring failed; using board-search scores.", error);
     return null;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }
 

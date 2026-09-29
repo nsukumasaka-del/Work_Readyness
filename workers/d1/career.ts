@@ -783,6 +783,8 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
   const input = await body(request);
   const keywords = clean(input.keywords).slice(0, 120);
   const requestedLocation = clean(input.location).slice(0, 100);
+  const industryPreference = clean(input.industry).slice(0, 80);
+  const postedRangePreference = clean(input.postedRange).slice(0, 30);
   const row = await env.DB.prepare(
     "SELECT report_json FROM cv_reports WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
   ).bind(user.id).first<{ report_json: string }>();
@@ -808,9 +810,9 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
   const role = keywords || clean(profile.targetRole) || clean(report.targetRole) || "Professional";
   const location = requestedLocation || clean(profile.location) || "South Africa";
   const expertise = [...new Set([...(profile.skills || []), ...(profile.systems || []), ...keywords.split(/[,\s]+/).filter((term) => term.length > 3)])].slice(0, 50);
-  const results = await searchTrustedJobBoards({
+  const search = (searchLocation: string) => searchTrustedJobBoards({
     role,
-    location,
+    location: searchLocation,
     limit: 18,
     includeAllBoards: true,
     experienceRoles: profile.experienceRoles || [],
@@ -819,6 +821,21 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
     adzunaAppId: env.ADZUNA_APP_ID,
     adzunaAppKey: env.ADZUNA_APP_KEY,
   });
+  let results = await search(location);
+  let fallbackApplied = false;
+  let effectiveLocation = location;
+  if (!results.jobs.length) {
+    fallbackApplied = true;
+    const broadLocation = /johannesburg|pretoria|centurion|sandton|midrand|gauteng/i.test(location)
+      ? "Gauteng"
+      : "South Africa";
+    effectiveLocation = broadLocation;
+    results = await search(broadLocation);
+    if (!results.jobs.length && broadLocation !== "South Africa") {
+      effectiveLocation = "South Africa";
+      results = await search("South Africa");
+    }
+  }
   const candidate = {
     targetRole: clean(profile.targetRole) || clean(report.targetRole) || role,
     summary: clean(profile.summary).slice(0, 1800),
@@ -832,11 +849,14 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
     model: env.GEMINI_MODEL,
     candidateProfile: candidate,
     jobs: results.jobs,
+    searchPreferences: { industry: industryPreference, postedRange: postedRangePreference },
   });
   return json({
     ...results,
     jobs: scoredJobs || results.jobs,
     scoring: scoredJobs ? "gemini" : "evidence-based-fallback",
+    fallbackApplied,
+    ...(fallbackApplied ? { searchNotice: `No listings were found for the exact search area; results were broadened to ${effectiveLocation}.` } : {}),
   });
 }
 

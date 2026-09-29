@@ -2723,6 +2723,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
   const [searchedJobs, setSearchedJobs] = useState<JobMatch[] | null>(null);
   const [searchedBoardLabels, setSearchedBoardLabels] = useState<string[]>([]);
   const [searchScoring, setSearchScoring] = useState('');
+  const [searchNotice, setSearchNotice] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [savedJobs, setSavedJobs] = useState<JobMatch[]>(() => {
@@ -2733,16 +2734,42 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
   });
 
   const searchSourceJobs = searchedJobs ?? jobs;
-  const filteredJobs = searchSourceJobs.filter((job) => {
+  const keywordMatches = (searchable: string) => {
+    const terms = keywords.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return true;
+    const text = searchable.toLowerCase();
+    const hits = terms.filter((term) => text.includes(term)).length;
+    return text.includes(keywords.toLowerCase()) || hits >= Math.max(1, Math.ceil(terms.length * 0.6));
+  };
+  const locationMatches = (listed: string) => {
+    const wanted = location.trim().toLowerCase();
+    const actual = listed.toLowerCase();
+    if (!wanted || actual.includes(wanted)) return true;
+    const nearby: Record<string, string[]> = {
+      johannesburg: ['gauteng', 'sandton', 'randburg', 'rosebank', 'kempton park', 'benoni', 'germiston', 'edenvale', 'midrand'],
+      gauteng: ['johannesburg', 'pretoria', 'sandton', 'randburg', 'rosebank', 'kempton park', 'benoni', 'germiston', 'edenvale', 'midrand'],
+      pretoria: ['tshwane', 'centurion', 'midrand', 'johannesburg'],
+      'cape town': ['bellville', 'stellenbosch', 'paarl'],
+      durban: ['umhlanga', 'pinetown'],
+    };
+    return (nearby[wanted] || []).some((nearbyLocation) => actual.includes(nearbyLocation));
+  };
+  const baseFilteredJobs = searchSourceJobs.filter((job) => {
     const extra = job as JobMatch & { employmentType?: string; remoteOption?: string; description?: string };
     const searchable = [job.title, job.company, job.location, job.sector, job.source, job.description, ...(job.tags || [])].join(' ').toLowerCase();
-    const locationMatch = !location.trim() || job.location.toLowerCase().includes(location.trim().toLowerCase());
-    const industryMatch = !industry || industryForJob(job) === industry;
+    const locationMatch = locationMatches(job.location);
+    const keywordMatch = keywordMatches(searchable);
     const typeMatch = !jobType || `${extra.employmentType || ''} ${searchable}`.toLowerCase().includes(jobType.toLowerCase());
     const remoteText = `${extra.remoteOption || ''} ${job.location} ${extra.description || ''}`.toLowerCase();
     const remoteMatch = !remoteOption || remoteText.includes(remoteOption.toLowerCase());
-    return (!keywords || searchable.includes(keywords.toLowerCase())) && locationMatch && industryMatch && typeMatch && remoteMatch && postedWithin(job.posted || '', postedRange);
+    return keywordMatch && locationMatch && typeMatch && remoteMatch;
   });
+  const strictFilteredJobs = baseFilteredJobs.filter((job) => {
+    const industryMatch = !industry || industryForJob(job) === industry;
+    return industryMatch && postedWithin(job.posted || '', postedRange);
+  });
+  const showingSoftFilterFallback = strictFilteredJobs.length === 0 && baseFilteredJobs.length > 0;
+  const filteredJobs = strictFilteredJobs.length ? strictFilteredJobs : baseFilteredJobs;
   const selectedJob = filteredJobs.find((job) => String(job.id) === selectedId) || filteredJobs[0] || null;
 
   const clearFilters = () => {
@@ -2755,14 +2782,18 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
     setRemoteOption('');
   };
 
-  const runLiveSearch = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const performLiveSearch = async (
+    searchTerms: string,
+    searchLocation: string,
+    preferences = { industry, postedRange },
+  ) => {
     setSearchLoading(true);
     setSearchError('');
+    setSearchNotice('');
     try {
       const response = await authFetch('/api/career/jobs/search', {
         method: 'POST',
-        body: JSON.stringify({ keywords: keywordsDraft.trim(), location: location.trim() }),
+        body: JSON.stringify({ keywords: searchTerms, location: searchLocation, ...preferences }),
       });
       const payload = await readApiJson(response);
       if (!response.ok) throw new Error(payload.error || 'Job search could not be completed.');
@@ -2770,13 +2801,29 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
       setSearchedJobs(results);
       setSearchedBoardLabels(Array.isArray(payload.queriedBoards) ? payload.queriedBoards as string[] : []);
       setSearchScoring(typeof payload.scoring === 'string' ? payload.scoring : '');
-      setKeywords(keywordsDraft.trim());
+      setSearchNotice(typeof payload.searchNotice === 'string' ? payload.searchNotice : '');
+      setKeywords(searchTerms);
       setSelectedId(results[0] ? String(results[0].id) : '');
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : 'Job search could not be completed.');
     } finally {
       setSearchLoading(false);
     }
+  };
+
+  const runLiveSearch = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await performLiveSearch(keywordsDraft.trim(), location.trim());
+  };
+
+  const clearFiltersAndSearchCustomerService = async () => {
+    const broadRole = 'customer service';
+    setKeywordsDraft(broadRole);
+    setIndustry('');
+    setPostedRange('any');
+    setJobType('');
+    setRemoteOption('');
+    await performLiveSearch(broadRole, location.trim(), { industry: '', postedRange: 'any' });
   };
 
   const toggleSavedJob = (job: JobMatch) => {
@@ -2856,6 +2903,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
               <button type="submit" disabled={searchLoading} className="min-h-10 rounded-xl bg-blue-600 px-6 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60">{searchLoading ? 'Searching…' : 'Search'}</button>
             </form>
             {searchError ? <p role="alert" className="text-xs font-medium text-rose-700">{searchError}</p> : null}
+            {searchNotice ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{searchNotice}</p> : null}
             {searchedJobs ? <p className="text-[11px] text-slate-500">Live board search checked {searchedBoardLabels.length ? searchedBoardLabels.join(', ') : 'available South African boards'}. {searchScoring === 'gemini' ? 'Gemini scored results against your CV.' : 'Match scores use available CV evidence.'}</p> : null}
             <div className="grid grid-cols-1 gap-2 border-t border-slate-200/70 pt-3 sm:grid-cols-2 lg:grid-cols-4">
               <label className="text-[11px] font-semibold text-slate-500">Resume
@@ -2890,11 +2938,16 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
           <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12">
             <div className="min-w-0 space-y-3 xl:col-span-5">
               <p className="text-xs font-semibold text-slate-600">{filteredJobs.length} {searchedJobs ? 'live job-board result' : 'review match'}{filteredJobs.length === 1 ? '' : 's'}</p>
+              {showingSoftFilterFallback ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">No openings matched all selected industry/date filters. Showing related listings with those optional filters relaxed.</p> : null}
               {filteredJobs.length ? filteredJobs.map((job) => (
                 <button key={job.id} type="button" onClick={() => setSelectedId(String(job.id))} className={`w-full rounded-xl border p-4 text-left transition ${String(selectedJob?.id) === String(job.id) ? 'border-blue-500 bg-blue-50/40' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
                   <span className="flex items-start justify-between gap-3"><span className="min-w-0"><span className="mb-2 inline-flex rounded-md bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">{job.match >= 80 ? 'Top match' : industryForJob(job)}</span><span className="block text-sm font-bold text-slate-900">{job.title}</span><span className="mt-1 block text-xs text-slate-600">{job.company}{job.location ? ` · ${job.location}` : ''}</span><span className="mt-2 block text-[10px] text-slate-500">{[job.source, job.posted && job.posted !== 'Date unavailable' ? `Posted ${job.posted}` : null].filter(Boolean).join(' · ')}</span></span><span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">{job.match}%</span></span>
                 </button>
-              )) : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center"><p className="text-sm font-semibold text-slate-800">No listings match these filters</p><p className="mt-1 text-xs text-slate-500">Clear a filter or update your CV review to search a different location.</p></div>}
+              )) : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center">
+                <p className="text-sm font-semibold text-slate-800">No openings found matching all strict filters.</p>
+                <p className="mt-1 text-xs text-slate-500">Try a broader customer service search. We only show listings found on job boards, not generated examples.</p>
+                <button type="button" onClick={() => void clearFiltersAndSearchCustomerService()} disabled={searchLoading} className="mt-4 min-h-10 rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">{searchLoading ? 'Searching…' : 'Clear Filters & Search All Customer Service Roles'}</button>
+              </div>}
             </div>
             <div className="min-w-0 xl:col-span-7">
               <SelectedJobDetails job={selectedJob} premiumUnlocked={premiumUnlocked} onOpenJob={onOpenJob} onToggleSaved={toggleSavedJob} isSaved={selectedJob ? savedJobs.some((saved) => String(saved.id) === String(selectedJob.id)) : false} />

@@ -58,8 +58,9 @@ function readProviderConfig(env: D1Env): ProviderConfig | null {
 }
 
 function sanitizeReturnTo(raw: string | null): string {
-  const value = (raw || "/").trim() || "/";
-  if (!value.startsWith("/") || value.startsWith("//")) return "/";
+  const value = (raw || "/cv-builder").trim() || "/cv-builder";
+  if (!value.startsWith("/") || value.startsWith("//")) return "/cv-builder";
+  if (value === "/") return "/cv-builder";
   return value;
 }
 

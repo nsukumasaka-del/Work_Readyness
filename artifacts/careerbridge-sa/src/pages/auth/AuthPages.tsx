@@ -119,7 +119,7 @@ function oauthConfigErrorMessage() {
   return 'Google sign-in needs a Client ID and Client Secret on the Worker, the correct OAuth redirect URI in Google Cloud, and your account added as a test user on the consent screen (app is in Testing). Use email for now, or try again after setup.';
 }
 
-function SocialAuthButtons({ returnTo = '/' }: { returnTo?: string }) {
+function SocialAuthButtons({ returnTo = '/cv-builder' }: { returnTo?: string }) {
   const [googleAuthError, setGoogleAuthError] = useState('');
 
   const startGoogleSignIn = async () => {
@@ -362,7 +362,7 @@ export function SignupPage() {
     >
       {step === 'details' ? (
         <>
-          <SocialAuthButtons returnTo="/" />
+          <SocialAuthButtons returnTo="/cv-builder" />
           <Divider />
           <form onSubmit={submitDetails} className="space-y-4" data-testid="form-signup">
             <label className="block">
@@ -453,7 +453,7 @@ export function SignupPage() {
 export function LoginPage() {
   const [location, setLocation] = useLocation();
   const params = useMemo(() => new URLSearchParams(location.split('?')[1] || ''), [location]);
-  const returnTo = params.get('returnTo') || '/';
+  const returnTo = params.get('returnTo') || '/cv-builder';
   const initialMfa = params.get('mfaToken') || '';
   const oauthError = params.get('error');
 

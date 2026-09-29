@@ -2730,6 +2730,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
   const [jobType, setJobType] = useState('');
   const [remoteOption, setRemoteOption] = useState('');
   const [selectedId, setSelectedId] = useState('');
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<JobMatch[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [searchedBoardLabels, setSearchedBoardLabels] = useState<string[]>([]);
@@ -2792,11 +2793,26 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
   const showingSoftFilterFallback = strictFilteredJobs.length === 0 && baseFilteredJobs.length > 0;
   const filteredJobs = strictFilteredJobs.length ? strictFilteredJobs : baseFilteredJobs;
   const selectedJob = filteredJobs.find((job) => String(job.id) === selectedId) || filteredJobs[0] || null;
+  const activeJob = filteredJobs.find((job) => String(job.id) === activeJobId) || null;
 
   useEffect(() => {
     if (!hasSearched || searchLoading || view !== 'search') return;
     searchResultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [hasSearched, searchLoading, view, searchResults.length]);
+
+  useEffect(() => {
+    if (!activeJob) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setActiveJobId(null);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [activeJob]);
 
   const clearFilters = () => {
     setKeywordsDraft('');
@@ -2818,6 +2834,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
     setSearchNotice('');
     setSearchResults([]);
     setHasSearched(false);
+    setActiveJobId(null);
     try {
       const response = await authFetch('/api/career/jobs/search', {
         method: 'POST',
@@ -2965,25 +2982,48 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
             </div>
           </div>
 
-          <div ref={searchResultsRef} className="grid min-w-0 scroll-mt-24 grid-cols-1 gap-4 xl:grid-cols-12">
-            <div className="min-w-0 space-y-3 xl:col-span-5">
-              {hasSearched ? <p className="text-xs font-semibold text-slate-600">{filteredJobs.length} live job-board result{filteredJobs.length === 1 ? '' : 's'}</p> : null}
-              {showingSoftFilterFallback ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">No openings matched all selected industry/date filters. Showing related listings with those optional filters relaxed.</p> : null}
-              {!hasSearched ? <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center"><p className="text-sm font-semibold text-slate-800">Search live job-board openings</p><p className="mt-1 text-xs text-slate-500">Enter a role and location, then search to get current listings from the configured boards.</p></div> : filteredJobs.length ? filteredJobs.map((job) => (
-                <button key={job.id} type="button" onClick={() => setSelectedId(String(job.id))} className={`w-full rounded-xl border p-4 text-left transition ${String(selectedJob?.id) === String(job.id) ? 'border-blue-500 bg-blue-50/40' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
-                  <span className="flex items-start justify-between gap-3"><span className="min-w-0"><span className="mb-2 inline-flex rounded-md bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">{job.match >= 80 ? 'Top match' : industryForJob(job)}</span><span className="block text-sm font-bold text-slate-900">{job.title}</span><span className="mt-1 block text-xs text-slate-600">{job.company}{job.location ? ` · ${job.location}` : ''}</span><span className="mt-2 block text-[10px] text-slate-500">{[employmentTypeLabel(job), job.posted && job.posted !== 'Date unavailable' ? `Posted ${job.posted}` : null].filter(Boolean).join(' · ')}</span></span><span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">ATS Match {job.match}%</span></span>
-                </button>
-              )) : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center">
+          <div ref={searchResultsRef} className="mx-auto w-full max-w-4xl scroll-mt-24 space-y-4">
+            {hasSearched ? <p className="text-sm font-semibold text-slate-700">{filteredJobs.length} job opening{filteredJobs.length === 1 ? '' : 's'} found</p> : null}
+            {showingSoftFilterFallback ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">No openings matched all selected industry/date filters. Showing related listings with those optional filters relaxed.</p> : null}
+            {!hasSearched ? <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center"><p className="text-sm font-semibold text-slate-800">Search live job-board openings</p><p className="mt-1 text-xs text-slate-500">Enter a role and location, then search to get current listings from the configured boards.</p></div> : filteredJobs.length ? <div className="flex flex-col gap-3">
+              {filteredJobs.map((job) => {
+                const extra = job as JobMatch & { description?: string; summary?: string; salary?: string; salaryRange?: string; jobType?: string };
+                const snippet = (extra.summary || extra.description || '').trim();
+                const salary = extra.salary || extra.salaryRange;
+                return <button key={job.id} type="button" onClick={() => { setSelectedId(String(job.id)); setActiveJobId(String(job.id)); }} className="group flex w-full flex-col justify-between gap-4 rounded-2xl border border-slate-200/80 bg-white p-5 text-left shadow-sm transition hover:border-blue-300 hover:shadow-md md:flex-row md:items-center">
+                  <span className="min-w-0 flex-1 space-y-1.5">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800">{job.match}% ATS Match</span>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-medium text-slate-600">{industryForJob(job)}</span>
+                      {salary ? <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-semibold text-blue-800">{salary}</span> : null}
+                    </span>
+                    <span className="block text-base font-bold text-slate-900 transition group-hover:text-blue-700">{job.title}</span>
+                    <span className="block text-xs font-medium text-slate-600">{job.company}{job.location ? ` · ${job.location}` : ''}</span>
+                    {snippet ? <span className="line-clamp-2 block pt-1 text-xs leading-relaxed text-slate-500">{snippet}</span> : null}
+                    <span className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2 text-[11px] text-slate-500"><span>{extra.jobType || employmentTypeLabel(job)}</span><span aria-hidden="true">·</span><span>{job.posted && job.posted !== 'Date unavailable' ? `Posted ${job.posted}` : 'Posted recently'}</span></span>
+                  </span>
+                  <span className="shrink-0 self-start rounded-xl bg-slate-100 px-4 py-2 text-xs font-bold text-slate-700 transition group-hover:bg-blue-600 group-hover:text-white md:self-center">View Details <span aria-hidden="true">→</span></span>
+                </button>;
+              })}
+            </div> : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center">
                 <p className="text-sm font-semibold text-slate-800">No openings found matching all strict filters.</p>
                 <p className="mt-1 text-xs text-slate-500">Try a broader customer service search. We only show listings found on job boards, not generated examples.</p>
                 <button type="button" onClick={() => void clearFiltersAndSearchCustomerService()} disabled={searchLoading} className="mt-4 min-h-10 rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">{searchLoading ? 'Searching…' : 'Clear Filters & Search All Customer Service Roles'}</button>
               </div>}
-            </div>
-            <div className="min-w-0 xl:col-span-7">
-              <SelectedJobDetails job={selectedJob} premiumUnlocked={true} liveSearch onOpenJob={onOpenJob} onToggleSaved={toggleSavedJob} isSaved={selectedJob ? savedJobs.some((saved) => String(saved.id) === String(selectedJob.id)) : false} />
-            </div>
           </div>
           <BoardSearchLinks report={report} />
+          {activeJob ? <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setActiveJobId(null); }}>
+            <section role="dialog" aria-modal="true" aria-labelledby="job-detail-title" className="flex h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:h-auto sm:max-h-[88dvh] sm:rounded-3xl">
+              <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4">
+                <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Job details</p><h3 id="job-detail-title" className="text-sm font-bold text-slate-900">{activeJob.title}</h3></div>
+                <button type="button" onClick={() => setActiveJobId(null)} aria-label="Close job details" className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"><X size={18} /></button>
+              </header>
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+                <SelectedJobDetails job={activeJob} premiumUnlocked={true} liveSearch onOpenJob={onOpenJob} onToggleSaved={toggleSavedJob} isSaved={savedJobs.some((saved) => String(saved.id) === String(activeJob.id))} />
+              </div>
+              <footer className="shrink-0 border-t border-slate-200 bg-white px-5 py-3 text-right"><button type="button" onClick={() => setActiveJobId(null)} className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100">Close details</button></footer>
+            </section>
+          </div> : null}
         </div>
       )}
     </section>
@@ -3010,7 +3050,7 @@ function SelectedJobDetails({ job, premiumUnlocked, liveSearch = false, onOpenJo
         {!liveSearch ? <button type="button" onClick={() => onOpenJob(job)} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700">Scan Match</button> : null}
         <button type="button" onClick={() => onToggleSaved(job)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">{isSaved ? 'Saved' : 'Save job'}</button>
         {href && liveSearch ? <a href={href} target="_blank" rel="noreferrer" onClick={() => persistSelectedJob(job)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">View on {job.source} <ExternalLink size={12} className="ml-1 inline" /></a> : null}
-        {href && liveSearch ? <a href={href} target="_blank" rel="noreferrer" onClick={() => persistSelectedJob(job)} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700">Apply on Job Board <ExternalLink size={12} className="ml-1 inline" /></a> : null}
+        {href && liveSearch ? <a href={href} target="_blank" rel="noreferrer" onClick={() => persistSelectedJob(job)} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700">Apply on {job.source || 'Job Board'} <ExternalLink size={12} className="ml-1 inline" /></a> : null}
         {href && !liveSearch ? <a href={href} target="_blank" rel="noreferrer" onClick={() => persistSelectedJob(job)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Open listing <ExternalLink size={12} className="ml-1 inline" /></a> : null}
       </div> : null}
       <div className="mt-5 border-t border-slate-100 pt-4">

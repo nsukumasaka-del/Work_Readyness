@@ -2418,7 +2418,8 @@ function ProfilePage() {
 function DiagnosticPage() {
   const [report, setReport] = useState<DiagnosticReport | null>(null);
   const [loading, setLoading] = useState(true);
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!hasProfile()) {
@@ -2477,22 +2478,98 @@ function DiagnosticPage() {
 
   const handleGenerateCv = () => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    setMobileSidebarOpen(false);
     setLocation('/cv-builder?intake=1');
   };
 
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-4xl px-5 py-16 md:px-8">
-        <div className="rounded-3xl border border-border bg-card px-6 py-16 text-center text-sm text-muted-foreground">
-          Loading your CV review…
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileSidebarOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [mobileSidebarOpen]);
+
+  const sidebarItems = [
+    { label: 'Review Results', href: '/diagnostic', icon: FileCheck2 },
+    { label: 'Job Matches', href: '/jobs', icon: BriefcaseBusiness },
+    { label: 'AI Cover Letter', href: '/cv-builder?intake=1', icon: FileText },
+    { label: 'My Resumes', href: '/my-resumes', icon: Layers },
+    { label: 'Interview Prep', href: '/interview', icon: Bot },
+  ];
+  const renderSidebar = (className: string) => (
+    <aside className={`flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white ${className}`}>
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-200 px-5">
+        <LogoMark compact />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-slate-900">BonList</p>
+          <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">CV Studio</p>
         </div>
       </div>
+      <nav className="flex-1 space-y-1 px-3 py-5" aria-label="CV review workspace">
+        {sidebarItems.map(({ label, href, icon: Icon }) => {
+          const active = label === 'Review Results' && location.split('?')[0] === '/diagnostic';
+          return (
+            <Link
+              key={label}
+              href={href}
+              onClick={() => setMobileSidebarOpen(false)}
+              aria-current={active ? 'page' : undefined}
+              className={`flex min-h-11 items-center gap-3 rounded-r-lg border-l-4 px-3 text-sm transition ${active ? 'border-blue-600 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+            >
+              <Icon size={17} />
+              <span>{label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+      <div className="border-t border-slate-200 p-4">
+        <p className="text-xs leading-5 text-slate-500">Turn your review into a stronger, interview-ready CV.</p>
+        <button type="button" onClick={handleGenerateCv} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white transition hover:bg-blue-700">
+          <Sparkles size={14} /> Improve My CV
+        </button>
+      </div>
+    </aside>
+  );
+  const renderWorkstation = (content: ReactNode) => (
+    <div className="flex min-h-[calc(100dvh-3.5rem)] w-full bg-slate-50 sm:min-h-[calc(100dvh-4rem)]">
+      {renderSidebar('sticky top-14 hidden h-[calc(100dvh-3.5rem)] self-start md:flex sm:top-16 sm:h-[calc(100dvh-4rem)]')}
+      {mobileSidebarOpen ? (
+        <div className="md:hidden">
+          <button type="button" className="fixed inset-0 z-[80] bg-slate-950/45 backdrop-blur-[2px]" aria-label="Close workspace navigation" onClick={() => setMobileSidebarOpen(false)} />
+          {renderSidebar('fixed inset-y-0 left-0 z-[81] h-dvh max-w-[85vw] shadow-2xl')}
+        </div>
+      ) : null}
+      <main className="min-w-0 flex-1">
+        <header className="sticky top-14 z-30 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-3 backdrop-blur sm:top-16 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <button type="button" onClick={() => setMobileSidebarOpen(true)} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 md:hidden" aria-label="Open workspace navigation">
+              <Menu size={19} />
+            </button>
+            <div className="min-w-0">
+              <p className="hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 sm:block">Career workspace</p>
+              <h1 className="truncate text-sm font-bold text-slate-900 sm:text-base">CV Diagnostic Report</h1>
+            </div>
+          </div>
+          <button type="button" onClick={handleGenerateCv} className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 sm:gap-2 sm:px-4 sm:text-sm" data-testid="button-improve-my-cv">
+            <Sparkles size={15} /> <span>Improve My CV</span>
+          </button>
+        </header>
+        <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">{content}</div>
+      </main>
+    </div>
+  );
+
+  if (loading) {
+    return renderWorkstation(
+      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-16 text-center text-sm text-slate-500 shadow-sm">Loading your CV review…</div>,
     );
   }
 
   if (!report) {
-    return (
-      <div className="mx-auto max-w-4xl px-5 py-16 md:px-8">
+    return renderWorkstation(
+      <div className="space-y-6">
         <PageHeading
           eyebrow="AI CV reader"
           title="Start with the document in front of you."
@@ -2503,14 +2580,14 @@ function DiagnosticPage() {
             </Link>
           }
         />
-        <div className="rounded-3xl border border-border bg-card px-6 py-16 text-center">
-          <FileText className="mx-auto text-primary" size={36} />
-          <h2 className="display mt-5 text-2xl font-semibold text-foreground">No report yet</h2>
-          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+        <div className="rounded-3xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
+          <FileText className="mx-auto text-blue-600" size={36} />
+          <h2 className="mt-5 text-2xl font-semibold text-slate-900">No report yet</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
             A useful review starts with your actual CV, not a generic score.
           </p>
         </div>
-      </div>
+      </div>,
     );
   }
 
@@ -2565,24 +2642,16 @@ function DiagnosticPage() {
       (scores.impact ?? 60) < 70 ? 'experience bullets need stronger action verbs and quantified impact' : 'a few targeted edits will lift ATS fit'
     } for ${report.targetRole || 'your target'} roles${locationHint ? ` in ${locationHint}` : ''}.`;
 
-  return (
-    <div className="mx-auto max-w-3xl px-5 py-10 md:px-8 md:py-14">
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-primary">CV diagnostic</p>
-          <h1 className="display mt-1 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
-            Your readiness at a glance
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {report.fileName}
-            {report.targetRole ? ` — ${report.targetRole}` : ''}
-            {locationHint ? ` — ${locationHint}` : ''}
-          </p>
-        </div>
-        <button type="button" onClick={handleGenerateCv} className="btn-primary shrink-0" data-testid="button-generate-cv">
-          <Sparkles size={15} />
-          Generate Improved CV
-        </button>
+  return renderWorkstation(
+    <div className="space-y-6">
+      <div className="mb-8">
+        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-blue-700">CV diagnostic</p>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Your readiness at a glance</h2>
+        <p className="mt-2 text-sm text-slate-500">
+          {report.fileName}
+          {report.targetRole ? ` — ${report.targetRole}` : ''}
+          {locationHint ? ` — ${locationHint}` : ''}
+        </p>
       </div>
 
       {/* 1. ATS & READINESS OVERVIEW */}
@@ -2873,7 +2942,7 @@ function DiagnosticPage() {
           Review another CV
         </button>
       </div>
-    </div>
+    </div>,
   );
 }
 

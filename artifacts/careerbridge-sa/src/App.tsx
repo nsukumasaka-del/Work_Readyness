@@ -2236,6 +2236,7 @@ function DiagnosticPage() {
   const [loading, setLoading] = useState(true);
   const [location, setLocation] = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [activeWorkstationTab, setActiveWorkstationTab] = useState<'review' | 'jobs'>('review');
 
   useEffect(() => {
     if (!hasProfile()) {
@@ -2311,31 +2312,42 @@ function DiagnosticPage() {
     { label: 'Review Results', href: '/diagnostic', icon: FileCheck2 },
     { label: 'Job Matches', href: '/jobs', icon: BriefcaseBusiness },
     { label: 'AI Cover Letter', href: '/cv-builder?intake=1', icon: FileText },
-    { label: 'My Resumes', href: '/my-resumes', icon: Layers },
     { label: 'Interview Prep', href: '/interview', icon: Bot },
   ];
   const renderSidebar = (className: string) => (
     <aside className={`flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white ${className}`}>
-      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-200 px-5">
-        <LogoMark compact />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-bold text-slate-900">BonList</p>
-          <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">CV Studio</p>
-        </div>
-      </div>
-      <nav className="flex-1 space-y-1 px-3 py-5" aria-label="CV review workspace">
+      <nav className="flex-1 space-y-1 px-3 py-4" aria-label="CV review workspace">
         {sidebarItems.map(({ label, href, icon: Icon }) => {
-          const active = label === 'Review Results' && location.split('?')[0] === '/diagnostic';
-          return (
+          const isJobMatches = label === 'Job Matches';
+          const active = isJobMatches
+            ? activeWorkstationTab === 'jobs'
+            : activeWorkstationTab === 'review' && label === 'Review Results' && location.split('?')[0] === '/diagnostic';
+          const className = `flex min-h-11 w-full items-center gap-3 rounded-r-lg border-l-4 px-3 text-left text-sm transition ${active ? 'border-blue-600 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`;
+          return isJobMatches ? (
+            <button
+              key={label}
+              type="button"
+              onClick={() => {
+                setActiveWorkstationTab('jobs');
+                setMobileSidebarOpen(false);
+              }}
+              aria-current={active ? 'page' : undefined}
+              className={className}
+            >
+              <Icon size={17} /><span>{label}</span>
+            </button>
+          ) : (
             <Link
               key={label}
               href={href}
-              onClick={() => setMobileSidebarOpen(false)}
+              onClick={() => {
+                if (label === 'Review Results') setActiveWorkstationTab('review');
+                setMobileSidebarOpen(false);
+              }}
               aria-current={active ? 'page' : undefined}
-              className={`flex min-h-11 items-center gap-3 rounded-r-lg border-l-4 px-3 text-sm transition ${active ? 'border-blue-600 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+              className={className}
             >
-              <Icon size={17} />
-              <span>{label}</span>
+              <Icon size={17} /><span>{label}</span>
             </Link>
           );
         })}
@@ -2349,30 +2361,30 @@ function DiagnosticPage() {
     </aside>
   );
   const renderWorkstation = (content: ReactNode) => (
-    <div className="flex min-h-[calc(100dvh-3.5rem)] w-full bg-slate-50 sm:min-h-[calc(100dvh-4rem)]">
-      {renderSidebar('sticky top-14 hidden h-[calc(100dvh-3.5rem)] self-start md:flex sm:top-16 sm:h-[calc(100dvh-4rem)]')}
+    <div className="flex h-[calc(100dvh-3.5rem)] w-full overflow-hidden bg-slate-50 sm:h-[calc(100dvh-4rem)]">
+      {renderSidebar('hidden h-full md:flex')}
       {mobileSidebarOpen ? (
         <div className="md:hidden">
           <button type="button" className="fixed inset-0 z-[80] bg-slate-950/45 backdrop-blur-[2px]" aria-label="Close workspace navigation" onClick={() => setMobileSidebarOpen(false)} />
-          {renderSidebar('fixed inset-y-0 left-0 z-[81] h-dvh max-w-[85vw] shadow-2xl')}
+          {renderSidebar('fixed inset-y-14 left-0 z-[81] h-[calc(100dvh-3.5rem)] max-w-[85vw] shadow-2xl sm:inset-y-16 sm:h-[calc(100dvh-4rem)]')}
         </div>
       ) : null}
-      <main className="min-w-0 flex-1">
-        <header className="sticky top-14 z-30 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-3 backdrop-blur sm:top-16 sm:px-6 lg:px-8">
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="sticky top-0 z-30 flex min-h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-3 backdrop-blur sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <button type="button" onClick={() => setMobileSidebarOpen(true)} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 md:hidden" aria-label="Open workspace navigation">
               <Menu size={19} />
             </button>
             <div className="min-w-0">
               <p className="hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 sm:block">Career workspace</p>
-              <h1 className="truncate text-sm font-bold text-slate-900 sm:text-base">CV Diagnostic Report</h1>
+              <h1 className="truncate text-sm font-bold text-slate-900 sm:text-base">{activeWorkstationTab === 'jobs' ? 'Job Matches' : 'CV Diagnostic Report'}</h1>
             </div>
           </div>
           <button type="button" onClick={handleGenerateCv} className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 sm:gap-2 sm:px-4 sm:text-sm" data-testid="button-improve-my-cv">
             <Sparkles size={15} /> <span>Improve My CV</span>
           </button>
         </header>
-        <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">{content}</div>
+        <div className="mx-auto w-full max-w-6xl flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-7 lg:px-8">{content}</div>
       </main>
     </div>
   );
@@ -2460,6 +2472,8 @@ function DiagnosticPage() {
 
   return renderWorkstation(
     <div className="space-y-6">
+      {activeWorkstationTab === 'review' && (
+        <>
       <div className="mb-8">
         <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-blue-700">CV diagnostic</p>
         <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Your readiness at a glance</h2>
@@ -2601,7 +2615,10 @@ function DiagnosticPage() {
         </section>
       ) : null}
 
+        </>
+      )}
       {/* 6. JOB MATCHES + CTA */}
+      {activeWorkstationTab === 'jobs' && (
       <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">6 — Recommended matches & next steps</p>
         <h2 className="mt-1 text-lg font-semibold text-foreground">Recent job matches</h2>
@@ -2747,8 +2764,9 @@ function DiagnosticPage() {
           </button>
         </div>
       </section>
+      )}
 
-      <div className="mt-6 text-center">
+      {activeWorkstationTab === 'review' && <div className="mt-6 text-center">
         <button
           type="button"
           onClick={() => setLocation('/')}
@@ -2757,7 +2775,7 @@ function DiagnosticPage() {
         >
           Review another CV
         </button>
-      </div>
+      </div>}
     </div>,
   );
 }

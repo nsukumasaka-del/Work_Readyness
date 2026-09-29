@@ -223,7 +223,7 @@ function HeaderAuthActions({
   if (profileReady && profile) {
     return (
       <div className={`flex items-center ${compact ? 'w-full flex-col gap-2' : 'gap-1.5 xl:gap-2'}`}>
-        {!workspaceMode ? <Link
+        {!workspaceMode && !compact ? <Link
           href="/dashboard"
           className={`rounded-xl px-2.5 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground ${compact ? 'w-full border border-border text-center' : 'hidden sm:inline-flex'}`}
           data-testid="link-header-my-resumes"
@@ -231,27 +231,41 @@ function HeaderAuthActions({
           My Resumes
         </Link> : null}
         <div className="relative">
-          <button
-            type="button"
-            onClick={() => setProfileMenuOpen((open) => !open)}
-            className={`inline-flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2 text-sm font-medium text-foreground hover:border-primary/30 xl:px-3 ${compact ? 'w-full justify-center py-2.5' : ''} ${workspaceMode ? '!h-9 !w-9 !justify-center !rounded-full !p-0' : ''}`}
-            data-testid="button-header-account-menu"
-            aria-expanded={profileMenuOpen}
-            aria-haspopup="menu"
-          >
-            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-secondary text-xs font-bold text-primary">{profile.name.charAt(0).toUpperCase()}</span>
-            {!workspaceMode ? <span className={compact ? 'max-w-[14rem] truncate font-medium' : 'hidden max-w-[7rem] truncate sm:inline xl:max-w-[9rem]'}>{compact ? profile.name : profile.name.split(' ')[0]}</span> : null}
-            {!workspaceMode ? <ChevronDown size={14} className="text-muted-foreground" /> : null}
-          </button>
-          {profileMenuOpen ? (
-            <div role="menu" className={`absolute right-0 top-full z-[70] mt-2 w-56 rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl ${compact ? 'left-0 right-0 w-full' : ''}`}>
-              <Link role="menuitem" href="/profile" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted" data-testid="link-profile-menu-account">Profile & account settings</Link>
-              {workspaceMode ? <Link role="menuitem" href="/dashboard" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted">My saved CVs</Link> : null}
-              <Link role="menuitem" href="/settings/security" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted" data-testid="link-profile-menu-security">Security settings</Link>
-              {isAdmin ? <Link role="menuitem" href="/admin" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm font-semibold text-primary hover:bg-muted" data-testid="link-profile-menu-admin">Admin Console</Link> : null}
-              {workspaceMode ? <button role="menuitem" type="button" onClick={() => { setProfileMenuOpen(false); onLogout(); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted">Log out</button> : null}
-            </div>
-          ) : null}
+          {compact ? (
+            <Link
+              href="/profile"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-800 active:bg-slate-100"
+              data-testid="button-mobile-profile"
+              aria-label="Open profile details"
+            >
+              <span className="grid h-6 w-6 place-items-center rounded-full bg-blue-600 text-[10px] font-bold text-white">{profile.name.charAt(0).toUpperCase()}</span>
+              <span>Profile</span>
+            </Link>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setProfileMenuOpen((open) => !open)}
+                className={`inline-flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2 text-sm font-medium text-foreground hover:border-primary/30 xl:px-3 ${workspaceMode ? '!h-9 !w-9 !justify-center !rounded-full !p-0' : ''}`}
+                data-testid="button-header-account-menu"
+                aria-expanded={profileMenuOpen}
+                aria-haspopup="menu"
+              >
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-secondary text-xs font-bold text-primary">{profile.name.charAt(0).toUpperCase()}</span>
+                {!workspaceMode ? <span className="hidden max-w-[7rem] truncate sm:inline xl:max-w-[9rem]">{profile.name.split(' ')[0]}</span> : null}
+                {!workspaceMode ? <ChevronDown size={14} className="text-muted-foreground" /> : null}
+              </button>
+              {profileMenuOpen ? (
+                <div role="menu" className="absolute right-0 top-full z-[70] mt-2 w-56 rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl">
+                  <Link role="menuitem" href="/profile" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted" data-testid="link-profile-menu-account">Profile &amp; account settings</Link>
+                  {workspaceMode ? <Link role="menuitem" href="/dashboard" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted">My saved CVs</Link> : null}
+                  <Link role="menuitem" href="/settings/security" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-muted" data-testid="link-profile-menu-security">Security settings</Link>
+                  {isAdmin ? <Link role="menuitem" href="/admin" onClick={() => setProfileMenuOpen(false)} className="block rounded-lg px-3 py-2 text-sm font-semibold text-primary hover:bg-muted" data-testid="link-profile-menu-admin">Admin Console</Link> : null}
+                  {workspaceMode ? <button role="menuitem" type="button" onClick={() => { setProfileMenuOpen(false); onLogout(); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted">Log out</button> : null}
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
         {Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android' ? (
           <Link

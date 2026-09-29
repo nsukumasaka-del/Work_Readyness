@@ -2234,13 +2234,12 @@ export default function CvBuilderPage() {
   const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 });
   const canvasGestureRef = useRef<{
     pointers: Map<number, { x: number; y: number }>;
-    mode: "pan" | "pinch" | "scroll" | null;
+    mode: "pan" | "pinch" | null;
     startZoom: number;
     startPan: { x: number; y: number };
     startDistance: number;
     startPoint: { x: number; y: number };
-    startScrollTop: number;
-  }>({ pointers: new Map(), mode: null, startZoom: 100, startPan: { x: 0, y: 0 }, startDistance: 0, startPoint: { x: 0, y: 0 }, startScrollTop: 0 });
+  }>({ pointers: new Map(), mode: null, startZoom: 100, startPan: { x: 0, y: 0 }, startDistance: 0, startPoint: { x: 0, y: 0 } });
   const [bgPattern, setBgPattern] = useState<string>("none");
   const [templateFilter, setTemplateFilter] = useState<string>("all");
   const [templateSearch, setTemplateSearch] = useState("");
@@ -5227,8 +5226,10 @@ export default function CvBuilderPage() {
     if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, button, a, [contenteditable='true']")) return;
     const gesture = canvasGestureRef.current;
     gesture.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    event.currentTarget.setPointerCapture(event.pointerId);
     if (gesture.pointers.size >= 2) {
+      for (const pointerId of gesture.pointers.keys()) {
+        try { event.currentTarget.setPointerCapture(pointerId); } catch { /* Pointer may already have been cancelled by native scrolling. */ }
+      }
       const [first, second] = [...gesture.pointers.values()];
       if (!first || !second) return;
       gesture.mode = "pinch";
@@ -5238,14 +5239,14 @@ export default function CvBuilderPage() {
       const origin = event.currentTarget.parentElement?.getBoundingClientRect() || event.currentTarget.getBoundingClientRect();
       gesture.startPoint = { x: (first.x + second.x) / 2 - origin.left, y: (first.y + second.y) / 2 - origin.top };
     } else if (zoomLevel > 100) {
+      event.currentTarget.setPointerCapture(event.pointerId);
       gesture.mode = "pan";
       gesture.startZoom = zoomLevel;
       gesture.startPan = canvasPan;
       gesture.startPoint = { x: event.clientX, y: event.clientY };
     } else {
-      gesture.mode = "scroll";
-      gesture.startPoint = { x: event.clientX, y: event.clientY };
-      gesture.startScrollTop = canvasRef.current?.scrollTop || 0;
+      // Leave one-finger movement to the browser's native scroll container.
+      gesture.mode = null;
     }
   };
   const handleCanvasPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -5270,8 +5271,6 @@ export default function CvBuilderPage() {
         x: gesture.startPan.x + event.clientX - gesture.startPoint.x,
         y: gesture.startPan.y + event.clientY - gesture.startPoint.y,
       });
-    } else if (gesture.mode === "scroll" && gesture.pointers.size === 1 && canvasRef.current) {
-      canvasRef.current.scrollTop = gesture.startScrollTop + gesture.startPoint.y - event.clientY;
     }
   };
   const handleCanvasPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -5295,8 +5294,7 @@ export default function CvBuilderPage() {
         gesture.mode = "pan";
         gesture.startPan = canvasPan;
       } else {
-        gesture.mode = "scroll";
-        gesture.startScrollTop = canvasRef.current?.scrollTop || 0;
+        gesture.mode = null;
       }
     } else {
       gesture.mode = null;
@@ -6275,7 +6273,8 @@ export default function CvBuilderPage() {
         {/* Pinned desktop preview, with an Edit/Preview toggle on phone and tablet widths. */}
         <main
           ref={canvasRef}
-          className={`relative ${mobileWorkspaceView === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 w-full flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-pt-4 bg-slate-100/70 min-[1025px]:!flex min-[1025px]:w-auto`}
+          className={`cv-preview-scroll-container relative ${mobileWorkspaceView === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 w-full flex-1 flex-col overflow-auto scroll-pt-4 bg-slate-100/70 min-[1025px]:!flex min-[1025px]:w-auto`}
+          style={{ touchAction: "pan-x pan-y pinch-zoom", WebkitOverflowScrolling: "touch" }}
         >
           <header className="no-print sticky top-0 z-20 flex w-full shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-950">
             <div className="flex min-w-0 items-center">
@@ -6309,7 +6308,7 @@ export default function CvBuilderPage() {
                     transform: `translate(${canvasPan.x}px, ${canvasPan.y}px) scale(${zoomLevel / 100})`,
                     transformOrigin: "top left",
                     transition: canvasGestureRef.current.mode ? "none" : "transform 0.15s ease-out",
-                    touchAction: "none",
+                    touchAction: "pan-x pan-y pinch-zoom",
                   }}
                   className="cv-zoom-stage"
                   onPointerDown={handleCanvasPointerDown}

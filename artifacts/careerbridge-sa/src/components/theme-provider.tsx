@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 
-export type ThemeMode = "light" | "dark" | "system";
+export type ThemeMode = "light" | "dark";
 
 interface ThemeContextValue {
   mode: ThemeMode;
@@ -15,28 +15,18 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 function readSavedMode(): ThemeMode {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored === "light" || stored === "dark" || stored === "system") return stored;
+    if (stored === "light" || stored === "dark") return stored;
+    // Migrate previous system-theme users to the new Day default.
+    if (stored === "system") return "light";
   } catch {
-    // Local storage can be disabled; the app still gets its dark default.
+    // Local storage can be disabled; the app still gets its light default.
   }
-  return "dark";
+  return "light";
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>(readSavedMode);
-  const [systemDark, setSystemDark] = useState(() =>
-    typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches,
-  );
-  const resolvedMode = mode === "system" ? (systemDark ? "dark" : "light") : mode;
-
-  useEffect(() => {
-    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
-    if (!media) return;
-    const update = () => setSystemDark(media.matches);
-    update();
-    media.addEventListener?.("change", update);
-    return () => media.removeEventListener?.("change", update);
-  }, []);
+  const resolvedMode = mode;
 
   useEffect(() => {
     const root = document.documentElement;
@@ -66,16 +56,16 @@ export function useTheme() {
 
 export function ThemeToggle() {
   const { mode, setMode } = useTheme();
-  const nextMode: ThemeMode = mode === "dark" ? "light" : mode === "light" ? "system" : "dark";
-  const Icon = mode === "dark" ? Moon : mode === "light" ? Sun : Monitor;
-  const label = mode === "dark" ? "Dark mode" : mode === "light" ? "Light mode" : "System theme";
+  const nextMode: ThemeMode = mode === "dark" ? "light" : "dark";
+  const Icon = mode === "dark" ? Sun : Moon;
+  const label = nextMode === "light" ? "Day" : "Night";
   return (
     <button
       type="button"
       onClick={() => setMode(nextMode)}
       className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-card/80 text-foreground shadow-sm transition hover:border-primary/40 hover:bg-muted"
-      aria-label={`${label}. Switch to ${nextMode} mode`}
-      title={`${label} · click to switch`}
+      aria-label={`Switch to ${label} mode`}
+      title={`Switch to ${label} mode`}
     >
       <Icon size={16} />
     </button>

@@ -1235,7 +1235,7 @@ function AppShell({ children }: { children: ReactNode }) {
               <ChevronDown size={13} className={`transition-transform ${activeMobileDropdown === 'tools' ? 'rotate-180' : ''}`} />
             </button>
               <Link href="/pricing" className="hidden rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 p-[1px] shadow-sm shadow-indigo-500/20 sm:inline-flex" data-testid="link-header-upgrade">
-                <span className="rounded-full bg-background px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-950/60">Go Pro</span>
+                <span className="rounded-full bg-background px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-950/60">Upgrade</span>
               </Link>
             <ThemeToggle />
             {!inNativeApp ? (
@@ -1983,9 +1983,14 @@ function Home() {
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               We ask for a short profile before CV upload so we can support your search and understand how many people BonList is helping.
             </p>
-            <Link href="/signup" className="btn-primary mt-6" data-testid="link-create-profile-from-cv">
-              Sign up to unlock CV review <ArrowRight size={16} />
-            </Link>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link href="/login" className="btn-secondary" data-testid="link-login-from-cv">
+                Log in
+              </Link>
+              <Link href="/signup" className="btn-primary" data-testid="link-create-profile-from-cv">
+                Create account to unlock CV review <ArrowRight size={16} />
+              </Link>
+            </div>
           </div>
         </div>
       </section>

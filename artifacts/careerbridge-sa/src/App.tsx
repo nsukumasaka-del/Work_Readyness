@@ -2256,7 +2256,7 @@ function DiagnosticPage() {
   const [loading, setLoading] = useState(true);
   const [location, setLocation] = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [activeWorkstationTab, setActiveWorkstationTab] = useState<'review' | 'jobs'>('review');
+  const [activeWorkstationTab, setActiveWorkstationTab] = useState<'review' | 'jobs' | 'advice'>('review');
 
   useEffect(() => {
     if (!hasProfile()) {
@@ -2331,6 +2331,7 @@ function DiagnosticPage() {
   const sidebarItems = [
     { label: 'Review Results', href: '/diagnostic', icon: FileCheck2 },
     { label: 'Job Matches', href: '/jobs', icon: BriefcaseBusiness },
+    { label: 'Advice and Next Steps', href: '/diagnostic', icon: Sparkles },
     { label: 'AI Cover Letter', href: '/cv-builder?intake=1', icon: FileText },
     { label: 'Interview Prep', href: '/interview', icon: Bot },
   ];
@@ -2338,17 +2339,19 @@ function DiagnosticPage() {
     <aside className={`flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white ${className}`}>
       <nav className="flex-1 space-y-1 px-3 py-4" aria-label="CV review workspace">
         {sidebarItems.map(({ label, href, icon: Icon }) => {
-          const isJobMatches = label === 'Job Matches';
-          const active = isJobMatches
+          const isWorkspaceView = label === 'Job Matches' || label === 'Advice and Next Steps';
+          const active = label === 'Job Matches'
             ? activeWorkstationTab === 'jobs'
-            : activeWorkstationTab === 'review' && label === 'Review Results' && location.split('?')[0] === '/diagnostic';
+            : label === 'Advice and Next Steps'
+              ? activeWorkstationTab === 'advice'
+              : activeWorkstationTab === 'review' && label === 'Review Results' && location.split('?')[0] === '/diagnostic';
           const className = `flex min-h-11 w-full items-center gap-3 rounded-r-lg border-l-4 px-3 text-left text-sm transition ${active ? 'border-blue-600 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`;
-          return isJobMatches ? (
+          return isWorkspaceView ? (
             <button
               key={label}
               type="button"
               onClick={() => {
-                setActiveWorkstationTab('jobs');
+                setActiveWorkstationTab(label === 'Job Matches' ? 'jobs' : 'advice');
                 setMobileSidebarOpen(false);
               }}
               aria-current={active ? 'page' : undefined}
@@ -2397,7 +2400,7 @@ function DiagnosticPage() {
             </button>
             <div className="min-w-0">
               <p className="hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 sm:block">Career workspace</p>
-              <h1 className="truncate text-sm font-bold text-slate-900 sm:text-base">{activeWorkstationTab === 'jobs' ? 'Job Matches' : 'CV Diagnostic Report'}</h1>
+              <h1 className="truncate text-sm font-bold text-slate-900 sm:text-base">{activeWorkstationTab === 'jobs' ? 'Job Matches' : activeWorkstationTab === 'advice' ? 'Advice and Next Steps' : 'CV Diagnostic Report'}</h1>
             </div>
           </div>
           <button type="button" onClick={handleGenerateCv} className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 sm:gap-2 sm:px-4 sm:text-sm" data-testid="button-improve-my-cv">
@@ -2481,7 +2484,6 @@ function DiagnosticPage() {
     })
     .slice(0, 3);
   const rewrites = (report.rewriteExamples ?? []).slice(0, 2);
-  const topJobs = relatedJobs.slice(0, 6);
   const premiumUnlocked = isAdminUser();
 
   const healthSummary =
@@ -2637,155 +2639,25 @@ function DiagnosticPage() {
 
         </>
       )}
-      {/* 6. JOB MATCHES + CTA */}
       {activeWorkstationTab === 'jobs' && (
-      <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">6 — Recommended matches & next steps</p>
-        <h2 className="mt-1 text-lg font-semibold text-foreground">Recent job matches</h2>
-        {report.jobSearch?.liveResults ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Live listings for “{report.jobSearch.query}” — open a role to apply on the board.
-          </p>
-        ) : null}
-        {topJobs.length > 0 && topJobs.length < 6 ? (
-          <p className="mt-2 text-xs text-muted-foreground">
-            {topJobs.length} current {topJobs.length === 1 ? 'listing' : 'listings'} found in your chosen area. To see more, change your preferred location to an area where this role is more commonly listed and run a new CV review.
-          </p>
-        ) : null}
-        {topJobs.length ? (
-          <ul className="mt-4 space-y-2">
-            {topJobs.map((job) => {
-              const premiumLocked = job.match >= 90 && !premiumUnlocked;
-              const href = applyHref(job);
-              return (
-                <li key={job.id} className="relative overflow-hidden rounded-2xl bg-secondary/50">
-                  <div
-                    className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm ${
-                      premiumLocked ? 'select-none blur-[2.5px] pointer-events-none' : ''
-                    }`}
-                  >
-                    {href && !premiumLocked ? (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="min-w-0 flex-1 font-semibold text-foreground hover:text-primary"
-                        data-testid={`link-diagnostic-job-${job.id}`}
-                        onClick={() => persistSelectedJob(job)}
-                      >
-                        {job.title}
-                        {job.company ? <span className="font-normal text-muted-foreground"> — {job.company}</span> : null}
-                        {(job.source || job.posted) && (
-                          <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">
-                            {[job.source, job.posted === 'Date unavailable' ? 'Posting date unavailable' : job.posted ? `Posted ${job.posted}` : null].filter(Boolean).join(' — ')}
-                          </span>
-                        )}
-                      </a>
-                    ) : (
-                      <span className="min-w-0 flex-1 font-semibold text-foreground">
-                        {job.title}
-                        {job.company ? <span className="font-normal text-muted-foreground"> — {job.company}</span> : null}
-                        {(job.source || job.posted) && (
-                          <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">
-                            {[job.source, job.posted === 'Date unavailable' ? 'Posting date unavailable' : job.posted ? `Posted ${job.posted}` : null].filter(Boolean).join(' — ')}
-                          </span>
-                        )}
-                      </span>
-                    )}
-                    {job.fitBreakdown ? (
-                      <span className="w-full text-[10px] font-medium text-muted-foreground">
-                        Skills {job.fitBreakdown.skills}% · Role/domain {job.fitBreakdown.titleDomain}% · Seniority {job.fitBreakdown.seniority}% · Location {job.fitBreakdown.location}%
-                      </span>
-                    ) : null}
-                    <span className="flex shrink-0 items-center gap-2">
-                      <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
-                        {job.match}% fit
-                      </span>
-                      {href && !premiumLocked ? (
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-bold text-primary-foreground"
-                          data-testid={`button-diagnostic-apply-${job.id}`}
-                          onClick={() => persistSelectedJob(job)}
-                        >
-                          Apply <ExternalLink size={12} />
-                        </a>
-                      ) : null}
-                    </span>
-                  </div>
-                  {premiumLocked ? (
-                    <div className="absolute inset-0 z-10 flex items-center justify-between gap-3 bg-background/60 px-4 backdrop-blur-[1px]">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <Lock size={14} className="shrink-0 text-primary" />
-                        <p className="truncate text-xs font-semibold text-foreground">
-                          {job.match}% premium match
-                        </p>
-                      </div>
-                      <span className="text-[11px] font-semibold text-muted-foreground">Administrator view</span>
-                    </div>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="mt-3 text-sm text-muted-foreground">No job listings were found for your chosen role and area. Change your preferred location to an area where this role is more commonly listed, then run a new CV review.</p>
-        )}
-        {topJobs.length > 0 ? (
-          <p className="mt-3 text-[11px] text-muted-foreground">
-            {premiumUnlocked
-              ? 'Administrator view includes all current matches.'
-              : 'Candidates can open matches below 90%. Matches of 90% or higher are reserved for administrators.'}
-          </p>
-        ) : null}
-        <BoardSearchLinks report={report} />
-
-        {report.careerAdvisory ? (
-          <section className="mt-8 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6" aria-labelledby="career-alignment-title">
-            <div>
-              <h3 id="career-alignment-title" className="text-lg font-bold text-slate-900">🎯 Career Strategic Alignment &amp; Hiring Advisory</h3>
-              <p className="mt-1 text-xs text-slate-600">Requested field: <span className="font-semibold">{report.careerAdvisory.requestedField}</span></p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <h4 className="text-xs font-bold uppercase tracking-wide text-slate-700">Parsed CV profile</h4>
-              <p className="mt-1 text-sm leading-6 text-slate-700">{report.careerAdvisory.cvProfileSummary}</p>
-              {report.careerAdvisory.primarySystems.length ? <p className="mt-2 text-xs text-slate-600"><span className="font-semibold">Systems found:</span> {report.careerAdvisory.primarySystems.join(", ")}</p> : null}
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <h4 className="text-sm font-semibold uppercase tracking-wide text-emerald-700">Highest Probability Roles</h4>
-                <p className="mt-1 text-sm leading-6 text-slate-700">{report.careerAdvisory.highestProbabilityAdvice}</p>
-                {report.careerAdvisory.strongestFitSectors.length ? <div className="mt-3 flex flex-wrap gap-1.5">{report.careerAdvisory.strongestFitSectors.map((sector) => <span key={sector} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">{sector}</span>)}</div> : null}
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <h4 className="text-sm font-semibold uppercase tracking-wide text-amber-700">Positioning Adjustments Needed</h4>
-                <p className="mt-1 text-sm leading-6 text-slate-700">{report.careerAdvisory.positioningGapsAdvice}</p>
-                {report.careerAdvisory.skillGaps.length ? <p className="mt-2 text-xs text-amber-900"><span className="font-semibold">Potential gaps:</span> {report.careerAdvisory.skillGaps.join(", ")}</p> : null}
-              </div>
-            </div>
-            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-              <p className="text-sm leading-6 text-blue-900"><strong>Agent Success Verdict:</strong> {report.careerAdvisory.strategicSuccessVerdict}</p>
-            </div>
-          </section>
-        ) : null}
-
-        <div className="mt-6 flex flex-col items-stretch gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">Apply your fixes in one pass — then send a cleaner CV.</p>
-          <button
-            type="button"
-            onClick={handleGenerateCv}
-            className="btn-primary w-full sm:w-auto"
-            data-testid="button-generate-cv-section"
-          >
-            <Sparkles size={15} />
-            Generate Improved CV <ArrowRight size={15} />
-          </button>
-        </div>
-      </section>
+        <JobMatchesWorkstation
+          report={report}
+          jobs={relatedJobs}
+          premiumUnlocked={premiumUnlocked}
+          onOpenJob={(job) => {
+            persistSelectedJob(job);
+            setLocation(`/jobs/${job.id}`);
+          }}
+        />
       )}
-
+      {activeWorkstationTab === 'advice' && (
+        <AdviceAndNextStepsView
+          report={report}
+          jobs={relatedJobs}
+          premiumUnlocked={premiumUnlocked}
+          onImproveCv={handleGenerateCv}
+        />
+      )}
       {activeWorkstationTab === 'review' && <div className="mt-6 text-center">
         <button
           type="button"
@@ -2797,6 +2669,265 @@ function DiagnosticPage() {
         </button>
       </div>}
     </div>,
+  );
+}
+
+type JobOpeningsSearchProps = {
+  report: DiagnosticReport;
+  jobs: JobMatch[];
+  premiumUnlocked: boolean;
+  onOpenJob: (job: JobMatch) => void;
+};
+
+function industryForJob(job: JobMatch): string {
+  const details = job as JobMatch & { industry?: string; sector?: string; description?: string };
+  const text = [job.title, job.company, job.location, details.industry, details.sector, details.description].join(' ').toLowerCase();
+  if (/freight|logistic|supply chain|import|export|warehouse|brokerage|shipping|aviation/.test(text)) return 'Logistics & Supply Chain';
+  if (/construction|civil|engineering|site manager|foreman|quantity surveyor/.test(text)) return 'Construction & Engineering';
+  if (/customer service|call centre|client support|account support/.test(text)) return 'Customer Service';
+  if (/accountant|accounting|finance|credit|payroll|bookkeep/.test(text)) return 'Finance & Accounting';
+  if (/software|developer|technology|data analyst|information technology|\bit\b/.test(text)) return 'Technology';
+  return 'Other';
+}
+
+function postedWithin(postedValue: string, range: string): boolean {
+  if (range === 'any') return true;
+  const posted = postedValue.toLowerCase();
+  if (!posted || posted.includes('unavailable')) return false;
+  const days = range === 'day' ? 1 : range === 'week' ? 7 : 30;
+  const relative = posted.match(/(\d+)\s*(hour|day|week|month)/);
+  if (relative) {
+    const amount = Number(relative[1]);
+    const unit = relative[2];
+    const ageDays = unit === 'hour' ? amount / 24 : unit === 'week' ? amount * 7 : unit === 'month' ? amount * 30 : amount;
+    return ageDays <= days;
+  }
+  if (/today|just now|yesterday|less than a day/.test(posted)) return true;
+  const timestamp = Date.parse(postedValue);
+  return Number.isFinite(timestamp) && Date.now() - timestamp <= days * 24 * 60 * 60 * 1000;
+}
+
+function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: JobOpeningsSearchProps) {
+  const [view, setView] = useState<'ai' | 'search'>('ai');
+  const [keywordsDraft, setKeywordsDraft] = useState('');
+  const [keywords, setKeywords] = useState('');
+  const [location, setLocation] = useState('');
+  const [industry, setIndustry] = useState('');
+  const [postedRange, setPostedRange] = useState('any');
+  const [jobType, setJobType] = useState('');
+  const [remoteOption, setRemoteOption] = useState('');
+  const [selectedId, setSelectedId] = useState('');
+  const [savedJobs, setSavedJobs] = useState<JobMatch[]>(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('bonlist-saved-jobs') || '[]') as unknown[];
+      return stored.filter((job): job is JobMatch => Boolean(job && typeof job === 'object' && 'id' in job));
+    } catch { return []; }
+  });
+
+  const accessibleJobs = jobs.filter((job) => premiumUnlocked || job.match < 90);
+  const filteredJobs = accessibleJobs.filter((job) => {
+    const extra = job as JobMatch & { employmentType?: string; remoteOption?: string; description?: string };
+    const searchable = [job.title, job.company, job.location, job.sector, job.source, job.description, ...(job.tags || [])].join(' ').toLowerCase();
+    const locationMatch = !location.trim() || job.location.toLowerCase().includes(location.trim().toLowerCase());
+    const industryMatch = !industry || industryForJob(job) === industry;
+    const typeMatch = !jobType || `${extra.employmentType || ''} ${searchable}`.toLowerCase().includes(jobType.toLowerCase());
+    const remoteText = `${extra.remoteOption || ''} ${job.location} ${extra.description || ''}`.toLowerCase();
+    const remoteMatch = !remoteOption || remoteText.includes(remoteOption.toLowerCase());
+    return (!keywords || searchable.includes(keywords.toLowerCase())) && locationMatch && industryMatch && typeMatch && remoteMatch && postedWithin(job.posted || '', postedRange);
+  });
+  const selectedJob = filteredJobs.find((job) => String(job.id) === selectedId) || filteredJobs[0] || null;
+
+  const clearFilters = () => {
+    setKeywordsDraft('');
+    setKeywords('');
+    setLocation('');
+    setIndustry('');
+    setPostedRange('any');
+    setJobType('');
+    setRemoteOption('');
+  };
+
+  const toggleSavedJob = (job: JobMatch) => {
+    const id = String(job.id);
+    const next = savedJobs.some((saved) => String(saved.id) === id)
+      ? savedJobs.filter((saved) => String(saved.id) !== id)
+      : [...savedJobs, job];
+    setSavedJobs(next);
+    try { localStorage.setItem('bonlist-saved-jobs', JSON.stringify(next)); } catch { /* private browsing storage may be unavailable */ }
+  };
+
+  const tabs = [
+    { id: 'ai' as const, label: 'AI JOB MATCHES' },
+    { id: 'search' as const, label: 'SEARCH FOR JOB OPENINGS' },
+  ];
+
+  return (
+    <section className="space-y-5" aria-label="Job matches workspace">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Your career workspace</p>
+          <h2 className="mt-1 text-xl font-bold text-slate-900">Job Matches</h2>
+          <p className="mt-1 text-sm text-slate-600">AI recommendations and searchable openings from your CV review.</p>
+        </div>
+      </div>
+      <div className="flex w-full gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1.5 sm:w-fit" role="tablist" aria-label="Job match views">
+        {tabs.map((tab) => (
+          <button key={tab.id} id={`jobs-tab-${tab.id}`} type="button" role="tab" aria-selected={view === tab.id} aria-controls={`jobs-panel-${tab.id}`} onClick={() => setView(tab.id)} className={`min-h-10 shrink-0 rounded-lg px-4 text-xs font-bold transition ${view === tab.id ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'ai' ? (
+        <div id="jobs-panel-ai" role="tabpanel" aria-labelledby="jobs-tab-ai" className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
+          <div className="space-y-3">
+            <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
+              <h3 className="text-sm font-bold text-slate-900">Best-fit roles for your CV</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-600">{report.jobSearch?.liveResults ? `Matches gathered for “${report.jobSearch.query}”.` : 'These recommendations are based on the latest CV review.'}</p>
+            </div>
+            {jobs.length ? jobs.map((job) => {
+              const locked = job.match >= 90 && !premiumUnlocked;
+              return (
+                <button key={job.id} type="button" onClick={() => setSelectedId(String(job.id))} className={`w-full rounded-xl border p-4 text-left transition ${String(selectedJob?.id) === String(job.id) ? 'border-blue-500 bg-blue-50/60 shadow-sm' : 'border-slate-200 bg-white hover:border-blue-300'} ${locked ? 'opacity-80' : ''}`}>
+                  <span className="flex items-start justify-between gap-3">
+                    <span className="min-w-0">
+                      {job.match >= 80 ? <span className="mb-2 inline-flex rounded-md bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-800">Top match</span> : null}
+                      <span className="block truncate text-sm font-bold text-slate-900">{locked ? 'Premium job match' : job.title}</span>
+                      <span className="mt-1 block truncate text-xs text-slate-600">{locked ? 'Unlock this role to view employer details' : `${job.company}${job.location ? ` · ${job.location}` : ''}`}</span>
+                    </span>
+                    <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-800">{job.match}%</span>
+                  </span>
+                  {job.fitBreakdown && !locked ? <span className="mt-3 block text-[10px] text-slate-500">Skills {job.fitBreakdown.skills}% · Role {job.fitBreakdown.titleDomain}% · Seniority {job.fitBreakdown.seniority}% · Location {job.fitBreakdown.location}%</span> : null}
+                </button>
+              );
+            }) : <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">No job matches were returned with this CV review.</div>}
+            {!premiumUnlocked && jobs.some((job) => job.match >= 90) ? <p className="text-xs text-slate-500">Some high-scoring matches are reserved for administrators.</p> : null}
+          </div>
+          <SelectedJobDetails job={selectedJob} premiumUnlocked={premiumUnlocked} onOpenJob={onOpenJob} onToggleSaved={toggleSavedJob} isSaved={selectedJob ? savedJobs.some((saved) => String(saved.id) === String(selectedJob.id)) : false} />
+        </div>
+      ) : (
+        <div id="jobs-panel-search" role="tabpanel" aria-labelledby="jobs-tab-search" className="space-y-5">
+          <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Search Job Openings</h3>
+              <p className="mt-1 text-xs text-slate-500">Filter the active listings found for this CV review by role, location, and industry.</p>
+            </div>
+            <form onSubmit={(event) => { event.preventDefault(); setKeywords(keywordsDraft.trim()); }} className="flex flex-col gap-2 sm:flex-row">
+              <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm">
+                <Search size={16} className="shrink-0 text-slate-400" />
+                <input value={keywordsDraft} onChange={(event) => setKeywordsDraft(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Role, company, or keywords" aria-label="Search role, company, or keywords" />
+              </label>
+              <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm">
+                <MapPin size={16} className="shrink-0 text-slate-400" />
+                <input value={location} onChange={(event) => setLocation(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Location or remote" aria-label="Filter by location" />
+              </label>
+              <button type="submit" className="min-h-10 rounded-xl bg-blue-600 px-6 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700">Search</button>
+            </form>
+            <div className="grid grid-cols-1 gap-2 border-t border-slate-200/70 pt-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="text-[11px] font-semibold text-slate-500">Resume
+                <select disabled className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:opacity-100">
+                  <option>{report.fileName || 'CV used for this review'}</option>
+                </select>
+              </label>
+              <label className="text-[11px] font-semibold text-slate-500">Industry
+                <select value={industry} onChange={(event) => setIndustry(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+                  <option value="">All industries</option><option>Logistics &amp; Supply Chain</option><option>Construction &amp; Engineering</option><option>Customer Service</option><option>Finance &amp; Accounting</option><option>Technology</option><option>Other</option>
+                </select>
+              </label>
+              <label className="text-[11px] font-semibold text-slate-500">Date posted
+                <select value={postedRange} onChange={(event) => setPostedRange(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+                  <option value="any">Any time</option><option value="day">Past 24 hours</option><option value="week">Past week</option><option value="month">Past month</option>
+                </select>
+              </label>
+              <label className="text-[11px] font-semibold text-slate-500">Job type
+                <select value={jobType} onChange={(event) => setJobType(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+                  <option value="">Any job type</option><option>Full-time</option><option>Part-time</option><option>Contract</option><option>Internship</option>
+                </select>
+              </label>
+              <label className="text-[11px] font-semibold text-slate-500 sm:col-span-2 lg:col-span-2">Workplace
+                <select value={remoteOption} onChange={(event) => setRemoteOption(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+                  <option value="">Any workplace</option><option>remote</option><option>hybrid</option><option>on-site</option>
+                </select>
+              </label>
+              <button type="button" onClick={clearFilters} className="self-end px-2 py-2 text-left text-xs font-semibold text-slate-500 hover:text-slate-900 sm:col-span-2 lg:col-span-2 lg:text-right">Clear all filters</button>
+            </div>
+          </div>
+
+          <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12">
+            <div className="min-w-0 space-y-3 xl:col-span-5">
+              <p className="text-xs font-semibold text-slate-600">{filteredJobs.length} listing{filteredJobs.length === 1 ? '' : 's'} from this CV review</p>
+              {filteredJobs.length ? filteredJobs.map((job) => (
+                <button key={job.id} type="button" onClick={() => setSelectedId(String(job.id))} className={`w-full rounded-xl border p-4 text-left transition ${String(selectedJob?.id) === String(job.id) ? 'border-blue-500 bg-blue-50/40' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
+                  <span className="flex items-start justify-between gap-3"><span className="min-w-0"><span className="mb-2 inline-flex rounded-md bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">{job.match >= 80 ? 'Top match' : industryForJob(job)}</span><span className="block text-sm font-bold text-slate-900">{job.title}</span><span className="mt-1 block text-xs text-slate-600">{job.company}{job.location ? ` · ${job.location}` : ''}</span><span className="mt-2 block text-[10px] text-slate-500">{[job.source, job.posted && job.posted !== 'Date unavailable' ? `Posted ${job.posted}` : null].filter(Boolean).join(' · ')}</span></span><span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">{job.match}%</span></span>
+                </button>
+              )) : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center"><p className="text-sm font-semibold text-slate-800">No listings match these filters</p><p className="mt-1 text-xs text-slate-500">Clear a filter or update your CV review to search a different location.</p></div>}
+            </div>
+            <div className="min-w-0 xl:col-span-7">
+              <SelectedJobDetails job={selectedJob} premiumUnlocked={premiumUnlocked} onOpenJob={onOpenJob} onToggleSaved={toggleSavedJob} isSaved={selectedJob ? savedJobs.some((saved) => String(saved.id) === String(selectedJob.id)) : false} />
+            </div>
+          </div>
+          <BoardSearchLinks report={report} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SelectedJobDetails({ job, premiumUnlocked, onOpenJob, onToggleSaved, isSaved }: { job: JobMatch | null; premiumUnlocked: boolean; onOpenJob: (job: JobMatch) => void; onToggleSaved: (job: JobMatch) => void; isSaved: boolean }) {
+  if (!job) return <div className="flex min-h-56 items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">Select a listing to inspect its details.</div>;
+  const locked = job.match >= 90 && !premiumUnlocked;
+  const extra = job as JobMatch & { description?: string; employmentType?: string; remoteOption?: string };
+  const href = applyHref(job);
+  return (
+    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span className="mb-2 inline-flex rounded-md bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">{locked ? 'Premium match' : `${job.match}% CV match`}</span>
+          <h3 className="text-lg font-bold text-slate-900">{locked ? 'Premium job match' : job.title}</h3>
+          <p className="mt-1 text-xs text-slate-600">{locked ? 'Employer details are available to administrators.' : [job.company, job.location, extra.employmentType].filter(Boolean).join(' · ')}</p>
+        </div>
+        {!locked ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">{job.match}% match</span> : null}
+      </div>
+      {!locked ? <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" onClick={() => onOpenJob(job)} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700">Scan Match</button>
+        <button type="button" onClick={() => onToggleSaved(job)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">{isSaved ? 'Saved' : 'Save job'}</button>
+        {href ? <a href={href} target="_blank" rel="noreferrer" onClick={() => persistSelectedJob(job)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Open listing <ExternalLink size={12} className="ml-1 inline" /></a> : null}
+      </div> : null}
+      <div className="mt-5 border-t border-slate-100 pt-4">
+        <h4 className="text-xs font-bold text-slate-900">Job description</h4>
+        <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">{locked ? 'This high-scoring result is not available in this account tier.' : extra.description?.trim() || 'The source listing did not include a description. Open the employer listing to review the full requirements.'}</p>
+        {!locked && job.fitBreakdown ? <div className="mt-4 flex flex-wrap gap-2 text-[10px] text-slate-600">{[['Skills', job.fitBreakdown.skills], ['Role', job.fitBreakdown.titleDomain], ['Seniority', job.fitBreakdown.seniority], ['Location', job.fitBreakdown.location]].map(([label, score]) => <span key={String(label)} className="rounded-full bg-slate-100 px-2.5 py-1">{label} {score}%</span>)}</div> : null}
+      </div>
+    </article>
+  );
+}
+
+function AdviceAndNextStepsView({ report, jobs, premiumUnlocked, onImproveCv }: { report: DiagnosticReport; jobs: JobMatch[]; premiumUnlocked: boolean; onImproveCv: () => void }) {
+  const topJobs = jobs.slice(0, 6);
+  return (
+    <div className="space-y-6">
+      <section className="rounded-3xl border border-border bg-card p-6 md:p-7">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">6 — Recommended matches &amp; next steps</p>
+        <h2 className="mt-1 text-lg font-semibold text-foreground">Recent job matches</h2>
+        {report.jobSearch?.liveResults ? <p className="mt-1 text-xs text-muted-foreground">Live listings for “{report.jobSearch.query}” — open a role to apply on the board.</p> : null}
+        {topJobs.length ? <ul className="mt-4 space-y-2">{topJobs.map((job) => {
+          const locked = job.match >= 90 && !premiumUnlocked;
+          const href = applyHref(job);
+          return <li key={job.id} className="relative overflow-hidden rounded-2xl bg-secondary/50"><div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm ${locked ? 'select-none blur-[2.5px] pointer-events-none' : ''}`}>
+            {href && !locked ? <a href={href} target="_blank" rel="noreferrer" onClick={() => persistSelectedJob(job)} className="min-w-0 flex-1 font-semibold text-foreground hover:text-primary">{job.title}{job.company ? <span className="font-normal text-muted-foreground"> — {job.company}</span> : null}<span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">{[job.source, job.posted && job.posted !== 'Date unavailable' ? `Posted ${job.posted}` : null].filter(Boolean).join(' — ')}</span></a> : <span className="min-w-0 flex-1 font-semibold text-foreground">{locked ? 'Premium job match' : job.title}{!locked && job.company ? <span className="font-normal text-muted-foreground"> — {job.company}</span> : null}</span>}
+            <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700">{job.match}% fit</span>
+          </div>{locked ? <div className="absolute inset-0 z-10 flex items-center justify-between gap-3 bg-background/60 px-4 backdrop-blur-[1px]"><span className="text-xs font-semibold text-foreground"><Lock size={13} className="mr-2 inline" />Premium match</span><span className="text-[11px] text-muted-foreground">Administrator view</span></div> : null}</li>;
+        })}</ul> : <p className="mt-3 text-sm text-muted-foreground">No job listings were returned for this CV review. Improve your CV or update its target location, then run a new review.</p>}
+        <BoardSearchLinks report={report} />
+        <div className="mt-6 flex flex-col items-stretch gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-muted-foreground">Apply your fixes in one pass — then send a cleaner CV.</p><button type="button" onClick={onImproveCv} className="btn-primary w-full sm:w-auto"><Sparkles size={15} />Generate Improved CV<ArrowRight size={15} /></button></div>
+      </section>
+      {report.careerAdvisory ? <section className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6" aria-labelledby="career-alignment-title">
+        <div><h2 id="career-alignment-title" className="text-lg font-bold text-slate-900">🎯 Career Strategic Alignment &amp; Hiring Advisory</h2><p className="mt-1 text-xs text-slate-600">Requested field: <span className="font-semibold">{report.careerAdvisory.requestedField}</span></p></div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="text-xs font-bold uppercase tracking-wide text-slate-700">Parsed CV profile</h3><p className="mt-1 text-sm leading-6 text-slate-700">{report.careerAdvisory.cvProfileSummary}</p>{report.careerAdvisory.primarySystems.length ? <p className="mt-2 text-xs text-slate-600"><span className="font-semibold">Systems found:</span> {report.careerAdvisory.primarySystems.join(', ')}</p> : null}</div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2"><div className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-semibold uppercase tracking-wide text-emerald-700">Highest Probability Roles</h3><p className="mt-1 text-sm leading-6 text-slate-700">{report.careerAdvisory.highestProbabilityAdvice}</p>{report.careerAdvisory.strongestFitSectors.length ? <div className="mt-3 flex flex-wrap gap-1.5">{report.careerAdvisory.strongestFitSectors.map((sector) => <span key={sector} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">{sector}</span>)}</div> : null}</div><div className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-semibold uppercase tracking-wide text-amber-700">Positioning Adjustments Needed</h3><p className="mt-1 text-sm leading-6 text-slate-700">{report.careerAdvisory.positioningGapsAdvice}</p>{report.careerAdvisory.skillGaps.length ? <p className="mt-2 text-xs text-amber-900"><span className="font-semibold">Potential gaps:</span> {report.careerAdvisory.skillGaps.join(', ')}</p> : null}</div></div>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4"><p className="text-sm leading-6 text-blue-900"><strong>Agent Success Verdict:</strong> {report.careerAdvisory.strategicSuccessVerdict}</p></div>
+      </section> : <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600">Career alignment advice will appear here when the CV review includes an advisory report.</div>}
+    </div>
   );
 }
 

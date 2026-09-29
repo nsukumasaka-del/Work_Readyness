@@ -1,4 +1,5 @@
 import { type ReactNode, type FormEvent, useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Capacitor } from '@capacitor/core';
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
@@ -667,6 +668,7 @@ function CareerGuideModal({
 function AppShell({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
   const [cvReady, setCvReady] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -700,11 +702,31 @@ function AppShell({ children }: { children: ReactNode }) {
       if (e.key === 'Escape') {
         setActiveDropdown(null);
         setGuideModalTopic(null);
+        setMenuOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeOnOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !mobileMenuRef.current?.contains(target)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    document.addEventListener('touchstart', closeOnOutside, { passive: true });
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('mousedown', closeOnOutside);
+      document.removeEventListener('touchstart', closeOnOutside);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     setActiveDropdown(null);
@@ -1164,6 +1186,30 @@ function AppShell({ children }: { children: ReactNode }) {
 
           {/* Right Header Actions */}
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileResumeOpen(true);
+                setMobileToolsOpen(false);
+                setMenuOpen(true);
+              }}
+              className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted md:hidden"
+              aria-label="Open Resume navigation"
+            >
+              Resume
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileResumeOpen(false);
+                setMobileToolsOpen(true);
+                setMenuOpen(true);
+              }}
+              className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted md:hidden"
+              aria-label="Open Tools navigation"
+            >
+              Tools
+            </button>
               <Link href="/pricing" className="hidden rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 p-[1px] shadow-sm shadow-indigo-500/20 sm:inline-flex" data-testid="link-header-upgrade">
                 <span className="rounded-full bg-background px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-950/60">Go Pro</span>
               </Link>
@@ -1202,13 +1248,30 @@ function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         {/* Mobile Enhancv-Style Accordion Menu */}
-        {menuOpen && (
-          <div className="max-h-[min(80vh,calc(100dvh-4rem))] overflow-y-auto border-t border-border bg-card px-4 py-4 xl:hidden animate-in slide-in-from-top-2 duration-200">
+        {menuOpen && typeof document !== 'undefined' && createPortal((
+          <>
+          <button
+            type="button"
+            className="fixed inset-x-0 bottom-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-[100] bg-slate-950/40 backdrop-blur-[2px] xl:hidden"
+            onClick={() => setMenuOpen(false)}
+            aria-label="Close navigation menu"
+          />
+          <div
+            ref={mobileMenuRef}
+            onClickCapture={(event) => {
+              const target = event.target;
+              if (target instanceof Element && target.closest('a, button') && !target.closest('[data-mobile-menu-stay-open]')) {
+                setMenuOpen(false);
+              }
+            }}
+            className="fixed left-4 right-4 top-[calc(3.5rem+env(safe-area-inset-top))] z-[101] mx-auto max-h-[calc(100dvh-5rem-env(safe-area-inset-top))] max-w-lg overflow-y-auto rounded-2xl border border-border bg-card px-4 py-4 shadow-2xl xl:hidden animate-in fade-in slide-in-from-top-2 duration-200"
+          >
             {/* Resume Accordion */}
             <div className="border-b border-border/70 pb-3">
               <button
                 type="button"
                 onClick={() => setMobileResumeOpen(!mobileResumeOpen)}
+                data-mobile-menu-stay-open
                 className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm font-bold text-foreground"
               >
                 <span>Resume</span>
@@ -1330,6 +1393,7 @@ function AppShell({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 onClick={() => setMobileToolsOpen(!mobileToolsOpen)}
+                data-mobile-menu-stay-open
                 className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm font-bold text-foreground"
               >
                 <span>Tools</span>
@@ -1476,7 +1540,8 @@ function AppShell({ children }: { children: ReactNode }) {
               />
             </div>
           </div>
-        )}
+          </>
+        ), document.body)}
       </header>
 
       <CareerGuideModal

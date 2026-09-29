@@ -122,10 +122,20 @@ async function syncAndApplyOta(release: Release, onProgress?: (percent: number |
   if (release.targetPlatform !== "all") throw new Error("This release is not an OTA-compatible web bundle.");
   if (!release.bundleUrl || !release.bundleVersion) throw new Error("The update service has no web bundle for this release.");
   const bundleUrl = new URL(release.bundleUrl);
-  if (bundleUrl.protocol !== "https:") throw new Error("OTA Update server maintenance, please try again later.");
+  const trustedOtaHost = bundleUrl.hostname === "bonlist.site"
+    || bundleUrl.hostname.endsWith(".bonlist.site")
+    || bundleUrl.hostname.endsWith(".workers.dev");
+  // Upgrade legacy Cloudflare/BonList HTTP manifests to TLS. Never download
+  // executable app content over cleartext from an arbitrary host.
+  if (bundleUrl.protocol === "http:" && trustedOtaHost) bundleUrl.protocol = "https:";
+  if (bundleUrl.protocol !== "https:") {
+    throw new Error(`OTA download requires HTTPS; received ${bundleUrl.protocol}//${bundleUrl.hostname}.`);
+  }
   let bundle: Awaited<ReturnType<typeof CapacitorUpdater.download>>;
   const listenerHandles: Array<{ remove: () => Promise<void> }> = [];
   const safeBundleUrl = `${bundleUrl.origin}${bundleUrl.pathname}`;
+  const downloadUrl = bundleUrl.toString();
+  console.log("[OTA] Downloading bundle from:", safeBundleUrl);
   console.info("[CapacitorUpdater] Starting native OTA download without a browser preflight", {
     platform: Capacitor.getPlatform(),
     bundleVersion: release.bundleVersion,
@@ -153,7 +163,7 @@ async function syncAndApplyOta(release: Release, onProgress?: (percent: number |
       // Listener registration is diagnostic only; still attempt the actual download.
       console.warn("[CapacitorUpdater] Could not attach all download diagnostics", listenerError);
     }
-    bundle = await CapacitorUpdater.download({ url: release.bundleUrl, version: release.bundleVersion });
+    bundle = await CapacitorUpdater.download({ url: downloadUrl, version: release.bundleVersion });
     const bundleDetails = bundle as typeof bundle & { version?: string; status?: string };
     console.info("[CapacitorUpdater] Native download() resolved", {
       id: bundle.id,

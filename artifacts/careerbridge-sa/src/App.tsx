@@ -2737,6 +2737,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
   const [searchNotice, setSearchNotice] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const searchResultsRef = useRef<HTMLDivElement>(null);
   const [savedJobs, setSavedJobs] = useState<JobMatch[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem('bonlist-saved-jobs') || '[]') as unknown[];
@@ -2768,11 +2769,18 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
     return (nearby[wanted] || []).some((nearbyLocation) => actual.includes(nearbyLocation));
   };
   const baseFilteredJobs = searchSourceJobs.filter((job) => {
-    const extra = job as JobMatch & { employmentType?: string; remoteOption?: string; description?: string };
+    const extra = job as JobMatch & { employmentType?: string; jobType?: string; remoteOption?: string; description?: string };
     const searchable = [job.title, job.company, job.location, job.sector, job.source, job.description, ...(job.tags || [])].join(' ').toLowerCase();
     const locationMatch = locationMatches(job.location);
     const keywordMatch = keywordMatches(searchable);
-    const typeMatch = !jobType || `${extra.employmentType || ''} ${searchable}`.toLowerCase().includes(jobType.toLowerCase());
+    const explicitType = (extra.employmentType || extra.jobType || '').trim().toLowerCase();
+    const listingText = `${explicitType} ${searchable}`.toLowerCase();
+    // Board listings often omit employment type. Keep those eligible for
+    // Full-time searches; only exclude them when a different type is requested.
+    const fullTimeEligible = listingText.includes('full-time') || listingText.includes('permanent')
+      || (!explicitType && !/part[- ]time|contract|fixed[- ]term|temporary|internship|\bintern\b/.test(listingText));
+    const typeMatch = !jobType || (jobType.toLowerCase() === 'full-time' && fullTimeEligible)
+      || listingText.includes(jobType.toLowerCase());
     const remoteText = `${extra.remoteOption || ''} ${job.location} ${extra.description || ''}`.toLowerCase();
     const remoteMatch = !remoteOption || remoteText.includes(remoteOption.toLowerCase());
     return keywordMatch && locationMatch && typeMatch && remoteMatch;
@@ -2784,6 +2792,11 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
   const showingSoftFilterFallback = strictFilteredJobs.length === 0 && baseFilteredJobs.length > 0;
   const filteredJobs = strictFilteredJobs.length ? strictFilteredJobs : baseFilteredJobs;
   const selectedJob = filteredJobs.find((job) => String(job.id) === selectedId) || filteredJobs[0] || null;
+
+  useEffect(() => {
+    if (!hasSearched || searchLoading || view !== 'search') return;
+    searchResultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [hasSearched, searchLoading, view, searchResults.length]);
 
   const clearFilters = () => {
     setKeywordsDraft('');
@@ -2906,7 +2919,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
           <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
             <div>
               <h3 className="text-lg font-bold text-slate-900">Search Job Openings</h3>
-              <p className="mt-1 text-xs text-slate-500">Filter the active listings found for this CV review by role, location, and industry.</p>
+              <p className="mt-1 text-xs text-slate-500">Search live job-board listings by role and location. Filters refine the returned listings.</p>
             </div>
             <form onSubmit={runLiveSearch} className="flex flex-col gap-2 sm:flex-row">
               <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm">
@@ -2952,7 +2965,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
             </div>
           </div>
 
-          <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12">
+          <div ref={searchResultsRef} className="grid min-w-0 scroll-mt-24 grid-cols-1 gap-4 xl:grid-cols-12">
             <div className="min-w-0 space-y-3 xl:col-span-5">
               {hasSearched ? <p className="text-xs font-semibold text-slate-600">{filteredJobs.length} live job-board result{filteredJobs.length === 1 ? '' : 's'}</p> : null}
               {showingSoftFilterFallback ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">No openings matched all selected industry/date filters. Showing related listings with those optional filters relaxed.</p> : null}

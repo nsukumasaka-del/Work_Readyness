@@ -899,7 +899,10 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   }
 
   const priorityJobs = rankJobs([...deduped.values()]).slice(0, limit);
-  if (input.includeAllBoards || priorityJobs.length < limit) {
+  // Start with the highest-priority boards and avoid a second scrape fan-out
+  // when that first pass already produced a useful set of listings.
+  const minimumUsefulResults = Math.min(limit, 6);
+  if (input.includeAllBoards || priorityJobs.length < minimumUsefulResults) {
     const fallbackBoards = TRUSTED_BOARDS.filter((board) =>
       !["Indeed SA", "PNet", "LinkedIn", "Job Placements"].includes(board.label));
     queriedBoards.push(...[...new Set(fallbackBoards.map((board) => board.label))]);

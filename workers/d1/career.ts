@@ -814,7 +814,9 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
     role,
     location: searchLocation,
     limit: 18,
-    includeAllBoards: true,
+    // Search the primary boards first; the search helper fans out to secondary
+    // boards only when the primary results are too sparse.
+    includeAllBoards: false,
     experienceRoles: profile.experienceRoles || [],
     expertise,
     yearsExperience: profile.yearsExperience,
@@ -831,10 +833,6 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
       : "South Africa";
     effectiveLocation = broadLocation;
     results = await search(broadLocation);
-    if (!results.jobs.length && broadLocation !== "South Africa") {
-      effectiveLocation = "South Africa";
-      results = await search("South Africa");
-    }
   }
   const candidate = {
     targetRole: clean(profile.targetRole) || clean(report.targetRole) || role,

@@ -32,6 +32,8 @@ type SearchInput = {
   yearsExperience?: number;
   adzunaAppId?: string;
   adzunaAppKey?: string;
+  /** Query all trusted sources instead of using fallback boards only when sparse. */
+  includeAllBoards?: boolean;
 };
 
 const BROWSER_UA =
@@ -890,7 +892,7 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   }
 
   const priorityJobs = rankJobs([...deduped.values()]).slice(0, limit);
-  if (priorityJobs.length < limit) {
+  if (input.includeAllBoards || priorityJobs.length < limit) {
     const fallbackBoards = TRUSTED_BOARDS.filter((board) =>
       !["Indeed SA", "PNet", "LinkedIn"].includes(board.label));
     queriedBoards.push(...[...new Set(fallbackBoards.map((board) => board.label))]);

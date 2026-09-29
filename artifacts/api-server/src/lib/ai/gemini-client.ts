@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import type { CareerAlignmentReport } from "../career-alignment";
+import type { LiveJobListing } from "../job-board-search";
 
 export type GeminiChatTurn = {
   role: "user" | "model";
@@ -122,6 +123,55 @@ export async function generateCvAssistantJson<T>(input: {
     evidence: input.evidence,
     maxOutputTokens: input.task === "improve" || input.task === "tailor" ? 2_400 : 1_000,
   });
+}
+
+/** Score actual board listings against the CV profile on the server. */
+export async function scoreJobListingsWithGemini(input: {
+  apiKey?: string;
+  model?: string;
+  candidateProfile: {
+    targetRole?: string;
+    summary?: string;
+    experienceRoles?: string[];
+    skills?: string[];
+    systems?: string[];
+    yearsExperience?: number;
+  };
+  jobs: LiveJobListing[];
+}): Promise<LiveJobListing[] | null> {
+  if (!input.apiKey?.trim() || !input.jobs.length) return null;
+  try {
+    const result = await generateGeminiJson<{
+      scores: Array<{ id: number; score: number; rationale?: string }>;
+    }>({
+      apiKey: input.apiKey,
+      model: input.model,
+      instruction: "Score each real job listing against the candidate CV from 0 to 100 using evidence only. Weight core skills and domain relevance most, then seniority and location. Do not invent candidate qualifications or job requirements. Return {scores:[{id:number,score:number,rationale:string}]} with exactly one score per supplied listing id. Keep rationales under 24 words.",
+      evidence: {
+        candidate: input.candidateProfile,
+        listings: input.jobs.map(({ id, title, company, location, sector, description, tags, source }) => ({ id, title, company, location, sector, description: description.slice(0, 1200), tags, source })),
+      },
+      maxOutputTokens: 1_800,
+    });
+    if (!Array.isArray(result.scores)) return null;
+    const byId = new Map(result.scores
+      .filter((entry) => Number.isFinite(entry.id) && Number.isFinite(entry.score))
+      .map((entry) => [String(entry.id), entry]));
+    if (!byId.size) return null;
+    return input.jobs.map((job) => {
+      const score = byId.get(String(job.id));
+      if (!score) return job;
+      const rationale = typeof score.rationale === "string" ? score.rationale.trim().slice(0, 240) : "";
+      return {
+        ...job,
+        match: Math.max(0, Math.min(100, Math.round(score.score))),
+        ...(rationale ? { matchRationale: rationale } : {}),
+      } as LiveJobListing;
+    });
+  } catch (error) {
+    console.error("Gemini job match scoring failed; using board-search scores.", error);
+    return null;
+  }
 }
 
 function parseJsonObject(value: string): Partial<CareerAlignmentReport> | null {

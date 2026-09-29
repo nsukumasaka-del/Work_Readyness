@@ -12,7 +12,7 @@ import {
 } from "./auth";
 import { searchTrustedJobBoards } from "../../artifacts/api-server/src/lib/job-board-search";
 import { buildCareerAlignmentReport, estimateCareerYears } from "../../artifacts/api-server/src/lib/career-alignment";
-import { enrichCareerAdvisoryWithGemini } from "../../artifacts/api-server/src/lib/ai/gemini-client";
+import { enrichCareerAdvisoryWithGemini, scoreJobListingsWithGemini } from "../../artifacts/api-server/src/lib/ai/gemini-client";
 import {
   buildGeneratedCv,
   normalizeStructure,
@@ -752,9 +752,19 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
   const careerAdvisory = baseAdvisory
     ? (await enrichCareerAdvisoryWithGemini(baseAdvisory, env.GEMINI_API_KEY, env.GEMINI_MODEL)) || baseAdvisory
     : undefined;
+  const candidateProfile = {
+    targetRole: role || data?.personal.professionalTitle || "Professional",
+    summary: data?.summary || "",
+    experienceRoles: data?.experiences.map((entry) => entry.role).filter(Boolean) || [],
+    skills: data?.skills || [],
+    systems: data?.toolsAndSoftware || [],
+    yearsExperience: estimateCareerYears(data?.experiences),
+    location: location || data?.personal.location || "South Africa",
+  };
   const report = {
     ...buildReport(fileName, role, location, data, id),
     relatedJobs: jobSearch.jobs,
+    candidateProfile,
     ...(careerAdvisory ? { careerAdvisory } : {}),
     jobSearch: {
       query: jobSearch.query,
@@ -767,6 +777,67 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
     .bind(JSON.stringify(report), id, user.id)
     .run();
   return json(report, 201);
+}
+
+async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Promise<Response> {
+  const input = await body(request);
+  const keywords = clean(input.keywords).slice(0, 120);
+  const requestedLocation = clean(input.location).slice(0, 100);
+  const row = await env.DB.prepare(
+    "SELECT report_json FROM cv_reports WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+  ).bind(user.id).first<{ report_json: string }>();
+  if (!row) return error(409, "Complete a CV review before searching job openings.");
+
+  let report: Record<string, unknown>;
+  try {
+    report = JSON.parse(row.report_json) as Record<string, unknown>;
+  } catch {
+    return error(500, "Your saved CV review could not be read.");
+  }
+  const profile = (report.candidateProfile && typeof report.candidateProfile === "object"
+    ? report.candidateProfile
+    : {}) as {
+      targetRole?: string;
+      summary?: string;
+      experienceRoles?: string[];
+      skills?: string[];
+      systems?: string[];
+      yearsExperience?: number;
+      location?: string;
+    };
+  const role = keywords || clean(profile.targetRole) || clean(report.targetRole) || "Professional";
+  const location = requestedLocation || clean(profile.location) || "South Africa";
+  const expertise = [...new Set([...(profile.skills || []), ...(profile.systems || []), ...keywords.split(/[,\s]+/).filter((term) => term.length > 3)])].slice(0, 50);
+  const results = await searchTrustedJobBoards({
+    role,
+    location,
+    limit: 18,
+    includeAllBoards: true,
+    experienceRoles: profile.experienceRoles || [],
+    expertise,
+    yearsExperience: profile.yearsExperience,
+    adzunaAppId: env.ADZUNA_APP_ID,
+    adzunaAppKey: env.ADZUNA_APP_KEY,
+  });
+  const candidate = {
+    targetRole: clean(profile.targetRole) || clean(report.targetRole) || role,
+    summary: clean(profile.summary).slice(0, 1800),
+    experienceRoles: (profile.experienceRoles || []).slice(0, 12),
+    skills: (profile.skills || []).slice(0, 30),
+    systems: (profile.systems || []).slice(0, 20),
+    yearsExperience: profile.yearsExperience,
+  };
+  const scoredJobs = await scoreJobListingsWithGemini({
+    apiKey: env.GEMINI_API_KEY,
+    model: env.GEMINI_MODEL,
+    candidateProfile: candidate,
+    jobs: results.jobs,
+  });
+  return json({
+    ...results,
+    jobs: scoredJobs || results.jobs,
+    scoring: scoredJobs ? "gemini" : "evidence-based-fallback",
+  });
 }
 
 async function handleLatest(request: Request, env: D1Env, user: UserRow): Promise<Response> {
@@ -940,6 +1011,7 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
   const nativePath =
     (method === "POST" && (path === "/api/career/profile" || path === "/api/career/cv/parse-upload" || path === "/api/career/diagnostic" || path === "/api/career/cv/generate")) ||
     (method === "POST" && path === "/api/career/cv/save") ||
+    (method === "POST" && path === "/api/career/jobs/search") ||
     (method === "PATCH" && path === "/api/career/profile") ||
     (method === "GET" && (path === "/api/career/diagnostic/latest" || path === "/api/career/cv/latest")) ||
     (path === "/api/career/cv/documents" || /^\/api\/career\/cv\/documents\/\d+(?:\/duplicate)?$/.test(path));
@@ -956,6 +1028,7 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
     return handleCvDocuments(request, env, user, path);
   }
   if (path === "/api/career/profile") return handleProfile(request, env, user);
+  if (path === "/api/career/jobs/search" && method === "POST") return handleJobSearch(request, env, user);
   if (path === "/api/career/cv/parse-upload") return handleParse(request, env, user);
   if (path === "/api/career/diagnostic") return handleDiagnostic(request, env, user);
   if (path === "/api/career/diagnostic/latest") return handleLatest(request, env, user);

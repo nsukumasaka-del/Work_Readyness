@@ -2710,6 +2710,16 @@ function postedWithin(postedValue: string, range: string): boolean {
   return Number.isFinite(timestamp) && Date.now() - timestamp <= days * 24 * 60 * 60 * 1000;
 }
 
+function employmentTypeLabel(job: JobMatch): string {
+  const extra = job as JobMatch & { employmentType?: string; description?: string };
+  const text = `${extra.employmentType || ''} ${(job.tags || []).join(' ')} ${extra.description || ''}`.toLowerCase();
+  if (/internship|intern\b/.test(text)) return 'Internship';
+  if (/part[- ]time/.test(text)) return 'Part-time';
+  if (/contract|fixed[- ]term|temporary/.test(text)) return 'Contract';
+  if (/full[- ]time|permanent/.test(text)) return 'Full-time';
+  return extra.employmentType?.trim() || 'Type not listed';
+}
+
 function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: JobOpeningsSearchProps) {
   const [view, setView] = useState<'ai' | 'search'>('ai');
   const [keywordsDraft, setKeywordsDraft] = useState('');
@@ -2720,7 +2730,8 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
   const [jobType, setJobType] = useState('');
   const [remoteOption, setRemoteOption] = useState('');
   const [selectedId, setSelectedId] = useState('');
-  const [searchedJobs, setSearchedJobs] = useState<JobMatch[] | null>(null);
+  const [searchResults, setSearchResults] = useState<JobMatch[]>([]);
+  const [hasSearched, setHasSearched] = useState(false);
   const [searchedBoardLabels, setSearchedBoardLabels] = useState<string[]>([]);
   const [searchScoring, setSearchScoring] = useState('');
   const [searchNotice, setSearchNotice] = useState('');
@@ -2733,7 +2744,9 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
     } catch { return []; }
   });
 
-  const searchSourceJobs = searchedJobs ?? jobs;
+  // SEARCH is intentionally isolated from the diagnostic's cached relatedJobs.
+  // Cached matches are shown only in the AI JOB MATCHES tab above.
+  const searchSourceJobs = searchResults;
   const keywordMatches = (searchable: string) => {
     const terms = keywords.toLowerCase().split(/\s+/).filter(Boolean);
     if (!terms.length) return true;
@@ -2790,6 +2803,8 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
     setSearchLoading(true);
     setSearchError('');
     setSearchNotice('');
+    setSearchResults([]);
+    setHasSearched(false);
     try {
       const response = await authFetch('/api/career/jobs/search', {
         method: 'POST',
@@ -2798,7 +2813,8 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
       const payload = await readApiJson(response);
       if (!response.ok) throw new Error(payload.error || 'Job search could not be completed.');
       const results = Array.isArray(payload.jobs) ? payload.jobs as JobMatch[] : [];
-      setSearchedJobs(results);
+      setSearchResults(results);
+      setHasSearched(true);
       setSearchedBoardLabels(Array.isArray(payload.queriedBoards) ? payload.queriedBoards as string[] : []);
       setSearchScoring(typeof payload.scoring === 'string' ? payload.scoring : '');
       setSearchNotice(typeof payload.searchNotice === 'string' ? payload.searchNotice : '');
@@ -2806,6 +2822,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
       setSelectedId(results[0] ? String(results[0].id) : '');
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : 'Job search could not be completed.');
+      setHasSearched(true);
     } finally {
       setSearchLoading(false);
     }
@@ -2904,7 +2921,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
             </form>
             {searchError ? <p role="alert" className="text-xs font-medium text-rose-700">{searchError}</p> : null}
             {searchNotice ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{searchNotice}</p> : null}
-            {searchedJobs ? <p className="text-[11px] text-slate-500">Live board search checked {searchedBoardLabels.length ? searchedBoardLabels.join(', ') : 'available South African boards'}. {searchScoring === 'gemini' ? 'Gemini scored results against your CV.' : 'Match scores use available CV evidence.'}</p> : null}
+            {hasSearched && !searchError ? <p className="text-[11px] text-slate-500">Live board search checked {searchedBoardLabels.length ? searchedBoardLabels.join(', ') : 'available South African boards'}. {searchScoring === 'gemini' ? 'Gemini scored results against your CV.' : 'Match scores use available CV evidence.'}</p> : null}
             <div className="grid grid-cols-1 gap-2 border-t border-slate-200/70 pt-3 sm:grid-cols-2 lg:grid-cols-4">
               <label className="text-[11px] font-semibold text-slate-500">Resume
                 <select disabled className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:opacity-100">
@@ -2937,11 +2954,11 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
 
           <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12">
             <div className="min-w-0 space-y-3 xl:col-span-5">
-              <p className="text-xs font-semibold text-slate-600">{filteredJobs.length} {searchedJobs ? 'live job-board result' : 'review match'}{filteredJobs.length === 1 ? '' : 's'}</p>
+              {hasSearched ? <p className="text-xs font-semibold text-slate-600">{filteredJobs.length} live job-board result{filteredJobs.length === 1 ? '' : 's'}</p> : null}
               {showingSoftFilterFallback ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">No openings matched all selected industry/date filters. Showing related listings with those optional filters relaxed.</p> : null}
-              {filteredJobs.length ? filteredJobs.map((job) => (
+              {!hasSearched ? <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center"><p className="text-sm font-semibold text-slate-800">Search live job-board openings</p><p className="mt-1 text-xs text-slate-500">Enter a role and location, then search to get current listings from the configured boards.</p></div> : filteredJobs.length ? filteredJobs.map((job) => (
                 <button key={job.id} type="button" onClick={() => setSelectedId(String(job.id))} className={`w-full rounded-xl border p-4 text-left transition ${String(selectedJob?.id) === String(job.id) ? 'border-blue-500 bg-blue-50/40' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
-                  <span className="flex items-start justify-between gap-3"><span className="min-w-0"><span className="mb-2 inline-flex rounded-md bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">{job.match >= 80 ? 'Top match' : industryForJob(job)}</span><span className="block text-sm font-bold text-slate-900">{job.title}</span><span className="mt-1 block text-xs text-slate-600">{job.company}{job.location ? ` · ${job.location}` : ''}</span><span className="mt-2 block text-[10px] text-slate-500">{[job.source, job.posted && job.posted !== 'Date unavailable' ? `Posted ${job.posted}` : null].filter(Boolean).join(' · ')}</span></span><span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">{job.match}%</span></span>
+                  <span className="flex items-start justify-between gap-3"><span className="min-w-0"><span className="mb-2 inline-flex rounded-md bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">{job.match >= 80 ? 'Top match' : industryForJob(job)}</span><span className="block text-sm font-bold text-slate-900">{job.title}</span><span className="mt-1 block text-xs text-slate-600">{job.company}{job.location ? ` · ${job.location}` : ''}</span><span className="mt-2 block text-[10px] text-slate-500">{[employmentTypeLabel(job), job.posted && job.posted !== 'Date unavailable' ? `Posted ${job.posted}` : null].filter(Boolean).join(' · ')}</span></span><span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">ATS Match {job.match}%</span></span>
                 </button>
               )) : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center">
                 <p className="text-sm font-semibold text-slate-800">No openings found matching all strict filters.</p>
@@ -2950,7 +2967,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
               </div>}
             </div>
             <div className="min-w-0 xl:col-span-7">
-              <SelectedJobDetails job={selectedJob} premiumUnlocked={premiumUnlocked} onOpenJob={onOpenJob} onToggleSaved={toggleSavedJob} isSaved={selectedJob ? savedJobs.some((saved) => String(saved.id) === String(selectedJob.id)) : false} />
+              <SelectedJobDetails job={selectedJob} premiumUnlocked={true} liveSearch onOpenJob={onOpenJob} onToggleSaved={toggleSavedJob} isSaved={selectedJob ? savedJobs.some((saved) => String(saved.id) === String(selectedJob.id)) : false} />
             </div>
           </div>
           <BoardSearchLinks report={report} />
@@ -2960,7 +2977,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
   );
 }
 
-function SelectedJobDetails({ job, premiumUnlocked, onOpenJob, onToggleSaved, isSaved }: { job: JobMatch | null; premiumUnlocked: boolean; onOpenJob: (job: JobMatch) => void; onToggleSaved: (job: JobMatch) => void; isSaved: boolean }) {
+function SelectedJobDetails({ job, premiumUnlocked, liveSearch = false, onOpenJob, onToggleSaved, isSaved }: { job: JobMatch | null; premiumUnlocked: boolean; liveSearch?: boolean; onOpenJob: (job: JobMatch) => void; onToggleSaved: (job: JobMatch) => void; isSaved: boolean }) {
   if (!job) return <div className="flex min-h-56 items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">Select a listing to inspect its details.</div>;
   const locked = job.match >= 90 && !premiumUnlocked;
   const extra = job as JobMatch & { description?: string; employmentType?: string; remoteOption?: string; matchRationale?: string };
@@ -2971,17 +2988,20 @@ function SelectedJobDetails({ job, premiumUnlocked, onOpenJob, onToggleSaved, is
         <div className="min-w-0">
           <span className="mb-2 inline-flex rounded-md bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">{locked ? 'Premium match' : `${job.match}% CV match`}</span>
           <h3 className="text-lg font-bold text-slate-900">{locked ? 'Premium job match' : job.title}</h3>
-          <p className="mt-1 text-xs text-slate-600">{locked ? 'Employer details are available to administrators.' : [job.company, job.location, extra.employmentType].filter(Boolean).join(' · ')}</p>
+          <p className="mt-1 text-xs text-slate-600">{locked ? 'Employer details are available to administrators.' : [job.company, job.location, employmentTypeLabel(job)].filter(Boolean).join(' · ')}</p>
+          {!locked && liveSearch ? <p className="mt-1 text-[11px] font-medium text-slate-500">Listed on {job.source}</p> : null}
         </div>
         {!locked ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">{job.match}% match</span> : null}
       </div>
       {!locked ? <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" onClick={() => onOpenJob(job)} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700">Scan Match</button>
+        {!liveSearch ? <button type="button" onClick={() => onOpenJob(job)} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700">Scan Match</button> : null}
         <button type="button" onClick={() => onToggleSaved(job)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">{isSaved ? 'Saved' : 'Save job'}</button>
-        {href ? <a href={href} target="_blank" rel="noreferrer" onClick={() => persistSelectedJob(job)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Open listing <ExternalLink size={12} className="ml-1 inline" /></a> : null}
+        {href && liveSearch ? <a href={href} target="_blank" rel="noreferrer" onClick={() => persistSelectedJob(job)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">View on {job.source} <ExternalLink size={12} className="ml-1 inline" /></a> : null}
+        {href && liveSearch ? <a href={href} target="_blank" rel="noreferrer" onClick={() => persistSelectedJob(job)} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700">Apply on Job Board <ExternalLink size={12} className="ml-1 inline" /></a> : null}
+        {href && !liveSearch ? <a href={href} target="_blank" rel="noreferrer" onClick={() => persistSelectedJob(job)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Open listing <ExternalLink size={12} className="ml-1 inline" /></a> : null}
       </div> : null}
       <div className="mt-5 border-t border-slate-100 pt-4">
-        <h4 className="text-xs font-bold text-slate-900">Job description</h4>
+        <h4 className="text-xs font-bold text-slate-900">{liveSearch ? 'Description & requirements' : 'Job description'}</h4>
         {!locked && extra.matchRationale ? <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900"><span className="font-semibold">CV match insight:</span> {extra.matchRationale}</p> : null}
         <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">{locked ? 'This high-scoring result is not available in this account tier.' : extra.description?.trim() || 'The source listing did not include a description. Open the employer listing to review the full requirements.'}</p>
         {!locked && job.fitBreakdown ? <div className="mt-4 flex flex-wrap gap-2 text-[10px] text-slate-600">{[['Skills', job.fitBreakdown.skills], ['Role', job.fitBreakdown.titleDomain], ['Seniority', job.fitBreakdown.seniority], ['Location', job.fitBreakdown.location]].map(([label, score]) => <span key={String(label)} className="rounded-full bg-slate-100 px-2.5 py-1">{label} {score}%</span>)}</div> : null}

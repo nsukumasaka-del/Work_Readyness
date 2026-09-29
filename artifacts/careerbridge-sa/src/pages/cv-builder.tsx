@@ -153,6 +153,35 @@ function sanitizeStylesForCanvas(clonedDoc: Document) {
       }
     });
   });
+
+  clonedDoc.querySelectorAll<HTMLElement>("#bonlist-cv-document.cv-page-sheet, .cv-page-sheet").forEach((page) => {
+    Object.assign(page.style, {
+      width: "210mm", minWidth: "210mm", maxWidth: "210mm", minHeight: "297mm",
+      boxSizing: "border-box", height: "auto", overflow: "visible", lineHeight: "1.35",
+      wordWrap: "break-word", overflowWrap: "break-word", wordBreak: "normal",
+    });
+  });
+  clonedDoc.querySelectorAll<HTMLElement>("[data-a4-id]").forEach((section) => {
+    section.style.height = "auto";
+    section.style.maxHeight = "none";
+    section.style.overflow = "visible";
+    section.style.wordWrap = "break-word";
+    section.style.overflowWrap = "break-word";
+    section.style.wordBreak = "normal";
+  });
+  clonedDoc.querySelectorAll<HTMLElement>("[data-a4-id='skills'] .cv-skill-chip, [data-a4-id='languages'] span").forEach((badge) => {
+    const list = badge.parentElement;
+    if (list) Object.assign(list.style, {
+      display: "flex", flexWrap: "wrap", alignItems: "flex-start", alignContent: "flex-start",
+      gap: "6px", width: "100%", maxWidth: "100%", height: "auto", overflow: "visible",
+    });
+    Object.assign(badge.style, {
+      display: "inline-flex", alignItems: "center", boxSizing: "border-box",
+      height: "auto", minHeight: "0", maxWidth: "100%", whiteSpace: "normal",
+      overflow: "visible", overflowWrap: "break-word", wordBreak: "normal",
+      lineHeight: "1.4", letterSpacing: "normal", breakInside: "avoid", pageBreakInside: "avoid",
+    });
+  });
 }
 
 const PDF_JUNK_RE =
@@ -4866,15 +4895,17 @@ export default function CvBuilderPage() {
       exportHost = document.createElement("div");
       exportHost.setAttribute("aria-hidden", "true");
       Object.assign(exportHost.style, {
-        position: "absolute", left: "-10000px", top: "0", width: "794px",
-        minHeight: "297mm", overflow: "visible", background: "#ffffff",
+        position: "absolute", left: "-10000px", top: "0", width: "210mm",
+        minHeight: "297mm", boxSizing: "border-box", overflow: "visible", background: "#ffffff",
         pointerEvents: "none", zIndex: "-1",
       });
       const clone = source.cloneNode(true) as HTMLDivElement;
       clone.removeAttribute("inert");
       Object.assign(clone.style, {
         display: "block", position: "static", left: "auto", top: "auto",
-        width: "210mm", maxWidth: "210mm", minHeight: "297mm", height: "auto",
+        width: "210mm", minWidth: "210mm", maxWidth: "210mm", minHeight: "297mm", height: "auto",
+        boxSizing: "border-box", lineHeight: "1.35", wordWrap: "break-word",
+        overflowWrap: "break-word", wordBreak: "normal",
         margin: "0", transform: "none", overflow: "visible", boxShadow: "none",
         border: "0", backgroundColor: "#ffffff",
       });
@@ -4915,8 +4946,8 @@ export default function CvBuilderPage() {
         filename: `${safeBaseName}_${safeTemplateName}.pdf`,
         image: { type: "jpeg" as const, quality: 0.98 },
         html2canvas: {
-          scale: 2, useCORS: true, logging: false, scrollX: 0, scrollY: 0,
-          windowWidth: 794, backgroundColor: "#ffffff",
+          scale: 3, useCORS: true, logging: false, scrollX: 0, scrollY: 0,
+          width: 794, windowWidth: 794, backgroundColor: "#ffffff",
           onclone: (clonedDoc: Document) => sanitizeStylesForCanvas(clonedDoc),
         },
         jsPDF: { unit: "mm" as const, format: "a4", orientation: "portrait" as const },

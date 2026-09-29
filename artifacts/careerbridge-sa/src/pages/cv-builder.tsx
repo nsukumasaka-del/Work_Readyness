@@ -2244,6 +2244,28 @@ export default function CvBuilderPage() {
   const [templateFilter, setTemplateFilter] = useState<string>("all");
   const [templateSearch, setTemplateSearch] = useState("");
   const [activeWizardStep, setActiveWizardStep] = useState(1);
+  const stepperScrollRef = useRef<HTMLDivElement>(null);
+  const [stepperScrollEdges, setStepperScrollEdges] = useState({ left: false, right: false });
+  useEffect(() => {
+    const stepper = stepperScrollRef.current;
+    if (!stepper) return;
+    const updateScrollEdges = () => {
+      setStepperScrollEdges({
+        left: stepper.scrollLeft > 1,
+        right: stepper.scrollLeft + stepper.clientWidth < stepper.scrollWidth - 1,
+      });
+    };
+    updateScrollEdges();
+    stepper.addEventListener("scroll", updateScrollEdges, { passive: true });
+    window.addEventListener("resize", updateScrollEdges);
+    const observer = new ResizeObserver(updateScrollEdges);
+    observer.observe(stepper);
+    return () => {
+      stepper.removeEventListener("scroll", updateScrollEdges);
+      window.removeEventListener("resize", updateScrollEdges);
+      observer.disconnect();
+    };
+  }, []);
   const [showPopiaNotice, setShowPopiaNotice] = useState(true);
 
   // Enhancv-Style Left Navigation Rail State
@@ -5577,7 +5599,14 @@ export default function CvBuilderPage() {
                 <button type="button" onClick={() => { setShowImportSuccessBanner(false); try { window.sessionStorage.removeItem(CV_INTAKE_SUCCESS_KEY); } catch { /* session storage is optional */ } }} className="shrink-0 rounded px-1 text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900/60" aria-label="Dismiss import confirmation">×</button>
               </div>
             ) : null}
-            <div className="cv-stepper-scroll mb-5 flex items-center gap-2 overflow-x-auto px-1 py-2 touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden md:grid md:grid-cols-8 md:gap-1.5" aria-label="CV Builder steps">
+            <button type="button" onClick={() => { setImportStep("upload"); setError(""); setLocation("/cv-builder/import"); }} className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 min-[1025px]:hidden dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700">
+              <FileUp size={15} /> Import Resume (Auto-fill CV Data)
+            </button>
+            <div className="mb-5 flex min-w-0 items-center gap-1 md:block">
+              {stepperScrollEdges.left ? (
+                <button type="button" className="grid h-8 w-7 shrink-0 place-items-center rounded-lg text-lg font-semibold text-slate-500 hover:bg-slate-100 md:hidden" aria-label="Scroll to earlier CV steps" onClick={() => stepperScrollRef.current?.scrollBy({ left: -Math.max(140, stepperScrollRef.current.clientWidth * 0.7), behavior: "smooth" })}>‹</button>
+              ) : null}
+              <div ref={stepperScrollRef} className="cv-stepper-scroll flex min-w-0 flex-1 items-center gap-2 overflow-x-auto px-1 py-2 touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden md:grid md:grid-cols-8 md:gap-1.5" aria-label="CV Builder steps">
               {CV_WIZARD_STEPS.map((stepName, index) => {
                 const step = index + 1;
                 const selected = activeWizardStep === step;
@@ -5589,10 +5618,11 @@ export default function CvBuilderPage() {
                   </button>
                 );
               })}
+              </div>
+              {stepperScrollEdges.right ? (
+                <button type="button" className="grid h-8 w-7 shrink-0 place-items-center rounded-lg text-lg font-semibold text-slate-500 hover:bg-slate-100 md:hidden" aria-label="Scroll to later CV steps" onClick={() => stepperScrollRef.current?.scrollBy({ left: Math.max(140, stepperScrollRef.current.clientWidth * 0.7), behavior: "smooth" })}>›</button>
+              ) : null}
             </div>
-            <button type="button" onClick={() => { setImportStep("upload"); setError(""); setLocation("/cv-builder/import"); }} className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-200 min-[1025px]:hidden dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700">
-              <FileUp size={15} /> Import Resume
-            </button>
 
             {/* PANEL 1: TEMPLATES & VISUAL THUMBNAILS */}
             {activeNavPanel === "templates" && (

@@ -42,9 +42,9 @@ pnpm install
 pnpm run cf:deploy
 ```
 
-`API_UPSTREAM_URL` may remain configured for legacy career endpoints that have
-not yet moved to the Worker. The profile, CV parse-upload, CV diagnostic, and
-CV generate endpoints now use D1 when `DB` is present.
+The deployed application serves API requests through the Cloudflare Worker.
+The Worker uses D1 for authentication and career data; no Render API upstream
+or legacy backend proxy is required.
 
 ## 3. Email verification and password reset
 
@@ -67,7 +67,7 @@ environment; do not enable it in production.
 3. Create an OAuth Client ID for a Web application.
 4. Add the deployed callback URL under **Authorized redirect URIs**:
 
-   `https://your-domain.example/api/auth/oauth/google/callback`
+   `https://your-domain.example/api/career/auth/google/callback`
 
 5. Add the Worker secrets:
 
@@ -77,53 +77,16 @@ npx wrangler secret put GOOGLE_CLIENT_SECRET
 ```
 
 Google enables the button automatically once both secrets exist. The OAuth
-scope requested by the Worker is `openid email profile`.
+scope requested by the Worker is `openid email profile`. The callback creates
+or links the user in D1 and then creates the authenticated D1 session.
 
-## 5. Enable LinkedIn sign-in
-
-1. In the LinkedIn Developer Portal, create an app and connect the
-   **Sign In with LinkedIn using OpenID Connect** product.
-2. Add this callback under the app's **Authorized redirect URLs**:
-
-   `https://your-domain.example/api/auth/oauth/linkedin/callback`
-
-3. Add the Worker secrets:
-
-```bash
-npx wrangler secret put LINKEDIN_CLIENT_ID
-npx wrangler secret put LINKEDIN_CLIENT_SECRET
-```
-
-The Worker uses LinkedIn's OIDC `openid profile email` scopes. Make sure the
-app is permitted to request those scopes before testing.
-
-## 6. Enable Facebook sign-in
-
-1. In Meta for Developers, create an app with the Consumer use case and add
-   **Facebook Login**.
-2. In Facebook Login settings, add this valid OAuth redirect URI:
-
-   `https://your-domain.example/api/auth/oauth/facebook/callback`
-
-3. Add the Worker secrets:
-
-```bash
-npx wrangler secret put FACEBOOK_CLIENT_ID
-npx wrangler secret put FACEBOOK_CLIENT_SECRET
-```
-
-`FACEBOOK_CLIENT_ID` is the App ID and `FACEBOOK_CLIENT_SECRET` is the App
-Secret. During development, add test users or keep the app in development
-mode. Before public launch, complete Meta's requested app review and switch
-the app to Live.
-
-## 7. Verify configuration
+## 5. Verify configuration
 
 Open this endpoint after deployment:
 
 `https://your-domain.example/api/career/auth/config`
 
-It should return `google: true`, `linkedin: true`, and/or `facebook: true`
-for each provider whose two Worker secrets are present. Test each provider
-from both `/login` and `/signup`, then test a PDF with selectable text and the
-CV review flow. Scanned image-only PDFs still require OCR or pasted text.
+It should return `google: true` when both Google Worker secrets are present.
+Test sign-in from both `/login` and `/signup`, then test a PDF with selectable
+text and the CV review flow. Scanned image-only PDFs still require OCR or
+pasted text.

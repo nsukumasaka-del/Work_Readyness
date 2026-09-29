@@ -1,6 +1,6 @@
 /**
- * Social OAuth for BonList D1 auth (Google, LinkedIn, Facebook).
- * Sessions stay on Cloudflare D1 — never depends on Render Postgres.
+ * Google OAuth for BonList D1 auth.
+ * Sessions and user records stay in Cloudflare D1.
  */
 
 import { hashPassword, randomId, randomToken } from "./crypto";
@@ -14,7 +14,7 @@ import {
   sessionCookie,
 } from "./auth";
 
-export type OAuthProvider = "google" | "linkedin" | "facebook";
+export type OAuthProvider = "google";
 
 type ProviderConfig = {
   clientId: string;
@@ -39,41 +39,20 @@ function json(data: unknown, status = 200): Response {
 }
 
 function isProvider(value: string): value is OAuthProvider {
-  return value === "google" || value === "linkedin" || value === "facebook";
+  return value === "google";
 }
 
 export function oauthProviderConfigured(env: D1Env, provider: OAuthProvider): boolean {
-  return Boolean(readProviderConfig(env, provider));
+  return provider === "google" && Boolean(readProviderConfig(env));
 }
 
-export function oauthConfigFlags(env: D1Env): {
-  google: boolean;
-  linkedin: boolean;
-  facebook: boolean;
-} {
-  return {
-    google: oauthProviderConfigured(env, "google"),
-    linkedin: oauthProviderConfigured(env, "linkedin"),
-    facebook: oauthProviderConfigured(env, "facebook"),
-  };
+export function oauthConfigFlags(env: D1Env): { google: boolean } {
+  return { google: oauthProviderConfigured(env, "google") };
 }
 
-function readProviderConfig(env: D1Env, provider: OAuthProvider): ProviderConfig | null {
-  if (provider === "google") {
-    const clientId = env.GOOGLE_CLIENT_ID?.trim();
-    const clientSecret = env.GOOGLE_CLIENT_SECRET?.trim();
-    if (!clientId || !clientSecret) return null;
-    return { clientId, clientSecret };
-  }
-  if (provider === "linkedin") {
-    const clientId = env.LINKEDIN_CLIENT_ID?.trim();
-    const clientSecret = env.LINKEDIN_CLIENT_SECRET?.trim();
-    if (!clientId || !clientSecret) return null;
-    return { clientId, clientSecret };
-  }
-  // Prefer FACEBOOK_CLIENT_* (wrangler bindings); accept legacy APP_ID / APP_SECRET.
-  const clientId = env.FACEBOOK_CLIENT_ID?.trim() || env.FACEBOOK_APP_ID?.trim();
-  const clientSecret = env.FACEBOOK_CLIENT_SECRET?.trim() || env.FACEBOOK_APP_SECRET?.trim();
+function readProviderConfig(env: D1Env): ProviderConfig | null {
+  const clientId = env.GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = env.GOOGLE_CLIENT_SECRET?.trim();
   if (!clientId || !clientSecret) return null;
   return { clientId, clientSecret };
 }
@@ -84,12 +63,12 @@ function sanitizeReturnTo(raw: string | null): string {
   return value;
 }
 
-function callbackPath(provider: OAuthProvider): string {
-  return `/api/auth/oauth/${provider}/callback`;
+function callbackPath(): string {
+  return "/api/career/auth/google/callback";
 }
 
-function redirectUri(request: Request, env: D1Env, provider: OAuthProvider): string {
-  return `${appOrigin(request, env)}${callbackPath(provider)}`;
+function redirectUri(request: Request, env: D1Env): string {
+  return `${appOrigin(request, env)}${callbackPath()}`;
 }
 
 function loginErrorRedirect(request: Request, env: D1Env, code: string): Response {
@@ -162,137 +141,56 @@ async function consumeOAuthState(
 }
 
 function buildAuthorizeUrl(
-  provider: OAuthProvider,
   cfg: ProviderConfig,
   redirectUriValue: string,
   state: string,
 ): string {
-  if (provider === "google") {
-    const params = new URLSearchParams({
-      client_id: cfg.clientId,
-      redirect_uri: redirectUriValue,
-      response_type: "code",
-      scope: "openid email profile",
-      access_type: "online",
-      include_granted_scopes: "true",
-      prompt: "select_account",
-      state,
-    });
-    return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-  }
-
-  if (provider === "linkedin") {
-    const params = new URLSearchParams({
-      response_type: "code",
-      client_id: cfg.clientId,
-      redirect_uri: redirectUriValue,
-      state,
-      scope: "openid profile email",
-    });
-    return `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
-  }
-
   const params = new URLSearchParams({
     client_id: cfg.clientId,
     redirect_uri: redirectUriValue,
-    state,
     response_type: "code",
-    scope: "email,public_profile",
+    scope: "openid email profile",
+    access_type: "online",
+    include_granted_scopes: "true",
+    prompt: "select_account",
+    state,
   });
-  return `https://www.facebook.com/v21.0/dialog/oauth?${params.toString()}`;
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
 async function exchangeCode(
-  provider: OAuthProvider,
   cfg: ProviderConfig,
   code: string,
   redirectUriValue: string,
 ): Promise<OAuthProfile> {
-  if (provider === "google") {
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        code,
-        client_id: cfg.clientId,
-        client_secret: cfg.clientSecret,
-        redirect_uri: redirectUriValue,
-        grant_type: "authorization_code",
-      }),
-    });
-    const tokenJson = (await tokenRes.json()) as { access_token?: string };
-    if (!tokenRes.ok || !tokenJson.access_token) throw new Error("oauth_token_failed");
-
-    const userRes = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
-      headers: { Authorization: `Bearer ${tokenJson.access_token}` },
-    });
-    const user = (await userRes.json()) as {
-      sub?: string;
-      email?: string;
-      email_verified?: boolean;
-      name?: string;
-    };
-    if (!userRes.ok || !user.sub || !user.email) throw new Error("oauth_profile_failed");
-    return {
-      subject: user.sub,
-      email: user.email.toLowerCase().trim(),
-      emailVerified: Boolean(user.email_verified),
-      name: user.name?.trim() || nameFromEmail(user.email),
-    };
-  }
-
-  if (provider === "linkedin") {
-    const tokenRes = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: redirectUriValue,
-        client_id: cfg.clientId,
-        client_secret: cfg.clientSecret,
-      }),
-    });
-    const tokenJson = (await tokenRes.json()) as { access_token?: string };
-    if (!tokenRes.ok || !tokenJson.access_token) throw new Error("oauth_token_failed");
-
-    const userRes = await fetch("https://api.linkedin.com/v2/userinfo", {
-      headers: { Authorization: `Bearer ${tokenJson.access_token}` },
-    });
-    const user = (await userRes.json()) as {
-      sub?: string;
-      email?: string;
-      email_verified?: boolean;
-      name?: string;
-    };
-    if (!userRes.ok || !user.sub || !user.email) throw new Error("oauth_profile_failed");
-    return {
-      subject: user.sub,
-      email: user.email.toLowerCase().trim(),
-      emailVerified: user.email_verified !== false,
-      name: user.name?.trim() || nameFromEmail(user.email),
-    };
-  }
-
-  const tokenUrl = new URL("https://graph.facebook.com/v21.0/oauth/access_token");
-  tokenUrl.searchParams.set("client_id", cfg.clientId);
-  tokenUrl.searchParams.set("client_secret", cfg.clientSecret);
-  tokenUrl.searchParams.set("redirect_uri", redirectUriValue);
-  tokenUrl.searchParams.set("code", code);
-  const tokenRes = await fetch(tokenUrl.toString());
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+      redirect_uri: redirectUriValue,
+      grant_type: "authorization_code",
+    }),
+  });
   const tokenJson = (await tokenRes.json()) as { access_token?: string };
   if (!tokenRes.ok || !tokenJson.access_token) throw new Error("oauth_token_failed");
 
-  const meUrl = new URL("https://graph.facebook.com/me");
-  meUrl.searchParams.set("fields", "id,name,email");
-  meUrl.searchParams.set("access_token", tokenJson.access_token);
-  const userRes = await fetch(meUrl.toString());
-  const user = (await userRes.json()) as { id?: string; name?: string; email?: string };
-  if (!userRes.ok || !user.id || !user.email) throw new Error("oauth_profile_failed");
+  const userRes = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+    headers: { Authorization: `Bearer ${tokenJson.access_token}` },
+  });
+  const user = (await userRes.json()) as {
+    sub?: string;
+    email?: string;
+    email_verified?: boolean;
+    name?: string;
+  };
+  if (!userRes.ok || !user.sub || !user.email) throw new Error("oauth_profile_failed");
   return {
-    subject: user.id,
+    subject: user.sub,
     email: user.email.toLowerCase().trim(),
-    emailVerified: true,
+    emailVerified: Boolean(user.email_verified),
     name: user.name?.trim() || nameFromEmail(user.email),
   };
 }
@@ -394,7 +292,7 @@ export async function handleOAuthStart(request: Request, env: D1Env, providerRaw
     return json({ error: "Unsupported OAuth provider." }, 404);
   }
 
-  const cfg = readProviderConfig(env, providerRaw);
+  const cfg = readProviderConfig(env);
   if (!cfg) {
     // Browser navigates here via window.location — redirect instead of JSON 503.
     return oauthConfigErrorRedirect(request, env);
@@ -403,7 +301,7 @@ export async function handleOAuthStart(request: Request, env: D1Env, providerRaw
   const url = new URL(request.url);
   const returnTo = sanitizeReturnTo(url.searchParams.get("returnTo"));
   const state = await storeOAuthState(env.DB, providerRaw, returnTo);
-  const authorizeUrl = buildAuthorizeUrl(providerRaw, cfg, redirectUri(request, env, providerRaw), state);
+  const authorizeUrl = buildAuthorizeUrl(cfg, redirectUri(request, env), state);
   return Response.redirect(authorizeUrl, 302);
 }
 
@@ -427,11 +325,11 @@ export async function handleOAuthCallback(
   const returnTo = await consumeOAuthState(env.DB, state, providerRaw);
   if (!returnTo) return loginErrorRedirect(request, env, "oauth_state");
 
-  const cfg = readProviderConfig(env, providerRaw);
+  const cfg = readProviderConfig(env);
   if (!cfg) return loginErrorRedirect(request, env, "oauth_config");
 
   try {
-    const profile = await exchangeCode(providerRaw, cfg, code, redirectUri(request, env, providerRaw));
+    const profile = await exchangeCode(cfg, code, redirectUri(request, env));
     const user = await upsertOAuthUser(env.DB, providerRaw, profile);
     const { token, expiresAt } = await createSession(env.DB, user.id);
     const headers = new Headers();

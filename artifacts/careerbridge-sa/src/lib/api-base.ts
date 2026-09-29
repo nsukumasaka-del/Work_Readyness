@@ -3,18 +3,9 @@ import { Capacitor } from "@capacitor/core";
 /**
  * Resolve API origin for browser + Capacitor Android.
  * Relative `/api/...` works on the live site / Vite proxy.
- * Bundled Capacitor apps need an absolute API base (LIVE_APP_URL / VITE_API_BASE_URL).
+ * Bundled Capacitor apps use the production Cloudflare Worker origin. Web builds
+ * use same-origin API routes, so no upstream API override is needed.
  */
-
-declare global {
-  interface Window {
-    __BONLIST_API_BASE__?: string;
-  }
-}
-
-function stripTrailingSlash(value: string): string {
-  return value.replace(/\/+$/, "");
-}
 
 function isCapacitorLocalOrigin(origin: string): boolean {
   try {
@@ -31,28 +22,11 @@ function isCapacitorLocalOrigin(origin: string): boolean {
 }
 
 export function getApiBase(): string {
-  let isNative = false;
-  try { isNative = Capacitor.isNativePlatform(); } catch { /* browser builds */ }
-
-  // A native WebView must never resolve API calls against capacitor://localhost.
-  // Allow an explicitly configured HTTPS API origin, otherwise use production.
-  if (isNative) {
-    const configured = String(import.meta.env.VITE_API_BASE_URL || "").trim();
-    if (/^https:\/\//i.test(configured)) return stripTrailingSlash(configured);
-    return "https://www.bonlist.site";
+  try {
+    return Capacitor.isNativePlatform() ? "https://www.bonlist.site" : "";
+  } catch {
+    return "";
   }
-
-  if (typeof window !== "undefined") {
-    const runtime = window.__BONLIST_API_BASE__?.trim();
-    if (runtime) return stripTrailingSlash(runtime);
-  }
-
-  const fromEnv = String(import.meta.env.VITE_API_BASE_URL || "")
-    .trim()
-    .replace(/\/+$/, "");
-  if (fromEnv) return fromEnv;
-
-  return "";
 }
 
 export function apiUrl(path: string): string {
@@ -103,11 +77,6 @@ export function installApiFetchRewrite(): void {
 }
 
 export function describeApiMisconfiguration(): string | null {
-  if (typeof window === "undefined") return null;
-  if (getApiBase()) return null;
-  if (!isCapacitorLocalOrigin(window.location.origin)) return null;
-  return (
-    "This Android build cannot reach the BonList API. " +
-    "Set LIVE_APP_URL in the repo .env to your deployed BonList site, then rebuild with pnpm mobile:sync."
-  );
+  // Native builds always use the production Worker origin; web builds are same-origin.
+  return null;
 }

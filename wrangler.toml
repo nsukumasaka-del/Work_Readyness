@@ -47,18 +47,12 @@ ANDROID_RELEASE_NOTES = "Fixes Android OTA bundle downloads with persistent upda
 # Optional admin bootstrap:
 #   PRIMARY_ADMIN_PASSWORD
 #
-# Social OAuth (enable buttons when set):
+# Google OAuth (enable the sign-in button when both secrets are set):
 #   GOOGLE_CLIENT_ID
 #   GOOGLE_CLIENT_SECRET
-#   LINKEDIN_CLIENT_ID
-#   LINKEDIN_CLIENT_SECRET
-#   FACEBOOK_CLIENT_ID
-#   FACEBOOK_CLIENT_SECRET
 #
-# OAuth callback URLs (register in each provider console):
-#   https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/google/callback
-#   https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/linkedin/callback
-#   https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/facebook/callback
+# Google OAuth callback URL (register in Google Cloud Console):
+#   https://bonlist.nsukumasaka.workers.dev/api/career/auth/google/callback
 # ---------------------------------------------------------------------------
 
 [[d1_databases]]

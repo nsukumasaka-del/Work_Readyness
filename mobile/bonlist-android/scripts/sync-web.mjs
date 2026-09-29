@@ -54,7 +54,6 @@ hydrateEnvFromDotenv();
 const liveAppUrl = (
   process.env.LIVE_APP_URL ||
   process.env.CAP_SERVER_URL ||
-  process.env.VITE_API_BASE_URL ||
   ""
 )
   .trim()
@@ -78,7 +77,7 @@ function run(cmd, args, cwd, env = {}) {
 function buildWeb() {
   console.log("[bonlist] Building shared web app…");
   if (liveAppUrl) {
-    console.log(`[bonlist] Baking API base for Android: ${liveAppUrl}`);
+    console.log(`[bonlist] Using remote Android web origin: ${liveAppUrl}`);
   } else {
     console.warn(
       "[bonlist] LIVE_APP_URL is not set. Signup/API from a bundled APK need it pointing at your deployed site.",
@@ -96,31 +95,9 @@ function buildWeb() {
     repoRoot,
     {
       BONLIST_SKIP_MOBILE_POSTBUILD: "1",
-      ...(liveAppUrl ? { VITE_API_BASE_URL: liveAppUrl } : {}),
     },
   );
   if (result.status !== 0) process.exit(result.status || 1);
-}
-
-function injectRuntimeConfig() {
-  if (!liveAppUrl) return;
-  writeFileSync(
-    resolve(www, "bonlist-runtime.js"),
-    `window.__BONLIST_API_BASE__=${JSON.stringify(liveAppUrl)};\n`,
-    "utf8",
-  );
-
-  const indexPath = resolve(www, "index.html");
-  if (!existsSync(indexPath)) return;
-  let html = readFileSync(indexPath, "utf8");
-  if (!html.includes("bonlist-runtime.js")) {
-    html = html.replace(
-      /<head>/i,
-      `<head>\n    <script src="/bonlist-runtime.js"></script>`,
-    );
-    writeFileSync(indexPath, html, "utf8");
-  }
-  console.log(`[bonlist] Injected runtime API base → ${liveAppUrl}`);
 }
 
 function mirrorWebToWww() {
@@ -141,8 +118,6 @@ function mirrorWebToWww() {
   // The website offers the APK as a download; bundling that APK inside the
   // Android app makes each subsequent build contain the previous app package.
   rmSync(resolve(www, "downloads/BonList.apk"), { force: true });
-  injectRuntimeConfig();
-
   // Keep Download APK button working when a debug APK exists
   const apkSrc = resolve(
     mobileRoot,

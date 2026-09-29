@@ -1,4 +1,4 @@
--- OAuth provider identities (Google / LinkedIn / Facebook)
+-- OAuth provider identities linked to D1 users (Google).
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS auth_identities (

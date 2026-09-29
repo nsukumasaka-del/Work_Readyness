@@ -102,17 +102,6 @@ function PasswordField({
   );
 }
 
-function LinkedInIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-      <path
-        fill="#0A66C2"
-        d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.23 0H1.77C.79 0 0 .77 0 1.73v20.54C0 23.23.79 24 1.77 24h20.46c.98 0 1.77-.77 1.77-1.73V1.73C24 .77 23.21 0 22.23 0z"
-      />
-    </svg>
-  );
-}
-
 function GoogleIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
@@ -124,23 +113,6 @@ function GoogleIcon() {
   );
 }
 
-function FacebookIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-      <path
-        fill="#1877F2"
-        d="M24 12.07C24 5.41 18.63 0 12 0S0 5.41 0 12.07C0 18.1 4.39 23.09 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.7 4.53-4.7 1.31 0 2.68.24 2.68.24v2.95h-1.51c-1.49 0-1.95.93-1.95 1.89v2.26h3.32l-.53 3.49h-2.79V24C19.61 23.09 24 18.1 24 12.07z"
-      />
-    </svg>
-  );
-}
-
-type SocialConfig = {
-  google: boolean;
-  linkedin: boolean;
-  facebook: boolean;
-};
-
 const NativeBrowser = registerPlugin<{ open(options: { url: string }): Promise<void> }>('NativeBrowser');
 
 function oauthConfigErrorMessage() {
@@ -150,15 +122,11 @@ function oauthConfigErrorMessage() {
 function SocialAuthButtons({ returnTo = '/' }: { returnTo?: string }) {
   const [googleAuthError, setGoogleAuthError] = useState('');
 
-  const start = async (provider: keyof SocialConfig) => {
+  const startGoogleSignIn = async () => {
     setGoogleAuthError('');
     try {
-      // Google OAuth is implemented by the API server at this route. The old
-      // /api/auth/oauth/google/start URL was not registered and returned 404.
-      const startPath = provider === 'google'
-        ? '/api/career/auth/google/start'
-        : `/api/auth/oauth/${provider}/start`;
-      const native = provider === 'google' && Capacitor.isNativePlatform();
+      const startPath = '/api/career/auth/google/start';
+      const native = Capacitor.isNativePlatform();
       const query = new URLSearchParams({ returnTo, ...(native ? { native: '1' } : {}) });
       const authUrl = apiUrl(`${startPath}?${query.toString()}`);
 
@@ -170,13 +138,11 @@ function SocialAuthButtons({ returnTo = '/' }: { returnTo?: string }) {
         return;
       }
 
-      if (provider === 'google') console.info('[Auth] Starting web Google OAuth.');
+      console.info('[Auth] Starting web Google OAuth.');
       window.location.assign(authUrl);
     } catch (error) {
       console.error('[Google Auth Error]:', error);
-      if (provider === 'google') {
-        setGoogleAuthError('Google sign-in could not be started. Please try again or use email sign-in.');
-      }
+      setGoogleAuthError('Google sign-in could not be started. Please try again or use email sign-in.');
     }
   };
 
@@ -184,29 +150,13 @@ function SocialAuthButtons({ returnTo = '/' }: { returnTo?: string }) {
     <div className="space-y-2.5" data-testid="social-auth-buttons">
       <button
         type="button"
-        onClick={() => start('linkedin')}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary/60"
-        data-testid="button-continue-linkedin"
-      >
-        <LinkedInIcon /> Continue with LinkedIn
-      </button>
-      <button
-        type="button"
-        onClick={() => start('google')}
+        onClick={startGoogleSignIn}
         className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary/60"
         data-testid="button-continue-google"
       >
         <GoogleIcon /> Continue with Google
       </button>
       {googleAuthError ? <p role="alert" className="text-center text-xs text-destructive">{googleAuthError}</p> : null}
-      <button
-        type="button"
-        onClick={() => start('facebook')}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary/60"
-        data-testid="button-continue-facebook"
-      >
-        <FacebookIcon /> Continue with Facebook
-      </button>
     </div>
   );
 }

@@ -38,14 +38,6 @@ export type D1Env = MailEnv & {
   PRIMARY_ADMIN_NAME?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
-  LINKEDIN_CLIENT_ID?: string;
-  LINKEDIN_CLIENT_SECRET?: string;
-  FACEBOOK_CLIENT_ID?: string;
-  FACEBOOK_CLIENT_SECRET?: string;
-  /** @deprecated Prefer FACEBOOK_CLIENT_ID */
-  FACEBOOK_APP_ID?: string;
-  /** @deprecated Prefer FACEBOOK_CLIENT_SECRET */
-  FACEBOOK_APP_SECRET?: string;
 };
 
 export type UserRow = {
@@ -710,8 +702,6 @@ export async function handleD1Auth(request: Request, env: D1Env): Promise<Respon
     return json({
       passkeys: false,
       google: social.google,
-      linkedin: social.linkedin,
-      facebook: social.facebook,
       d1Auth: true,
       emailVerification: true,
       magicLink: false,
@@ -719,18 +709,16 @@ export async function handleD1Auth(request: Request, env: D1Env): Promise<Respon
     });
   }
 
-  const oauthStart = /^\/api\/auth\/oauth\/(google|linkedin|facebook)\/start$/.exec(path)
-    || /^\/api\/career\/auth\/(google|linkedin|facebook)\/start$/.exec(path);
+  const oauthStart = /^\/api\/career\/auth\/google\/start$/.exec(path);
   if (method === "GET" && oauthStart) {
     const { handleOAuthStart } = await import("./oauth");
-    return handleOAuthStart(request, env, oauthStart[1]!);
+    return handleOAuthStart(request, env, "google");
   }
 
-  const oauthCallback = /^\/api\/auth\/oauth\/(google|linkedin|facebook)\/callback$/.exec(path)
-    || /^\/api\/career\/auth\/(google|linkedin|facebook)\/callback$/.exec(path);
+  const oauthCallback = /^\/api\/career\/auth\/google\/callback$/.exec(path);
   if (method === "GET" && oauthCallback) {
     const { handleOAuthCallback } = await import("./oauth");
-    return handleOAuthCallback(request, env, oauthCallback[1]!);
+    return handleOAuthCallback(request, env, "google");
   }
 
   return null;

@@ -4,9 +4,9 @@
 - Durable **users** + **sessions** in D1
 - **Signup email OTP** via **Resend** (verify before account is created)
 - **Forgot / reset password** via emailed link (Resend)
-- **Social OAuth** (Google, LinkedIn, Facebook) → D1 session
+- **Google OAuth** → D1 user and session
 - Login is password-only (no OTP)
-- No SMTP / Nodemailer / Render email bridge
+- Email verification and password reset use the Worker email integration
 
 ## Routes
 | Method | Path | Purpose |
@@ -19,9 +19,9 @@
 | POST | `/api/auth/logout` | End session |
 | POST | `/api/auth/forgot-password` | Email reset link |
 | POST | `/api/auth/reset-password` | Set new password from token |
-| GET | `/api/auth/oauth/:provider/start` | Start OAuth (`google` \| `linkedin` \| `facebook`) |
-| GET | `/api/auth/oauth/:provider/callback` | OAuth callback → D1 session cookie |
-| GET | `/api/career/auth/config` | `{ google, linkedin, facebook, emailConfigured, … }` |
+| GET | `/api/career/auth/google/start` | Start Google OAuth |
+| GET | `/api/career/auth/google/callback` | Google callback → D1 user and session cookie |
+| GET | `/api/career/auth/config` | `{ google, emailConfigured, … }` |
 
 Career aliases (`/api/career/signup`, `/login`, `/auth/verify`, …) hit the same handlers.
 
@@ -56,22 +56,16 @@ npx wrangler secret put EMAIL_FROM
 For local testing without Resend, set in `wrangler.toml` `[vars]`:
 `AUTH_ALLOW_DEV_OTP = "true"` — codes / reset URLs are returned in the API JSON.
 
-## Social OAuth secrets
+## Google OAuth secrets
 
 ```bash
 npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
-npx wrangler secret put LINKEDIN_CLIENT_ID
-npx wrangler secret put LINKEDIN_CLIENT_SECRET
-npx wrangler secret put FACEBOOK_CLIENT_ID
-npx wrangler secret put FACEBOOK_CLIENT_SECRET
 ```
 
-Callback URLs (register in each provider console):
+Register this callback URL in Google Cloud Console:
 
-- `https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/google/callback`
-- `https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/linkedin/callback`
-- `https://bonlist.nsukumasaka.workers.dev/api/auth/oauth/facebook/callback`
+- `https://bonlist.nsukumasaka.workers.dev/api/career/auth/google/callback`
 
 ## Deploy
 

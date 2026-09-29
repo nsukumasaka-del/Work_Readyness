@@ -40,7 +40,6 @@ const liveReload =
 const liveApp = (
   process.env.LIVE_APP_URL ||
   process.env.CAP_SERVER_URL ||
-  process.env.VITE_API_BASE_URL ||
   ""
 ).trim();
 const serverUrl = (liveReload || liveApp).replace(/\/+$/, "");

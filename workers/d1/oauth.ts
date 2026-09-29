@@ -97,14 +97,59 @@ async function storeOAuthState(
 ): Promise<string> {
   const state = randomToken(24);
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-  await db
+  const insertState = () => db
     .prepare(
       `INSERT INTO auth_challenges
         (id, purpose, email, name, expires_at, created_at)
        VALUES (?, 'oauth', ?, ?, ?, datetime('now'))`,
     )
-    .bind(state, provider, returnTo)
+    .bind(state, provider, returnTo, expiresAt)
     .run();
+
+  try {
+    await insertState();
+  } catch (dbError) {
+    const detail = dbError instanceof Error ? dbError.message : String(dbError);
+    console.error("[auth] D1 auth_challenges write failed:", detail);
+    if (!/no such table:\s*auth_challenges/i.test(detail)) throw dbError;
+
+    // This shared table also stores signup and password-reset challenges. Keep
+    // its canonical schema intact when recovering a database missing the table.
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS auth_challenges (
+        id TEXT PRIMARY KEY NOT NULL,
+        purpose TEXT NOT NULL,
+        email TEXT NOT NULL COLLATE NOCASE,
+        name TEXT NOT NULL DEFAULT '',
+        password_hash TEXT,
+        code_hash TEXT,
+        token_hash TEXT,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        consumed_at TEXT
+      )
+    `).run();
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_auth_challenges_email ON auth_challenges (email)").run();
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_auth_challenges_purpose ON auth_challenges (purpose)").run();
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_auth_challenges_expires ON auth_challenges (expires_at)").run();
+
+    try {
+      await insertState();
+    } catch (retryError) {
+      console.error("[auth] D1 auth_challenges retry failed:", retryError);
+      throw retryError;
+    }
+  }
+
+  // Expired OAuth challenges are disposable; a cleanup failure must never
+  // prevent the current login attempt from being initialized.
+  try {
+    await db.prepare(
+      "DELETE FROM auth_challenges WHERE purpose = 'oauth' AND julianday(expires_at) <= julianday('now')",
+    ).run();
+  } catch (cleanupError) {
+    console.warn("[auth] Expired OAuth state cleanup failed:", cleanupError);
+  }
   return state;
 }
 

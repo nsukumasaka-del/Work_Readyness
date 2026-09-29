@@ -503,10 +503,23 @@ router.post("/career/auth/mfa/verify", async (req, res) => {
 
 router.get("/career/auth/google/start", (req, res) => {
   if (!isGoogleAuthConfigured()) {
-    res.status(503).json({ error: "Google sign-in is not configured yet." });
+    const appBase = getAppBaseUrl();
+    if (String(req.query.native || "") === "1") {
+      res.redirect("bonlist://auth/callback?error=oauth_config");
+    } else {
+      res.redirect(`${appBase}/login?error=oauth_config`);
+    }
     return;
   }
-  const returnTo = String(req.query.returnTo || "/");
+  const requestedReturnTo = String(req.query.returnTo || "/");
+  const returnToPath = requestedReturnTo.startsWith("/") && !requestedReturnTo.startsWith("//")
+    ? requestedReturnTo
+    : "/";
+  // The native marker is stored inside server-generated OAuth state and is
+  // consumed only after Google redirects back to this API callback.
+  const returnTo = String(req.query.native || "") === "1"
+    ? `bonlist-native:${returnToPath}`
+    : returnToPath;
   const apiBase = getApiPublicBaseUrl(req.get("host") || undefined);
   const redirectUri = googleRedirectUri(apiBase.startsWith("http") ? apiBase : `${req.protocol}://${req.get("host")}`);
   // Prefer APP/API public URLs
@@ -519,6 +532,7 @@ router.get("/career/auth/google/start", (req, res) => {
 
 router.get("/career/auth/google/callback", async (req, res) => {
   const appBase = getAppBaseUrl();
+  let nativeCallbackReturn: string | null = null;
   try {
     if (!isGoogleAuthConfigured()) {
       res.redirect(`${appBase}/login?error=google_unavailable`);
@@ -526,9 +540,15 @@ router.get("/career/auth/google/callback", async (req, res) => {
     }
     const code = String(req.query.code || "");
     const state = String(req.query.state || "");
-    const returnTo = consumeGoogleOAuthState(state) || "/";
+    const stateReturnTo = consumeGoogleOAuthState(state) || "/";
+    const nativeReturn = stateReturnTo.startsWith("bonlist-native:");
+    const returnTo = nativeReturn ? stateReturnTo.slice("bonlist-native:".length) : stateReturnTo;
+    if (nativeReturn) nativeCallbackReturn = returnTo;
+    const redirectToApp = (path: string) => nativeReturn
+      ? `bonlist://auth/callback${path.startsWith("?") ? path : `?${path}`}`
+      : `${appBase}${path.startsWith("?") ? path : `/auth/callback${path}`}`;
     if (!code) {
-      res.redirect(`${appBase}/login?error=google_denied`);
+      res.redirect(nativeReturn ? redirectToApp(`?error=google_denied&returnTo=${encodeURIComponent(returnTo)}`) : `${appBase}/login?error=google_denied`);
       return;
     }
     const publicApi = process.env.API_PUBLIC_URL?.trim() || `${req.protocol}://${req.get("host")}`;
@@ -541,7 +561,9 @@ router.get("/career/auth/google/callback", async (req, res) => {
         purpose: "mfa_login",
         payload: { profileId: profile.id, kind: "user" },
       });
-      res.redirect(`${appBase}/login?mfaToken=${pending.challengeId}&returnTo=${encodeURIComponent(returnTo)}`);
+      res.redirect(nativeReturn
+        ? redirectToApp(`?mfaToken=${pending.challengeId}&returnTo=${encodeURIComponent(returnTo)}`)
+        : `${appBase}/login?mfaToken=${pending.challengeId}&returnTo=${encodeURIComponent(returnTo)}`);
       return;
     }
 
@@ -552,10 +574,14 @@ router.get("/career/auth/google/callback", async (req, res) => {
     });
     setSessionCookie(res, session.token, session.expiresAt);
     const handshake = createAuthHandshake(session.token);
-    res.redirect(`${appBase}/auth/callback?code=${handshake}&returnTo=${encodeURIComponent(returnTo)}`);
+    res.redirect(nativeReturn
+      ? redirectToApp(`?code=${handshake}&returnTo=${encodeURIComponent(returnTo)}`)
+      : `${appBase}/auth/callback?code=${handshake}&returnTo=${encodeURIComponent(returnTo)}`);
   } catch (error) {
     logger.error({ err: error }, "Google OAuth callback failed");
-    res.redirect(`${appBase}/login?error=google_failed`);
+    res.redirect(nativeCallbackReturn
+      ? `bonlist://auth/callback?error=google_failed&returnTo=${encodeURIComponent(nativeCallbackReturn)}`
+      : `${appBase}/login?error=google_failed`);
   }
 });
 

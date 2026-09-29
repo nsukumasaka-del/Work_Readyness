@@ -2,6 +2,7 @@ import { type ReactNode, type FormEvent, useState, useEffect, useRef } from 'rea
 import { createPortal } from 'react-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -3680,6 +3681,44 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function App() {
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let disposed = false;
+    let listener: { remove: () => Promise<void> } | undefined;
+
+    const openAuthCallback = (rawUrl?: string | null) => {
+      if (!rawUrl) return;
+      try {
+        const deepLink = new URL(rawUrl);
+        if (deepLink.protocol !== 'bonlist:' || deepLink.hostname !== 'auth' || deepLink.pathname !== '/callback') return;
+        const params = new URLSearchParams(deepLink.searchParams);
+        const target = params.has('mfaToken') || params.has('error') ? '/login' : '/auth/callback';
+        const nextLocation = `${target}?${params.toString()}`;
+        window.history.replaceState({}, '', nextLocation);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      } catch (error) {
+        console.error('[Auth] Could not process native Google callback:', error);
+      }
+    };
+
+    void (async () => {
+      try {
+        const appUrlOpenListener = await CapacitorApp.addListener('appUrlOpen', ({ url }: { url: string }) => openAuthCallback(url));
+        if (disposed) await appUrlOpenListener.remove();
+        else listener = appUrlOpenListener;
+        const launch = await CapacitorApp.getLaunchUrl();
+        if (!disposed) openAuthCallback(launch?.url);
+      } catch (error: unknown) {
+        console.error('[Auth] Native deep-link listener could not start:', error);
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      if (listener) void listener.remove();
+    };
+  }, []);
+
   useEffect(() => {
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return;
     void CapacitorUpdater.notifyAppReady().catch((error) => {

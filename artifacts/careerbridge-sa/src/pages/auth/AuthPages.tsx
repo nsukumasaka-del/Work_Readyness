@@ -1,7 +1,7 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Eye, EyeOff, ArrowRight, Fingerprint } from 'lucide-react';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Network } from '@capacitor/network';
 import { apiUrl } from '@/lib/api-base';
 import {
@@ -141,16 +141,43 @@ type SocialConfig = {
   facebook: boolean;
 };
 
+const NativeBrowser = registerPlugin<{ open(options: { url: string }): Promise<void> }>('NativeBrowser');
+
 function oauthConfigErrorMessage() {
   return 'Google sign-in needs a Client ID and Client Secret on the Worker, the correct OAuth redirect URI in Google Cloud, and your account added as a test user on the consent screen (app is in Testing). Use email for now, or try again after setup.';
 }
 
 function SocialAuthButtons({ returnTo = '/' }: { returnTo?: string }) {
-  const start = (provider: keyof SocialConfig) => {
-    // Always navigate; Worker redirects to the IdP when configured, or back with ?error=oauth_config.
-    window.location.href = apiUrl(
-      `/api/auth/oauth/${provider}/start?returnTo=${encodeURIComponent(returnTo)}`,
-    );
+  const [googleAuthError, setGoogleAuthError] = useState('');
+
+  const start = async (provider: keyof SocialConfig) => {
+    setGoogleAuthError('');
+    try {
+      // Google OAuth is implemented by the API server at this route. The old
+      // /api/auth/oauth/google/start URL was not registered and returned 404.
+      const startPath = provider === 'google'
+        ? '/api/career/auth/google/start'
+        : `/api/auth/oauth/${provider}/start`;
+      const native = provider === 'google' && Capacitor.isNativePlatform();
+      const query = new URLSearchParams({ returnTo, ...(native ? { native: '1' } : {}) });
+      const authUrl = apiUrl(`${startPath}?${query.toString()}`);
+
+      if (native) {
+        console.info('[Auth] Starting Google sign-in from the native app.');
+        // Launch the system browser so Google does not reject the embedded
+        // Android WebView user agent. The callback returns through a deep link.
+        await NativeBrowser.open({ url: authUrl });
+        return;
+      }
+
+      if (provider === 'google') console.info('[Auth] Starting web Google OAuth.');
+      window.location.assign(authUrl);
+    } catch (error) {
+      console.error('[Google Auth Error]:', error);
+      if (provider === 'google') {
+        setGoogleAuthError('Google sign-in could not be started. Please try again or use email sign-in.');
+      }
+    }
   };
 
   return (
@@ -171,6 +198,7 @@ function SocialAuthButtons({ returnTo = '/' }: { returnTo?: string }) {
       >
         <GoogleIcon /> Continue with Google
       </button>
+      {googleAuthError ? <p role="alert" className="text-center text-xs text-destructive">{googleAuthError}</p> : null}
       <button
         type="button"
         onClick={() => start('facebook')}

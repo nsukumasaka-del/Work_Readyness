@@ -30,10 +30,10 @@ PRIMARY_ADMIN_NAME = "Ntokozo Sukumasaka"
 # Used for password-reset links + OAuth redirect_uri base.
 APP_BASE_URL = "https://www.bonlist.site"
 # Android update metadata must match the versionCode/versionName in the published APK.
-ANDROID_LATEST_VERSION = "1.2.0"
-ANDROID_VERSION_CODE = "3"
+ANDROID_LATEST_VERSION = "1.2.1"
+ANDROID_VERSION_CODE = "4"
 ANDROID_APK_URL = "https://www.bonlist.site/downloads/BonList.apk"
-ANDROID_RELEASE_NOTES = "Fixes Android OTA bundle downloads with persistent update settings, extended network timeouts, and clearer download diagnostics."
+ANDROID_RELEASE_NOTES = "BonList Android 1.2.1: updated mobile CV tools, improved stability, and refreshed app integrations."
 
 # ---------------------------------------------------------------------------
 # Secrets (never commit) — set with:
@@ -65,4 +65,4 @@ preview_database_id = "32f06e98-d912-43ce-9ebf-206c82224b6e"
 directory = "./artifacts/careerbridge-sa/dist/public"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api", "/api/*", "/ota/*"]
+run_worker_first = ["/api", "/api/*", "/ota/*", "/downloads/*"]

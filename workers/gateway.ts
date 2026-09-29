@@ -294,6 +294,31 @@ async function serveOtaAsset(request: Request, env: Env): Promise<Response> {
   return new Response(body, { status: 200, headers });
 }
 
+async function serveApkAsset(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("Method not allowed.", {
+      status: 405,
+      headers: { Allow: "GET, HEAD", "Cache-Control": "no-store" },
+    });
+  }
+  const url = new URL(request.url);
+  const asset = await env.ASSETS.fetch(new Request(url, { method: "GET", headers: request.headers }));
+  const headers = new Headers(asset.headers);
+  headers.set("Content-Type", "application/vnd.android.package-archive");
+  headers.set("Content-Disposition", 'attachment; filename="BonList.apk"');
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  headers.set("CDN-Cache-Control", "no-store");
+  headers.set("Surrogate-Control", "no-store");
+  headers.set("Pragma", "no-cache");
+  headers.set("Expires", "0");
+  headers.set("X-Content-Type-Options", "nosniff");
+  return new Response(request.method === "HEAD" ? null : asset.body, {
+    status: asset.status,
+    statusText: asset.statusText,
+    headers,
+  });
+}
+
 async function hasValidOtaBundle(env: Env, url: URL): Promise<boolean> {
   const response = await env.ASSETS.fetch(new Request(url, { method: "GET", headers: { "cache-control": "no-cache" } }));
   if (!response.ok || (response.headers.get("Content-Type") || "").toLowerCase().includes("text/html") || !response.body) return false;
@@ -322,9 +347,13 @@ export default {
       return serveOtaAsset(request, env);
     }
 
+    if (url.pathname === "/downloads/BonList.apk") {
+      return serveApkAsset(request, env);
+    }
+
     if (url.pathname === "/api/app/version" && request.method === "GET") {
-      const latestVersion = String(env.ANDROID_LATEST_VERSION || "1.0.0").trim();
-      const parsedVersionCode = Number(env.ANDROID_VERSION_CODE || 1);
+      const latestVersion = String(env.ANDROID_LATEST_VERSION || "1.2.1").trim();
+      const parsedVersionCode = Number(env.ANDROID_VERSION_CODE || 4);
       const configuredApkUrl = String(env.ANDROID_APK_URL || "https://www.bonlist.site/downloads/BonList.apk").trim();
       let bundleManifest: Record<string, unknown> = {};
       let hasBundle = false;

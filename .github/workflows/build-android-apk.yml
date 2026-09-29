@@ -12,6 +12,8 @@ on:
     paths:
       - "mobile/bonlist-android/**"
       - "artifacts/careerbridge-sa/**"
+      - "workers/**"
+      - "wrangler.toml"
       - ".github/workflows/build-android-apk.yml"
 
 permissions:
@@ -85,12 +87,20 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Stage APK for web download
+      - name: Stage APK for web download and Cloudflare assets
         run: |
           mkdir -p artifacts/careerbridge-sa/public/downloads
-          cp mobile/bonlist-android/android/app/build/outputs/apk/debug/app-debug.apk \
-            artifacts/careerbridge-sa/public/downloads/BonList.apk
+          mkdir -p artifacts/careerbridge-sa/dist/public/downloads
+          APK="mobile/bonlist-android/android/app/build/outputs/apk/debug/app-debug.apk"
+          cp "$APK" artifacts/careerbridge-sa/public/downloads/BonList.apk
+          cp "$APK" artifacts/careerbridge-sa/dist/public/downloads/BonList.apk
           ls -lh artifacts/careerbridge-sa/public/downloads/BonList.apk
+
+      - name: Deploy web assets and APK to Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy --config wrangler.toml
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

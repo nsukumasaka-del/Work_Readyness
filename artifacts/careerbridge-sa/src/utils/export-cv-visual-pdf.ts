@@ -17,30 +17,35 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
     }
   });
 
-  // React-controlled form values are not reliably represented in outerHTML.
+  // Replace live controls with styled text before pagination. That keeps the
+  // exported DOM selectable and prevents browser form chrome from changing the
+  // dimensions of narrow CV columns.
   const sourceFields = original.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select");
   const cloneFields = clone.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select");
   sourceFields.forEach((source, index) => {
     const target = cloneFields[index];
     if (!target) return;
-    if (source instanceof HTMLInputElement && target instanceof HTMLInputElement) {
-      target.setAttribute("value", source.value);
-      target.removeAttribute("placeholder");
-    } else if (source instanceof HTMLTextAreaElement && target instanceof HTMLTextAreaElement) {
-      target.textContent = source.value;
-      target.removeAttribute("placeholder");
-    } else if (source instanceof HTMLSelectElement && target instanceof HTMLSelectElement) {
-      Array.from(target.options).forEach((option, optionIndex) => option.toggleAttribute("selected", optionIndex === source.selectedIndex));
-    }
+    const text = source instanceof HTMLSelectElement
+      ? source.selectedOptions[0]?.textContent || ""
+      : source.value;
+    const staticText = createStaticTextControl(source, text);
+    target.replaceWith(staticText);
   });
 
   const paginatedPages = buildExplicitA4Pages(original, clone);
 
   const styles = Array.from(document.querySelectorAll<HTMLStyleElement | HTMLLinkElement>("style, link[rel='stylesheet']"))
-    .map((element) => element.outerHTML)
+    .map((element) => {
+      if (!(element instanceof HTMLLinkElement)) return element.outerHTML;
+      const link = element.cloneNode(false) as HTMLLinkElement;
+      const href = element.getAttribute("href");
+      if (href) link.href = new URL(href, document.baseURI).href;
+      return link.outerHTML;
+    })
     .join("\n");
+  const baseHref = escapeHtmlAttribute(document.baseURI);
   const safeName = filename.replace(/\.pdf$/i, "").replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "BonList-CV";
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${styles}
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="${baseHref}">${styles}
     <style>
       @page { size: A4 portrait; margin: 0; }
       html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; color: #0f172a; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -75,6 +80,43 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
   link.download = `${safeName}.pdf`;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function createStaticTextControl(source: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, text: string): HTMLElement {
+  const computed = window.getComputedStyle(source);
+  const output = document.createElement(source instanceof HTMLTextAreaElement ? "div" : "span");
+  output.className = source.className;
+  output.textContent = text;
+  output.setAttribute("data-export-text-control", "true");
+
+  const copiedProperties = [
+    "display", "box-sizing", "width", "min-width", "max-width", "height", "min-height", "max-height",
+    "margin-top", "margin-right", "margin-bottom", "margin-left", "padding-top", "padding-right", "padding-bottom", "padding-left",
+    "font-family", "font-size", "font-style", "font-weight", "font-variant", "line-height", "letter-spacing",
+    "color", "text-align", "text-transform", "text-indent", "vertical-align", "white-space", "overflow-wrap", "word-break",
+    "flex", "flex-basis", "flex-grow", "flex-shrink", "align-self",
+  ];
+  copiedProperties.forEach((property) => {
+    const value = computed.getPropertyValue(property);
+    if (value) output.style.setProperty(property, value);
+  });
+  output.style.setProperty("white-space", source instanceof HTMLTextAreaElement ? "pre-wrap" : computed.whiteSpace || "pre-wrap");
+  output.style.setProperty("word-break", "break-word");
+  output.style.setProperty("overflow-wrap", "anywhere");
+  output.style.setProperty("border", "0");
+  output.style.setProperty("outline", "0");
+  output.style.setProperty("background", "transparent");
+  output.style.setProperty("box-shadow", "none");
+  if (source instanceof HTMLTextAreaElement) {
+    output.style.setProperty("display", "block");
+    output.style.setProperty("height", "auto");
+    output.style.setProperty("min-height", "0");
+  }
+  return output;
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 async function readExportError(response: Response): Promise<string> {

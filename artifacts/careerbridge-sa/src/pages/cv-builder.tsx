@@ -4803,9 +4803,9 @@ export default function CvBuilderPage() {
       const templateName = TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "CV";
       const safeTemplateName = templateName.replace(/[^a-z0-9_-]/gi, "_");
       const filename = `${safeBaseName}_${safeTemplateName}`;
-      await exportCvVisualPdf(preview, filename);
-      setMessage("Print view opened. Choose Save as PDF to download your CV.");
-      setTimeout(() => setMessage(""), 5000);
+      await exportCvVisualPdf(preview.id || "bonlist-cv-document", filename);
+      setMessage("Your CV PDF download has started.");
+      setTimeout(() => setMessage(""), 4000);
     } catch (exportError) {
       console.error("[CV PDF export error]", exportError);
       setError(exportError instanceof Error ? `PDF generation failed: ${exportError.message}` : "PDF generation failed. Please try again.");

@@ -1,52 +1,62 @@
-/** Opens the rendered CV in an isolated native print document. Browser print
- * output retains the template's CSS and selectable text instead of rasterizing it. */
-export async function exportCvVisualPdf(previewNode: HTMLElement, filename: string): Promise<void> {
-  const printFrame = document.createElement("iframe");
-  printFrame.setAttribute("title", "CV print preview");
-  Object.assign(printFrame.style, {
-    position: "fixed",
-    left: "-10000px",
-    top: "0",
-    width: "210mm",
-    height: "297mm",
-    border: "0",
-    opacity: "0",
-    pointerEvents: "none",
-  });
-  document.body.appendChild(printFrame);
+type Html2CanvasCloneOptions = {
+  onclone: (clonedDocument: Document) => void;
+};
 
-  const frameWindow = printFrame.contentWindow;
-  const frameDocument = frameWindow?.document;
-  if (!frameWindow || !frameDocument) {
-    printFrame.remove();
-    throw new Error("The browser could not create a print view.");
+/** Create a direct PDF download from the styled CV DOM without opening print UI. */
+export async function exportCvVisualPdf(previewElementId: string, filename: string): Promise<void> {
+  const original = document.getElementById(previewElementId);
+  if (!(original instanceof HTMLElement)) {
+    throw new Error(`CV preview element #${previewElementId} was not found.`);
   }
 
-  const styles = Array.from(document.querySelectorAll<HTMLStyleElement | HTMLLinkElement>("style, link[rel='stylesheet']"))
-    .filter((node) => !(node instanceof HTMLLinkElement) || !node.disabled)
-    .map((node) => {
-      if (node instanceof HTMLLinkElement) {
-        const link = node.cloneNode(false) as HTMLLinkElement;
-        link.href = node.href;
-        link.media = "all";
-        return link.outerHTML;
-      }
-      return node.outerHTML;
-    }).join("\n");
-
-  const clone = previewNode.cloneNode(true) as HTMLElement;
+  const clone = original.cloneNode(true) as HTMLElement;
   clone.removeAttribute("inert");
-  clone.querySelectorAll(".cv-a4-spacer, [data-a4-spacer], [data-preview-spacer='true']").forEach((spacer) => spacer.remove());
+  Object.assign(clone.style, {
+    display: "block",
+    position: "static",
+    width: "210mm",
+    minWidth: "210mm",
+    maxWidth: "210mm",
+    minHeight: "297mm",
+    height: "auto",
+    boxSizing: "border-box",
+    margin: "0",
+    transform: "none",
+    overflow: "visible",
+    boxShadow: "none",
+  });
+
+  const spacerIds = new Set<string>();
+  clone.querySelectorAll<HTMLElement>(".cv-a4-spacer, .a4-spacer, [data-a4-spacer], [data-preview-spacer='true']")
+    .forEach((spacer) => {
+      const id = spacer.getAttribute("data-a4-spacer") || spacer.getAttribute("data-a4-id") || "";
+      if (id) spacerIds.add(id);
+      const marker = document.createElement("div");
+      marker.className = "html2pdf__page-break force-page-break";
+      marker.setAttribute("aria-hidden", "true");
+      marker.style.cssText = "display:block!important;width:100%!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;clear:both!important;break-before:page!important;page-break-before:always!important;";
+      spacer.parentNode?.insertBefore(marker, spacer);
+      spacer.remove();
+    });
+
+  clone.querySelectorAll<HTMLElement>("[data-page-break='true']").forEach((element) => {
+    const id = element.getAttribute("data-a4-id") || "";
+    element.removeAttribute("data-page-break");
+    if (id && spacerIds.has(id)) return;
+    element.classList.add("html2pdf__page-break", "force-page-break");
+  });
+
   clone.querySelectorAll<HTMLElement>(".page-container, .cv-editor-wrapper").forEach((container) => {
     Object.assign(container.style, { height: "auto", minHeight: "0", boxShadow: "none", margin: "0" });
   });
-  clone.querySelectorAll(".no-print, [data-preview-only='true']").forEach((element) => element.remove());
+  clone.querySelectorAll(".no-print, [data-preview-only='true'], .cv-page-guides, .cv-page-guide, .cv-page-guide-label, .cv-page-badge")
+    .forEach((element) => element.remove());
 
-  // outerHTML does not reliably contain the live value of controlled form fields.
-  // Copy current values into the print clone so the printed CV matches the canvas.
-  const sourceFields = previewNode.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select");
+  // Copy the editor's live values into the clone. React-controlled inputs do not
+  // consistently serialize their current value into outerHTML.
+  const originalFields = original.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select");
   const clonedFields = clone.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select");
-  sourceFields.forEach((source, index) => {
+  originalFields.forEach((source, index) => {
     const target = clonedFields[index];
     if (!target) return;
     if (source instanceof HTMLInputElement && target instanceof HTMLInputElement) {
@@ -56,84 +66,86 @@ export async function exportCvVisualPdf(previewNode: HTMLElement, filename: stri
       target.textContent = source.value;
       target.removeAttribute("placeholder");
     } else if (source instanceof HTMLSelectElement && target instanceof HTMLSelectElement) {
-      target.value = source.value;
-      Array.from(target.options).forEach((option) => {
-        if (option.value === source.value) option.setAttribute("selected", "selected");
-        else option.removeAttribute("selected");
+      Array.from(target.options).forEach((option, optionIndex) => {
+        option.toggleAttribute("selected", optionIndex === source.selectedIndex);
       });
     }
   });
 
-  const waitForStyles = () => Promise.all(Array.from(frameDocument.querySelectorAll<HTMLLinkElement>("link[rel='stylesheet']"))
-    .map((link) => new Promise<void>((resolve) => {
-      if (link.sheet) return resolve();
-      link.addEventListener("load", () => resolve(), { once: true });
-      link.addEventListener("error", () => resolve(), { once: true });
-      window.setTimeout(resolve, 5000);
-    })));
+  const filenameWithExtension = `${filename.replace(/\.pdf$/i, "")}.pdf`;
+  const html2pdf = (await import("html2pdf.js")).default;
+  const options = {
+    margin: 0,
+    filename: filenameWithExtension,
+    image: { type: "jpeg" as const, quality: 0.98 },
+    html2canvas: {
+      scale: 3,
+      useCORS: true,
+      logging: false,
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: 1024,
+      backgroundColor: "#ffffff",
+      onclone: (clonedDocument: Document) => sanitizeClone(clonedDocument, previewElementId),
+    } satisfies Html2CanvasCloneOptions & Record<string, unknown>,
+    jsPDF: { unit: "mm" as const, format: "a4", orientation: "portrait" as const },
+    pagebreak: {
+      mode: ["css", "legacy"],
+      before: ".html2pdf__page-break",
+      avoid: [".experience-item", ".education-item", "li"],
+    },
+  };
 
-  frameDocument.open();
-  frameDocument.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(filename)}.pdf</title>${styles}<style>
-    @page { size: A4 portrait; margin: 0; }
-    html, body { margin: 0 !important; padding: 0 !important; width: 210mm; min-height: 297mm; background: #fff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-    #cv-preview-render { width: 210mm !important; min-height: 297mm !important; margin: 0 auto !important; box-sizing: border-box !important; }
-    #cv-preview-render .cv-page-sheet, #cv-preview-render #bonlist-cv-document { width: 210mm !important; max-width: 210mm !important; min-height: 297mm !important; height: auto !important; box-sizing: border-box !important; margin: 0 !important; box-shadow: none !important; border: 0 !important; border-radius: 0 !important; transform: none !important; overflow: visible !important; }
-    #cv-preview-render .cv-a4-spacer, #cv-preview-render [data-a4-spacer], #cv-preview-render [data-preview-spacer='true'], #cv-preview-render .no-print, #cv-preview-render [data-preview-only='true'] { display: none !important; }
-    #cv-preview-render .cv-page-guides, #cv-preview-render .cv-page-guide, #cv-preview-render .cv-page-guide-label, #cv-preview-render .cv-page-badge { display: none !important; }
-    #cv-preview-render .cv-page-sheet::before { display: none !important; }
-    #cv-preview-render .force-page-break, #cv-preview-render [data-page-break='true'] { break-before: page !important; page-break-before: always !important; margin-top: 0 !important; padding-top: 15mm !important; }
-    #cv-preview-render input, #cv-preview-render textarea, #cv-preview-render select { appearance: none !important; border: 0 !important; outline: 0 !important; box-shadow: none !important; background: transparent !important; color: inherit !important; -webkit-text-fill-color: currentColor !important; }
-    #cv-preview-render textarea { resize: none !important; overflow: visible !important; white-space: pre-wrap !important; }
-    #cv-preview-render .cv-section, #cv-preview-render .work-experience-item, #cv-preview-render .experience-item, #cv-preview-render .education-item, #cv-preview-render [data-a4-id], #cv-preview-render li { break-inside: avoid; page-break-inside: avoid; }
-    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  </style></head><body><div id="cv-preview-render">${clone.outerHTML}</div></body></html>`);
-  frameDocument.documentElement.className = document.documentElement.className;
-  frameDocument.documentElement.style.cssText = document.documentElement.style.cssText;
-  const theme = document.documentElement.getAttribute("data-theme");
-  if (theme) frameDocument.documentElement.setAttribute("data-theme", theme);
-  frameDocument.body.className = document.body.className;
-  frameDocument.body.style.cssText = document.body.style.cssText;
-  frameDocument.close();
-
-  try {
-    await waitForStyles();
-    await frameDocument.fonts?.ready;
-    await Promise.all(Array.from(frameDocument.images).map((image) => image.complete
-      ? Promise.resolve()
-      : new Promise<void>((resolve) => {
-        image.addEventListener("load", () => resolve(), { once: true });
-        image.addEventListener("error", () => resolve(), { once: true });
-        window.setTimeout(resolve, 3000);
-      })));
-
-    await new Promise<void>((resolve, reject) => {
-      let cleanedUp = false;
-      const cleanup = () => {
-        if (cleanedUp) return;
-        cleanedUp = true;
-        frameWindow.removeEventListener("afterprint", cleanup);
-        window.clearTimeout(fallbackTimer);
-        printFrame.remove();
-      };
-      const fallbackTimer = window.setTimeout(cleanup, 60_000);
-      frameWindow.addEventListener("afterprint", cleanup, { once: true });
-      try {
-        frameWindow.focus();
-        frameWindow.print();
-        resolve();
-      } catch (error) {
-        cleanup();
-        reject(error);
-      }
-    });
-  } catch (error) {
-    printFrame.remove();
-    throw error;
-  }
+  await document.fonts?.ready;
+  await html2pdf().set(options).from(clone).save();
 }
 
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[character] || character);
+function sanitizeClone(clonedDocument: Document, previewElementId: string): void {
+  const view = clonedDocument.defaultView;
+  if (!view) return;
+  const colorProperties = [
+    "color", "background-color", "border-color", "border-top-color", "border-right-color",
+    "border-bottom-color", "border-left-color", "outline-color", "text-decoration-color",
+  ];
+  clonedDocument.querySelectorAll<HTMLElement>("*").forEach((element) => {
+    const computed = view.getComputedStyle(element);
+    colorProperties.forEach((property) => {
+      const value = computed.getPropertyValue(property);
+      if (!/(?:oklab|oklch|color-mix)\s*\(/i.test(value)) return;
+      const fallback = property === "color" ? "#0f172a" : property === "background-color" ? "#ffffff" : "#cbd5e1";
+      element.style.setProperty(property, colorToRgba(value, fallback), "important");
+    });
+  });
+
+  const root = clonedDocument.getElementById(previewElementId);
+  if (root) Object.assign((root as HTMLElement).style, {
+    boxShadow: "none", border: "none", transform: "none", margin: "0",
+    width: "210mm", minWidth: "210mm", maxWidth: "210mm", height: "auto", overflow: "visible",
+  });
+  clonedDocument.querySelectorAll<HTMLElement>(".html2pdf__page-break").forEach((marker) => {
+    marker.style.setProperty("break-before", "page", "important");
+    marker.style.setProperty("page-break-before", "always", "important");
+    marker.style.setProperty("height", "0", "important");
+    marker.style.setProperty("margin", "0", "important");
+    marker.style.setProperty("padding", "0", "important");
+  });
+}
+
+function colorToRgba(value: string, fallback: string): string {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return fallback;
+    const marker = "#010203";
+    context.fillStyle = marker;
+    context.fillStyle = value;
+    if (context.fillStyle === marker) return fallback;
+    context.fillRect(0, 0, 1, 1);
+    const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data;
+    return `rgba(${red}, ${green}, ${blue}, ${(alpha / 255).toFixed(3)})`;
+  } catch {
+    return fallback;
+  }
 }

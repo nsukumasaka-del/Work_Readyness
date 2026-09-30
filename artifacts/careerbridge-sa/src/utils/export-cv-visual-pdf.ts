@@ -44,16 +44,15 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
       return link.outerHTML;
     })
     .join("\n");
-  const compiledCss = collectAccessibleStylesheetRules();
   const baseHref = escapeHtmlAttribute(document.baseURI);
   const safeName = filename.replace(/\.pdf$/i, "").replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "BonList-CV";
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="${baseHref}">${styles}<style data-export-compiled-css="true">${compiledCss}</style>
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="${baseHref}">${styles}
     <style>
       @page { size: A4 portrait; margin: 0; }
       html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; color: #0f172a; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
       body { width: 210mm; }
       #bonlist-cv-document { display: block; width: 210mm; margin: 0 auto; }
-      .a4-page-frame { width: 210mm !important; min-width: 210mm !important; max-width: 210mm !important; min-height: 297mm !important; height: 297mm !important; margin: 0 auto !important; box-sizing: border-box !important; overflow: hidden !important; transform: none !important; box-shadow: none !important; border: 0 !important; }
+      .a4-page-frame { width: 210mm !important; min-width: 210mm !important; max-width: 210mm !important; min-height: 297mm !important; height: 297mm !important; max-height: 297mm !important; margin: 0 auto !important; box-sizing: border-box !important; overflow: hidden !important; break-inside: avoid !important; page-break-inside: avoid !important; transform: none !important; box-shadow: none !important; border: 0 !important; }
       .a4-page-frame input, .a4-page-frame textarea, .a4-page-frame select { appearance: none !important; resize: none !important; background: transparent !important; border: 0 !important; box-shadow: none !important; color: inherit !important; -webkit-text-fill-color: currentColor !important; }
       .a4-page-frame textarea { overflow: visible !important; white-space: pre-wrap !important; }
       .a4-page-frame .cv-a4-spacer, .a4-page-frame .a4-spacer, .a4-page-frame [data-a4-spacer], .a4-page-frame [data-preview-spacer='true'] { display: none !important; }
@@ -62,6 +61,7 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
       .a4-page-frame { position: relative; width: 210mm !important; height: 297mm !important; min-height: 297mm !important; max-height: 297mm !important; margin: 0 auto !important; padding: var(--cv-a4-pad-y, 12mm) var(--cv-a4-pad-x, 15mm) !important; box-sizing: border-box !important; overflow: hidden !important; box-shadow: none !important; border: 0 !important; border-radius: 0 !important; break-after: page !important; page-break-after: always !important; }
       .a4-page-frame:last-child { break-after: auto !important; page-break-after: auto !important; }
       .a4-page-frame .a4-page-columns { display: grid !important; grid-template-columns: inherit; align-items: start; min-height: 0 !important; height: auto !important; }
+      #bonlist-cv-document .cv-skill-chip, #bonlist-cv-document [data-a4-id="languages"] .flex.flex-wrap > span { display: inline-flex !important; align-items: center !important; white-space: nowrap !important; word-break: keep-all !important; flex-shrink: 0 !important; }
       .a4-page-frame input, .a4-page-frame textarea, .a4-page-frame select { appearance: none !important; resize: none !important; background: transparent !important; border: 0 !important; box-shadow: none !important; color: inherit !important; -webkit-text-fill-color: currentColor !important; }
       .a4-page-frame textarea { overflow: visible !important; white-space: pre-wrap !important; }
       .a4-page-frame:last-child { break-after: auto !important; page-break-after: auto !important; }
@@ -101,25 +101,10 @@ function inlineComputedStyles(sourceRoot: HTMLElement, cloneRoot: HTMLElement): 
   });
 }
 
-/** Include CSSOM-readable rules for pseudo elements, @font-face, and other
- * stylesheet features that cannot be represented by computed element styles. */
-function collectAccessibleStylesheetRules(): string {
-  const rules: string[] = [];
-  for (const sheet of Array.from(document.styleSheets)) {
-    try {
-      const baseUrl = sheet.href || document.baseURI;
-      for (const rule of Array.from(sheet.cssRules)) rules.push(absolutizeCssUrls(rule.cssText, baseUrl));
-    } catch {
-      // Cross-origin stylesheets are preserved as absolute <link> elements.
-    }
-  }
-  return rules.join("\n");
-}
-
-function absolutizeCssUrls(value: string, baseUrl = document.baseURI): string {
+function absolutizeCssUrls(value: string): string {
   return value.replace(/url\((['"]?)(?!data:|https?:|\/\/|#)([^)'\"]+)\1\)/gi, (_match, quote: string, path: string) => {
     try {
-      return `url(${quote}${new URL(path, baseUrl).href}${quote})`;
+      return `url(${quote}${new URL(path, document.baseURI).href}${quote})`;
     } catch {
       return `url(${quote}${path}${quote})`;
     }

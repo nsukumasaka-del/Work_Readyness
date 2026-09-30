@@ -6475,6 +6475,7 @@ export default function CvBuilderPage() {
                     <A4PageSpacer id="summary" height={a4Spacers.summary || 0} />
                   <section
                     data-a4-id="summary"
+                    data-page-break={a4Spacers.summary > 0 ? "true" : undefined}
                     className={`relative group/section cv-a4-keep transition-all ${
                       !scrubCvText(cv.document.summary) ? "no-print" : ""
                     } ${
@@ -6567,7 +6568,7 @@ export default function CvBuilderPage() {
                         <Fragment key={exp.id || expIdx}>
                         <A4PageSpacer id={`exp-${expIdx}-header`} height={a4Spacers[`exp-${expIdx}-header`] || 0} />
                         <div className="group/role relative space-y-1.5">
-                        <div data-a4-id={`exp-${expIdx}-header`} className="experience-item cv-a4-keep relative space-y-1.5">
+                        <div data-a4-id={`exp-${expIdx}-header`} data-page-break={a4Spacers[`exp-${expIdx}-header`] > 0 ? "true" : undefined} className="experience-item cv-a4-keep relative space-y-1.5">
                           {expIdx === 0 && renderSectionHeading(
                             isSerifClassic
                               ? "Experience"
@@ -6654,6 +6655,7 @@ export default function CvBuilderPage() {
                               <div
                                 role="listitem"
                                 data-a4-id={`exp-${expIdx}-bullet-${bIdx}`}
+                                data-page-break={a4Spacers[`exp-${expIdx}-bullet-${bIdx}`] > 0 ? "true" : undefined}
                                 className="group/bullet relative flex min-w-0 items-start gap-2 text-xs leading-snug text-slate-700"
                               >
                                 <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
@@ -6743,7 +6745,7 @@ export default function CvBuilderPage() {
                 const skillsSection = visibleSections.skills && (
                   <>
                     <A4PageSpacer id="skills" height={a4Spacers.skills || 0} />
-                  <section data-a4-id="skills" className="relative group/section cv-a4-keep rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
+                  <section data-a4-id="skills" data-page-break={a4Spacers.skills > 0 ? "true" : undefined} className="relative group/section cv-a4-keep rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -6808,7 +6810,7 @@ export default function CvBuilderPage() {
                 const educationSection = visibleSections.education && (
                   <>
                     <A4PageSpacer id="education" height={a4Spacers.education || 0} />
-                  <section data-a4-id="education" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${cv.document.education.length === 0 ? "hidden" : ""}`}>
+                  <section data-a4-id="education" data-page-break={a4Spacers.education > 0 ? "true" : undefined} className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${cv.document.education.length === 0 ? "hidden" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -6891,7 +6893,7 @@ export default function CvBuilderPage() {
                 const projectsSection = visibleSections.projects && (
                   <>
                     <A4PageSpacer id="projects" height={a4Spacers.projects || 0} />
-                  <section data-a4-id="projects" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.projects || []).length === 0 ? "hidden" : ""}`}>
+                  <section data-a4-id="projects" data-page-break={a4Spacers.projects > 0 ? "true" : undefined} className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.projects || []).length === 0 ? "hidden" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -6984,7 +6986,7 @@ export default function CvBuilderPage() {
                 const certificationsSection = visibleSections.certifications && (
                   <>
                     <A4PageSpacer id="certifications" height={a4Spacers.certifications || 0} />
-                  <section data-a4-id="certifications" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.certifications || []).length === 0 ? "hidden" : ""}`}>
+                  <section data-a4-id="certifications" data-page-break={a4Spacers.certifications > 0 ? "true" : undefined} className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.certifications || []).length === 0 ? "hidden" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -7063,6 +7065,7 @@ export default function CvBuilderPage() {
                     <A4PageSpacer id="languages" height={a4Spacers.languages || 0} />
                   <section
                     data-a4-id="languages"
+                    data-page-break={a4Spacers.languages > 0 ? "true" : undefined}
                     className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.languages || []).length === 0 ? "hidden" : ""}`}
                   >
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
@@ -7110,7 +7113,7 @@ export default function CvBuilderPage() {
                 const referencesSection = visibleSections.references && (
                   <>
                     <A4PageSpacer id="references" height={a4Spacers.references || 0} />
-                  <section data-a4-id="references" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.references || []).length === 0 ? "hidden" : ""}`}>
+                  <section data-a4-id="references" data-page-break={a4Spacers.references > 0 ? "true" : undefined} className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.references || []).length === 0 ? "hidden" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"

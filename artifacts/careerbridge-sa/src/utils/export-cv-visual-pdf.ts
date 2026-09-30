@@ -81,6 +81,7 @@ export async function exportCvVisualPdf(previewNode: HTMLElement, filename: stri
     #cv-preview-render .cv-a4-spacer, #cv-preview-render [data-a4-spacer], #cv-preview-render [data-preview-spacer='true'], #cv-preview-render .no-print, #cv-preview-render [data-preview-only='true'] { display: none !important; }
     #cv-preview-render .cv-page-guides, #cv-preview-render .cv-page-guide, #cv-preview-render .cv-page-guide-label, #cv-preview-render .cv-page-badge { display: none !important; }
     #cv-preview-render .cv-page-sheet::before { display: none !important; }
+    #cv-preview-render .force-page-break, #cv-preview-render [data-page-break='true'] { break-before: page !important; page-break-before: always !important; margin-top: 0 !important; padding-top: 15mm !important; }
     #cv-preview-render input, #cv-preview-render textarea, #cv-preview-render select { appearance: none !important; border: 0 !important; outline: 0 !important; box-shadow: none !important; background: transparent !important; color: inherit !important; -webkit-text-fill-color: currentColor !important; }
     #cv-preview-render textarea { resize: none !important; overflow: visible !important; white-space: pre-wrap !important; }
     #cv-preview-render .cv-section, #cv-preview-render .work-experience-item, #cv-preview-render .experience-item, #cv-preview-render .education-item, #cv-preview-render [data-a4-id], #cv-preview-render li { break-inside: avoid; page-break-inside: avoid; }

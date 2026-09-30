@@ -45,6 +45,7 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
       @page { size: A4 portrait; margin: 0; }
       html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; color: #0f172a; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
       body { width: 210mm; }
+      #bonlist-cv-document { display: block; width: 210mm; margin: 0 auto; }
       .a4-page-frame { width: 210mm !important; min-width: 210mm !important; max-width: 210mm !important; min-height: 297mm !important; height: 297mm !important; margin: 0 auto !important; box-sizing: border-box !important; overflow: hidden !important; transform: none !important; box-shadow: none !important; border: 0 !important; }
       .a4-page-frame input, .a4-page-frame textarea, .a4-page-frame select { appearance: none !important; resize: none !important; background: transparent !important; border: 0 !important; box-shadow: none !important; color: inherit !important; -webkit-text-fill-color: currentColor !important; }
       .a4-page-frame textarea { overflow: visible !important; white-space: pre-wrap !important; }
@@ -57,7 +58,7 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
       .a4-page-frame input, .a4-page-frame textarea, .a4-page-frame select { appearance: none !important; resize: none !important; background: transparent !important; border: 0 !important; box-shadow: none !important; color: inherit !important; -webkit-text-fill-color: currentColor !important; }
       .a4-page-frame textarea { overflow: visible !important; white-space: pre-wrap !important; }
       .a4-page-frame:last-child { break-after: auto !important; page-break-after: auto !important; }
-    </style></head><body>${paginatedPages.map((page) => page.outerHTML).join("")}</body></html>`;
+    </style></head><body><main id="bonlist-cv-document" class="cv-export-document">${paginatedPages.map((page) => page.outerHTML).join("")}</main></body></html>`;
 
   const response = await authFetch("/api/career/cv/export-pdf", {
     method: "POST",
@@ -65,8 +66,7 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
     body: JSON.stringify({ html, filename: `${safeName}.pdf` }),
   });
   if (!response.ok) {
-    const message = await response.text().catch(() => "");
-    throw new Error(message || `PDF export failed (${response.status}).`);
+    throw new Error(await readExportError(response));
   }
   const pdf = await response.blob();
   const url = URL.createObjectURL(pdf);
@@ -75,6 +75,24 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
   link.download = `${safeName}.pdf`;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+async function readExportError(response: Response): Promise<string> {
+  const responseText = await response.text().catch(() => "");
+  if (responseText) {
+    try {
+      const payload: unknown = JSON.parse(responseText);
+      if (payload && typeof payload === "object") {
+        const error = (payload as Record<string, unknown>).error;
+        if (typeof error === "string" && error.trim()) return error.trim();
+        const message = (payload as Record<string, unknown>).message;
+        if (typeof message === "string" && message.trim()) return message.trim();
+      }
+    } catch {
+      return responseText;
+    }
+  }
+  return `PDF export failed (${response.status}).`;
 }
 
 /** Split the rendered columns at the editor's measured page positions. Each

@@ -95,95 +95,6 @@ const CV_WIZARD_STEPS = [
 const MAX_BULLETS_PER_ROLE = 12;
 const MAX_BULLET_CHARS = 280;
 
-const MODERN_COLOR_RE = /(?:oklab|oklch|color-mix)\s*\(/i;
-
-function normalizeCanvasColor(value: string, fallback: string): string {
-  if (!MODERN_COLOR_RE.test(value)) return value;
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1;
-    canvas.height = 1;
-    const context = canvas.getContext("2d", { willReadFrequently: true });
-    if (!context) return fallback;
-    const marker = "#010203";
-    context.fillStyle = marker;
-    context.fillStyle = value;
-    // Unsupported values leave fillStyle unchanged; do not mistake that for a conversion.
-    if (context.fillStyle === marker) return fallback;
-    context.fillRect(0, 0, 1, 1);
-    const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data;
-    return `rgba(${red}, ${green}, ${blue}, ${(alpha / 255).toFixed(3)})`;
-  } catch {
-    return fallback;
-  }
-}
-
-function sanitizeStylesForCanvas(clonedDoc: Document) {
-  const view = clonedDoc.defaultView ?? window;
-  const colorProperties = [
-    "color", "background-color", "border-top-color", "border-right-color",
-    "border-bottom-color", "border-left-color", "outline-color", "text-decoration-color",
-    "text-emphasis-color", "column-rule-color", "caret-color", "fill", "stroke",
-  ];
-  const colorFallback = (property: string) => property === "color"
-    ? "rgb(15, 23, 42)"
-    : property === "background-color"
-      ? "rgb(255, 255, 255)"
-      : property === "fill" || property === "stroke"
-        ? "rgb(15, 23, 42)"
-        : "rgb(226, 232, 240)";
-
-  clonedDoc.querySelectorAll("*").forEach((element) => {
-    const computed = view.getComputedStyle(element);
-    const styledElement = element as Element & { style: CSSStyleDeclaration };
-    colorProperties.forEach((property) => {
-      const value = computed.getPropertyValue(property);
-      if (value && MODERN_COLOR_RE.test(value)) {
-        styledElement.style.setProperty(property, normalizeCanvasColor(value, colorFallback(property)), "important");
-      }
-    });
-
-    // These properties can contain color functions nested inside gradients or
-    // compound shadow syntax. Drop only the affected decoration if it cannot
-    // be represented as a plain browser-resolved color.
-    ["background-image", "border-image-source", "mask-image", "box-shadow", "text-shadow"].forEach((property) => {
-      const value = computed.getPropertyValue(property);
-      if (value && MODERN_COLOR_RE.test(value)) {
-        styledElement.style.setProperty(property, "none", "important");
-      }
-    });
-  });
-
-  clonedDoc.querySelectorAll<HTMLElement>("#bonlist-cv-document.cv-page-sheet, .cv-page-sheet").forEach((page) => {
-    Object.assign(page.style, {
-      width: "210mm", minWidth: "210mm", maxWidth: "210mm", minHeight: "297mm",
-      boxSizing: "border-box", height: "auto", overflow: "visible", lineHeight: "1.35",
-      wordWrap: "break-word", overflowWrap: "break-word", wordBreak: "normal",
-    });
-  });
-  clonedDoc.querySelectorAll<HTMLElement>("[data-a4-id]").forEach((section) => {
-    section.style.height = "auto";
-    section.style.maxHeight = "none";
-    section.style.overflow = "visible";
-    section.style.wordWrap = "break-word";
-    section.style.overflowWrap = "break-word";
-    section.style.wordBreak = "normal";
-  });
-  clonedDoc.querySelectorAll<HTMLElement>("[data-a4-id='skills'] .cv-skill-chip, [data-a4-id='languages'] span").forEach((badge) => {
-    const list = badge.parentElement;
-    if (list) Object.assign(list.style, {
-      display: "flex", flexWrap: "wrap", alignItems: "flex-start", alignContent: "flex-start",
-      gap: "6px", width: "100%", maxWidth: "100%", height: "auto", overflow: "visible",
-    });
-    Object.assign(badge.style, {
-      display: "inline-flex", alignItems: "center", boxSizing: "border-box",
-      height: "auto", minHeight: "0", maxWidth: "100%", whiteSpace: "normal",
-      overflow: "visible", overflowWrap: "break-word", wordBreak: "normal",
-      lineHeight: "1.4", letterSpacing: "normal", breakInside: "avoid", pageBreakInside: "avoid",
-    });
-  });
-}
-
 const PDF_JUNK_RE =
   /\b(?:\d+\s+\d+\s+obj|endobj|endstream|stream\b|xref\b|trailer\b|startxref|\/Type\s*\/|\/Filter\s*\/|\/Length\s+\d+|<<|>>)\b/i;
 const UI_PLACEHOLDER_RE =
@@ -4869,16 +4780,14 @@ export default function CvBuilderPage() {
     setTimeout(() => setMessage(""), 3000);
   };
 
-  /** Generate the selected CV design directly from a live DOM clone. */
+  /** Generate a searchable, vector-text PDF from the CV document model. */
   const executeDownloadPdf = async (options?: { onReady?: () => void }) => {
-    if (!cv || !printRef.current) {
-      setError("Generate a CV and keep it open on the canvas before downloading PDF.");
+    if (!cv?.document) {
+      setError("Generate or load a CV before downloading PDF.");
       options?.onReady?.();
       return;
     }
     setIsPdfDownloading(true);
-    let exportHost: HTMLDivElement | null = null;
-    // Ensure canvas content is cleaned before export.
     const cleaned = sanitizeCvDocument(cv.document);
     if (JSON.stringify(cleaned) !== JSON.stringify(cv.document)) {
       const updated = { ...cv, document: cleaned };
@@ -4886,81 +4795,175 @@ export default function CvBuilderPage() {
       persistGeneratedCv(updated);
     }
     try {
-      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-      const source = printRef.current;
-      if (!source) throw new Error("CV preview is not available for export.");
-
-      // html2canvas cannot capture display:none or unmounted previews. Mount a
-      // visible, fixed-width clone off-screen so export works from every view.
-      exportHost = document.createElement("div");
-      exportHost.setAttribute("aria-hidden", "true");
-      Object.assign(exportHost.style, {
-        position: "absolute", left: "-10000px", top: "0", width: "210mm",
-        minHeight: "297mm", boxSizing: "border-box", overflow: "visible", background: "#ffffff",
-        pointerEvents: "none", zIndex: "-1",
-      });
-      const clone = source.cloneNode(true) as HTMLDivElement;
-      clone.removeAttribute("inert");
-      Object.assign(clone.style, {
-        display: "block", position: "static", left: "auto", top: "auto",
-        width: "210mm", minWidth: "210mm", maxWidth: "210mm", minHeight: "297mm", height: "auto",
-        boxSizing: "border-box", lineHeight: "1.35", wordWrap: "break-word",
-        overflowWrap: "break-word", wordBreak: "normal",
-        margin: "0", transform: "none", overflow: "visible", boxShadow: "none",
-        border: "0", backgroundColor: "#ffffff",
-      });
-      clone.querySelectorAll(".no-print, .cv-page-guides, .cv-page-guide, .cv-page-guide-label, .cv-page-badge, .contextual-action-bar, .floating-actions").forEach((node) => node.remove());
-
-      // Form controls are the editable canvas. Convert their live values to
-      // ordinary text nodes so the rasterizer captures exactly what is shown.
-      clone.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea").forEach((field) => {
-        const text = field.value;
-        const replacement = document.createElement(field instanceof HTMLTextAreaElement ? "div" : "span");
-        replacement.className = field.className;
-        replacement.textContent = text;
-        const computed = window.getComputedStyle(field);
-        ["fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing", "textAlign", "color", "padding", "margin", "width", "minHeight", "whiteSpace", "overflowWrap"].forEach((property) => {
-          const value = computed.getPropertyValue(property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`));
-          if (value) replacement.style.setProperty(property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`), value);
-        });
-        if (field instanceof HTMLTextAreaElement) replacement.style.whiteSpace = "pre-wrap";
-        field.replaceWith(replacement);
-      });
-      clone.querySelectorAll<HTMLElement>(".experience-item, .education-item, li, header, .cv-section-heading, h2, h3").forEach((node) => {
-        node.style.breakInside = "avoid";
-        node.style.pageBreakInside = "avoid";
-      });
-      exportHost.appendChild(clone);
-      document.body.appendChild(exportHost);
-      await document.fonts.ready;
-
-      const html2pdfModule = await import("html2pdf.js");
-      const html2pdf = html2pdfModule.default;
+      const { jsPDF } = await import("jspdf");
+      const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
       const safeBaseName = (documentTitle.trim() || `CV of ${cleaned.fullName || "Candidate"}`)
         .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
         .trim().replace(/\s+/g, "_");
       const templateName = TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "CV";
       const safeTemplateName = templateName.replace(/[^a-z0-9_-]/gi, "_");
-      const pdfOptions = {
-        margin: 0,
-        filename: `${safeBaseName}_${safeTemplateName}.pdf`,
-        image: { type: "jpeg" as const, quality: 0.98 },
-        html2canvas: {
-          scale: 3, useCORS: true, logging: false, scrollX: 0, scrollY: 0,
-          width: 794, windowWidth: 794, backgroundColor: "#ffffff",
-          onclone: (clonedDoc: Document) => sanitizeStylesForCanvas(clonedDoc),
-        },
-        jsPDF: { unit: "mm" as const, format: "a4", orientation: "portrait" as const },
-        pagebreak: { mode: ["css", "legacy"], avoid: [".experience-item", ".education-item", "li", "header", ".cv-section-heading", "h2", "h3"] },
+      const pageWidth = 210;
+      const pageHeight = 297;
+      const horizontalMargin = marginSize === "compact" ? 13 : marginSize === "wide" ? 23 : 18;
+      const verticalMargin = marginSize === "compact" ? 12 : marginSize === "wide" ? 21 : 16;
+      const contentWidth = pageWidth - horizontalMargin * 2;
+      const bottomLimit = pageHeight - verticalMargin;
+      const accent = hexToRgb(selectedColor.primary, [30, 58, 138]);
+      const fontFace = /garamond|merriweather|playfair/i.test(selectedFont.id) ? "times"
+        : /mono/i.test(selectedFont.id) ? "courier" : "helvetica";
+      const spacingFactor = lineSpacing === "tight" ? 1.12 : lineSpacing === "relaxed" ? 1.48 : 1.3;
+      let y = verticalMargin;
+
+      const pdfText = (value: unknown) => String(value ?? "")
+        .replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
+        .replace(/[\u2013\u2014]/g, "-").replace(/\u2022/g, "-")
+        .replace(/\u00A0/g, " ").replace(/[\u200B-\u200D\uFEFF]/g, "")
+        .replace(/\s+/g, " ").trim();
+      const lineHeight = (size: number) => size * 0.3528 * spacingFactor;
+      const ensureSpace = (height: number) => {
+        if (y + height > bottomLimit) {
+          pdf.addPage("a4", "portrait");
+          y = verticalMargin;
+        }
       };
-      await html2pdf().set(pdfOptions).from(clone).save();
+      const writeWrapped = (value: unknown, options: {
+        size?: number; bold?: boolean; color?: [number, number, number]; indent?: number; after?: number;
+      } = {}) => {
+        const text = pdfText(value);
+        if (!text) return;
+        const size = options.size ?? fontSize;
+        const indent = options.indent ?? 0;
+        const leading = lineHeight(size);
+        pdf.setFont(fontFace, options.bold ? "bold" : "normal");
+        pdf.setFontSize(size);
+        pdf.setTextColor(...(options.color ?? [31, 41, 55]));
+        const lines = pdf.splitTextToSize(text, contentWidth - indent) as string[];
+        for (const line of lines) {
+          ensureSpace(leading);
+          pdf.text(line, horizontalMargin + indent, y);
+          y += leading;
+        }
+        y += options.after ?? 1.2;
+      };
+      const drawSection = (title: string) => {
+        if (!pdfText(title)) return;
+        y += 2.1;
+        ensureSpace(7.5);
+        pdf.setFont(fontFace, "bold");
+        pdf.setFontSize(11);
+        pdf.setTextColor(...accent);
+        pdf.text(pdfText(title).toUpperCase(), horizontalMargin, y + 3.5);
+        pdf.setDrawColor(...accent);
+        pdf.setLineWidth(0.35);
+        pdf.line(horizontalMargin, y + 5.1, pageWidth - horizontalMargin, y + 5.1);
+        y += 8;
+      };
+      const drawBullet = (value: unknown) => writeWrapped(`- ${pdfText(value)}`, { size: Math.max(9, fontSize - 0.5), indent: 1.5, after: 0.8 });
+      const uniqueClean = (values: unknown[]) => Array.from(new Set(values.map(pdfText).filter(Boolean)));
+
+      function hexToRgb(value: string, fallback: [number, number, number]): [number, number, number] {
+        const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(value);
+        return match ? [parseInt(match[1]!, 16), parseInt(match[2]!, 16), parseInt(match[3]!, 16)] : fallback;
+      }
+
+      // CV data is laid out as real PDF text. Editor-only A4 spacers, page
+      // guides, and canvas wrappers are not part of this source document.
+      const doc = cleaned;
+      const name = pdfText(doc.fullName) || "Candidate";
+      writeWrapped(name, { size: Math.max(20, fontSize + 9), bold: true, color: accent, after: 1 });
+      writeWrapped(doc.headline, { size: 12, color: [71, 85, 105], after: 2 });
+      const contact = uniqueClean([doc.email, doc.phone, doc.location, doc.linkedin, doc.website]).join("  |  ")
+        || pdfText(doc.contactLine);
+      if (contact) writeWrapped(contact, { size: 8.5, color: [71, 85, 105], after: 3 });
+
+      if (pdfText(doc.summary)) {
+        drawSection("Professional Summary");
+        writeWrapped(doc.summary, { size: fontSize, after: 1 });
+      }
+
+      if (doc.experiences?.length) {
+        drawSection("Work Experience");
+        doc.experiences.forEach((experience) => {
+          const roleLine = [pdfText(experience.role), pdfText(experience.company)].filter(Boolean).join(" | ");
+          writeWrapped(roleLine, { size: fontSize + 0.5, bold: true, after: 0.5 });
+          const dates = [pdfText(experience.startDate), pdfText(experience.current ? "Present" : experience.endDate)].filter(Boolean).join(" - ");
+          const metadata = [pdfText(experience.location), dates].filter(Boolean).join("  |  ");
+          if (metadata) writeWrapped(metadata, { size: 8.5, color: [100, 116, 139], after: 1 });
+          uniqueClean(experience.bullets || []).forEach(drawBullet);
+          y += 1.3;
+        });
+      }
+
+      if (doc.education?.length) {
+        drawSection("Education");
+        doc.education.forEach((education) => {
+          writeWrapped([pdfText(education.degree), pdfText(education.institution)].filter(Boolean).join(" | "), { bold: true, after: 0.4 });
+          const detail = [pdfText(education.location), pdfText(education.graduationYear), pdfText(education.details)].filter(Boolean).join("  |  ");
+          if (detail) writeWrapped(detail, { size: 9, color: [71, 85, 105], after: 1.2 });
+        });
+      }
+
+      const skillGroups = (doc.skillGroups || []).map((group) => ({
+        category: pdfText(group.category), skills: uniqueClean(group.skills || []),
+      })).filter((group) => group.skills.length);
+      const groupedSkills = new Set(skillGroups.flatMap((group) => group.skills.map((skill) => skill.toLowerCase())));
+      const extraSkills = uniqueClean([...(doc.skills || []), ...(doc.competencies || []), ...(doc.toolsAndSoftware || [])])
+        .filter((skill) => !groupedSkills.has(skill.toLowerCase()));
+      if (skillGroups.length || extraSkills.length) {
+        drawSection("Skills");
+        skillGroups.forEach((group) => writeWrapped(`${group.category ? `${group.category}: ` : ""}${group.skills.join(", ")}`, { size: 9.5, after: 1 }));
+        if (extraSkills.length) writeWrapped(extraSkills.join(", "), { size: 9.5, after: 1 });
+      }
+
+      if (doc.projects?.length) {
+        drawSection("Projects");
+        doc.projects.forEach((project) => {
+          writeWrapped([pdfText(project.title), pdfText(project.subtitle)].filter(Boolean).join(" | "), { bold: true, after: 0.4 });
+          if (pdfText(project.link)) writeWrapped(project.link, { size: 8.5, color: [71, 85, 105], after: 0.8 });
+          uniqueClean(project.bullets || []).forEach(drawBullet);
+        });
+      }
+      if (doc.certifications?.length) {
+        drawSection("Certifications");
+        doc.certifications.forEach((certification) => writeWrapped(
+          [pdfText(certification.name), pdfText(certification.issuer), pdfText(certification.year)].filter(Boolean).join(" | "),
+          { size: 9.5, after: 1 },
+        ));
+      }
+      if (doc.languages?.length) {
+        drawSection("Languages");
+        writeWrapped(uniqueClean(doc.languages).join(", "), { size: 9.5 });
+      }
+      if (doc.references?.length || doc.referenceDetails?.length) {
+        drawSection("References");
+        const references = doc.referenceDetails?.length
+          ? doc.referenceDetails.map((reference) => [reference.name, reference.title, reference.company, reference.phone].filter(Boolean).join(" | "))
+          : doc.references || [];
+        uniqueClean(references).forEach((reference) => writeWrapped(reference, { size: 9.5, after: 1 }));
+      }
+
+      const builtInSections = /^(summary|professional summary|about me|experience|work experience|employment history|education|qualifications|skills|core skills|languages|references|projects|certifications)$/i;
+      const renderedCustomSections = new Set<string>();
+      (doc.sections || []).forEach((section) => {
+        const heading = pdfText(section.heading);
+        const key = heading.toLowerCase();
+        if (!heading || builtInSections.test(heading) || renderedCustomSections.has(key) || !section.items?.length) return;
+        renderedCustomSections.add(key);
+        drawSection(heading);
+        uniqueClean(section.items).forEach(drawBullet);
+      });
+
+      if (pdfText(doc.footerNote) && !/generated by|bonlist cv studio/i.test(pdfText(doc.footerNote))) {
+        y += 2;
+        writeWrapped(doc.footerNote, { size: 8, color: [100, 116, 139], after: 0 });
+      }
+      pdf.save(`${safeBaseName}_${safeTemplateName}.pdf`);
       setMessage("Your PDF CV has been downloaded.");
       setTimeout(() => setMessage(""), 4000);
     } catch (exportError) {
       console.error("[CV PDF export error]", exportError);
       setError(exportError instanceof Error ? `PDF generation failed: ${exportError.message}` : "PDF generation failed. Please try again.");
     } finally {
-      exportHost?.remove();
       setIsPdfDownloading(false);
       options?.onReady?.();
     }

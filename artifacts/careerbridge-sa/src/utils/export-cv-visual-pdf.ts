@@ -9,6 +9,7 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
 
   await document.fonts?.ready;
   const clone = original.cloneNode(true) as HTMLElement;
+  inlineComputedStyles(original, clone);
   clone.removeAttribute("inert");
   clone.querySelectorAll("script, iframe, object, embed").forEach((element) => element.remove());
   clone.querySelectorAll<HTMLElement>("*").forEach((element) => {
@@ -43,9 +44,10 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
       return link.outerHTML;
     })
     .join("\n");
+  const compiledCss = collectAccessibleStylesheetRules();
   const baseHref = escapeHtmlAttribute(document.baseURI);
   const safeName = filename.replace(/\.pdf$/i, "").replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "BonList-CV";
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="${baseHref}">${styles}
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="${baseHref}">${styles}<style data-export-compiled-css="true">${compiledCss}</style>
     <style>
       @page { size: A4 portrait; margin: 0; }
       html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; color: #0f172a; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -80,6 +82,48 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
   link.download = `${safeName}.pdf`;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** Inline computed declarations so the Worker renderer retains the exact
+ * responsive layout and Tailwind appearance even if it cannot fetch app CSS. */
+function inlineComputedStyles(sourceRoot: HTMLElement, cloneRoot: HTMLElement): void {
+  const sourceElements = [sourceRoot, ...Array.from(sourceRoot.querySelectorAll<HTMLElement>("*"))];
+  const cloneElements = [cloneRoot, ...Array.from(cloneRoot.querySelectorAll<HTMLElement>("*"))];
+  sourceElements.forEach((source, index) => {
+    const target = cloneElements[index];
+    if (!target) return;
+    const computed = window.getComputedStyle(source);
+    for (let propertyIndex = 0; propertyIndex < computed.length; propertyIndex += 1) {
+      const property = computed.item(propertyIndex);
+      const value = computed.getPropertyValue(property);
+      if (property && value) target.style.setProperty(property, absolutizeCssUrls(value));
+    }
+  });
+}
+
+/** Include CSSOM-readable rules for pseudo elements, @font-face, and other
+ * stylesheet features that cannot be represented by computed element styles. */
+function collectAccessibleStylesheetRules(): string {
+  const rules: string[] = [];
+  for (const sheet of Array.from(document.styleSheets)) {
+    try {
+      const baseUrl = sheet.href || document.baseURI;
+      for (const rule of Array.from(sheet.cssRules)) rules.push(absolutizeCssUrls(rule.cssText, baseUrl));
+    } catch {
+      // Cross-origin stylesheets are preserved as absolute <link> elements.
+    }
+  }
+  return rules.join("\n");
+}
+
+function absolutizeCssUrls(value: string, baseUrl = document.baseURI): string {
+  return value.replace(/url\((['"]?)(?!data:|https?:|\/\/|#)([^)'\"]+)\1\)/gi, (_match, quote: string, path: string) => {
+    try {
+      return `url(${quote}${new URL(path, baseUrl).href}${quote})`;
+    } catch {
+      return `url(${quote}${path}${quote})`;
+    }
+  });
 }
 
 function createStaticTextControl(source: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, text: string): HTMLElement {

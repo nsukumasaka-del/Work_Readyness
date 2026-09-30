@@ -32,6 +32,7 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
     const staticText = createStaticTextControl(source, text);
     target.replaceWith(staticText);
   });
+  prepareExportInlineGroups(clone);
 
   const paginatedPages = buildExplicitA4Pages(original, clone);
 
@@ -61,7 +62,12 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
       .a4-page-frame { position: relative; width: 210mm !important; height: 297mm !important; min-height: 297mm !important; max-height: 297mm !important; margin: 0 auto !important; padding: var(--cv-a4-pad-y, 12mm) var(--cv-a4-pad-x, 15mm) !important; box-sizing: border-box !important; overflow: hidden !important; box-shadow: none !important; border: 0 !important; border-radius: 0 !important; break-after: page !important; page-break-after: always !important; }
       .a4-page-frame:last-child { break-after: auto !important; page-break-after: auto !important; }
       .a4-page-frame .a4-page-columns { display: grid !important; grid-template-columns: inherit; align-items: start; min-height: 0 !important; height: auto !important; }
-      #bonlist-cv-document .cv-skill-chip, #bonlist-cv-document [data-a4-id="languages"] .flex.flex-wrap > span { display: inline-flex !important; align-items: center !important; white-space: nowrap !important; word-break: keep-all !important; flex-shrink: 0 !important; }
+      #bonlist-cv-document .cv-skill-chip, #bonlist-cv-document [data-export-language-pill="true"] { display: inline-flex !important; align-items: center !important; width: max-content !important; max-width: 100% !important; white-space: nowrap !important; word-break: keep-all !important; flex: 0 0 auto !important; }
+      #bonlist-cv-document [data-export-language-list="true"] { align-items: flex-start !important; }
+      #bonlist-cv-document [data-export-cert-row="true"] { display: flex !important; flex-wrap: nowrap !important; align-items: baseline !important; }
+      #bonlist-cv-document [data-export-cert-pair="true"] { display: inline-flex !important; flex-wrap: nowrap !important; align-items: baseline !important; white-space: nowrap !important; min-width: 0 !important; }
+      #bonlist-cv-document [data-export-cert-pair="true"] > * { white-space: nowrap !important; }
+      #bonlist-cv-document [data-export-cert-separator="true"] { flex: 0 0 auto !important; white-space: nowrap !important; }
       .a4-page-frame input, .a4-page-frame textarea, .a4-page-frame select { appearance: none !important; resize: none !important; background: transparent !important; border: 0 !important; box-shadow: none !important; color: inherit !important; -webkit-text-fill-color: currentColor !important; }
       .a4-page-frame textarea { overflow: visible !important; white-space: pre-wrap !important; }
       .a4-page-frame:last-child { break-after: auto !important; page-break-after: auto !important; }
@@ -108,6 +114,41 @@ function absolutizeCssUrls(value: string): string {
     } catch {
       return `url(${quote}${path}${quote})`;
     }
+  });
+}
+
+/** Mark the two inline groups whose text must remain together in print. */
+function prepareExportInlineGroups(root: HTMLElement): void {
+  root.querySelectorAll<HTMLElement>('[data-a4-id="languages"] .flex.flex-wrap').forEach((list) => {
+    if (list.closest(".no-print")) return;
+    list.dataset.exportLanguageList = "true";
+    Array.from(list.children).forEach((item) => {
+      if (!(item instanceof HTMLElement)) return;
+      item.dataset.exportLanguagePill = "true";
+      item.style.whiteSpace = "nowrap";
+      item.style.wordBreak = "keep-all";
+      item.style.flex = "0 0 auto";
+      item.style.width = "max-content";
+      item.style.maxWidth = "100%";
+    });
+  });
+
+  root.querySelectorAll<HTMLElement>('[data-a4-id="certifications"] .flex.flex-wrap.items-center.justify-between').forEach((row) => {
+    row.dataset.exportCertRow = "true";
+    row.style.flexWrap = "nowrap";
+    row.style.alignItems = "baseline";
+    const pair = row.firstElementChild;
+    if (!(pair instanceof HTMLElement)) return;
+    pair.dataset.exportCertPair = "true";
+    pair.style.flexWrap = "nowrap";
+    pair.style.whiteSpace = "nowrap";
+    Array.from(pair.children).forEach((child) => {
+      if (child instanceof HTMLElement && child.tagName === "SPAN") {
+        child.dataset.exportCertSeparator = "true";
+        child.style.flexShrink = "0";
+        child.style.whiteSpace = "nowrap";
+      }
+    });
   });
 }
 
@@ -233,12 +274,18 @@ function buildExplicitA4Pages(source: HTMLElement, cleanedClone: HTMLElement): H
     grid.style.rowGap = isSplitColumns ? gridStyle.rowGap : "0";
     grid.style.alignItems = "start";
     grid.style.height = "auto";
+    grid.style.gridAutoFlow = "row";
 
     for (let columnIndex = 0; columnIndex < sourceColumns.length; columnIndex += 1) {
       const sourceColumn = sourceColumns[columnIndex]!;
       const cloneColumn = cloneColumns[columnIndex]!;
       const column = document.createElement("div");
       column.className = cloneColumn.className;
+      column.style.gridColumn = String(columnIndex + 1);
+      column.style.gridRow = "1";
+      column.style.alignSelf = "start";
+      column.style.justifySelf = "stretch";
+      column.style.minWidth = "0";
 
       const sourceItems = Array.from(sourceColumn.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
       const cloneItems = Array.from(cloneColumn.children).filter((child): child is HTMLElement => child instanceof HTMLElement);

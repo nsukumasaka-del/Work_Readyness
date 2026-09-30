@@ -7,7 +7,9 @@
 import { handleD1Auth, type D1Env } from "./d1/auth";
 import { handleD1Career } from "./d1/career";
 import { handleCvTools } from "./d1/cv-tools";
+import { getAuthenticatedUser } from "./d1/auth";
 import { handlePlatformTools } from "./d1/platform-tools";
+import puppeteer from "@cloudflare/puppeteer";
 import {
   generateCvAssistantJson,
   generateGeminiJson,
@@ -19,10 +21,70 @@ import {
 
 export interface Env extends D1Env {
   ASSETS: Fetcher;
+  BROWSER: unknown;
   ANDROID_LATEST_VERSION?: string;
   ANDROID_VERSION_CODE?: string;
   ANDROID_APK_URL?: string;
   ANDROID_RELEASE_NOTES?: string;
+}
+
+async function handleCvPdfExport(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return jsonError(405, "Method not allowed.");
+  if (!env.BROWSER) return jsonError(503, "PDF export is temporarily unavailable.");
+  const user = await getAuthenticatedUser(request, env);
+  if (!user) return jsonError(401, "Please sign in to export your CV.");
+
+  const length = Number(request.headers.get("content-length") || 0);
+  if (length > 2_500_000) return jsonError(413, "CV document is too large to export.");
+  let payload: Record<string, unknown>;
+  try {
+    const body: unknown = await request.json();
+    payload = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
+  } catch {
+    return jsonError(400, "A valid CV document is required.");
+  }
+  const html = typeof payload.html === "string" ? payload.html : "";
+  if (!html || html.length > 2_500_000 || !html.includes("bonlist-cv-document")) {
+    return jsonError(400, "The rendered CV document is missing or too large.");
+  }
+  // The client only sends the rendered CV. Never execute scripts from an
+  // uploaded document, and disable JavaScript in the rendering browser too.
+  if (/<\s*script\b/i.test(html)) return jsonError(400, "CV export content is invalid.");
+  const filename = (typeof payload.filename === "string" ? payload.filename : "BonList-CV.pdf")
+    .replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 100) || "BonList-CV.pdf";
+
+  let browser: Awaited<ReturnType<typeof puppeteer.launch>> | undefined;
+  try {
+    browser = await puppeteer.launch(env.BROWSER as never);
+    const page = await browser.newPage();
+    await page.setJavaScriptEnabled(false);
+    await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 1 });
+    await page.setContent(html, { waitUntil: "networkidle0", timeout: 20_000 });
+    await page.emulateMediaType("print");
+    await page.evaluate(async () => {
+      if ("fonts" in document) await document.fonts.ready;
+    });
+    const pdf = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      preferCSSPageSize: true,
+      displayHeaderFooter: false,
+      margin: { top: 0, right: 0, bottom: 0, left: 0 },
+    });
+    return new Response(pdf, {
+      headers: {
+        "content-type": "application/pdf",
+        "content-disposition": `attachment; filename="${filename}"`,
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  } catch (error) {
+    console.error("[cv-pdf-export] Chromium PDF generation failed:", error);
+    return jsonError(502, "Could not generate the CV PDF. Please try again.");
+  } finally {
+    await browser?.close().catch(() => undefined);
+  }
 }
 
 const SMOKEY_SUGGESTIONS = [
@@ -382,6 +444,10 @@ export default {
 
     if (url.pathname === "/api/career/smokey/chat" && request.method === "POST") {
       return withNativeCors(request, await handleSmokeyChat(request, env));
+    }
+
+    if (url.pathname === "/api/career/cv/export-pdf") {
+      return withNativeCors(request, await handleCvPdfExport(request, env));
     }
 
     if (request.method === "POST") {

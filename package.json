@@ -22,6 +22,7 @@
     "start:prod": "node ./scripts/start-prod.mjs"
   },
   "devDependencies": {
+    "@cloudflare/puppeteer": "^1.4.0",
     "prettier": "^3.9.6",
     "typescript": "~5.9.3",
     "wrangler": "^4.131.2"

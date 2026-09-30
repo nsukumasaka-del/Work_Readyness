@@ -1,63 +1,29 @@
-type Html2CanvasCloneOptions = {
-  onclone: (clonedDocument: Document) => void;
-};
+import { authFetch } from "@/lib/auth-session";
 
-/** Create a direct PDF download from the styled CV DOM without opening print UI. */
+/** Generate a selectable-text PDF from Chromium's print layout on the Worker. */
 export async function exportCvVisualPdf(previewElementId: string, filename: string): Promise<void> {
   const original = document.getElementById(previewElementId);
   if (!(original instanceof HTMLElement)) {
     throw new Error(`CV preview element #${previewElementId} was not found.`);
   }
 
+  await document.fonts?.ready;
   const clone = original.cloneNode(true) as HTMLElement;
   clone.removeAttribute("inert");
-  Object.assign(clone.style, {
-    display: "block",
-    position: "static",
-    width: "210mm",
-    minWidth: "210mm",
-    maxWidth: "210mm",
-    minHeight: "297mm",
-    height: "auto",
-    boxSizing: "border-box",
-    margin: "0",
-    transform: "none",
-    overflow: "visible",
-    boxShadow: "none",
-  });
-
-  const spacerIds = new Set<string>();
-  clone.querySelectorAll<HTMLElement>(".cv-a4-spacer, .a4-spacer, [data-a4-spacer], [data-preview-spacer='true']")
-    .forEach((spacer) => {
-      const id = spacer.getAttribute("data-a4-spacer") || spacer.getAttribute("data-a4-id") || "";
-      if (id) spacerIds.add(id);
-      const marker = document.createElement("div");
-      marker.className = "html2pdf__page-break force-page-break";
-      marker.setAttribute("aria-hidden", "true");
-      marker.style.cssText = "display:block!important;width:100%!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;clear:both!important;break-before:page!important;page-break-before:always!important;";
-      spacer.parentNode?.insertBefore(marker, spacer);
-      spacer.remove();
-    });
-
-  clone.querySelectorAll<HTMLElement>("[data-page-break='true']").forEach((element) => {
-    const id = element.getAttribute("data-a4-id") || "";
-    element.removeAttribute("data-page-break");
-    if (id && spacerIds.has(id)) return;
-    element.classList.add("html2pdf__page-break", "force-page-break");
-  });
-
-  clone.querySelectorAll<HTMLElement>(".page-container, .cv-editor-wrapper").forEach((container) => {
-    Object.assign(container.style, { height: "auto", minHeight: "0", boxShadow: "none", margin: "0" });
-  });
   clone.querySelectorAll(".no-print, [data-preview-only='true'], .cv-page-guides, .cv-page-guide, .cv-page-guide-label, .cv-page-badge")
     .forEach((element) => element.remove());
+  clone.querySelectorAll("script, iframe, object, embed").forEach((element) => element.remove());
+  clone.querySelectorAll<HTMLElement>("*").forEach((element) => {
+    for (const attribute of Array.from(element.attributes)) {
+      if (/^on/i.test(attribute.name)) element.removeAttribute(attribute.name);
+    }
+  });
 
-  // Copy the editor's live values into the clone. React-controlled inputs do not
-  // consistently serialize their current value into outerHTML.
-  const originalFields = original.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select");
-  const clonedFields = clone.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select");
-  originalFields.forEach((source, index) => {
-    const target = clonedFields[index];
+  // React-controlled form values are not reliably represented in outerHTML.
+  const sourceFields = original.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select");
+  const cloneFields = clone.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select");
+  sourceFields.forEach((source, index) => {
+    const target = cloneFields[index];
     if (!target) return;
     if (source instanceof HTMLInputElement && target instanceof HTMLInputElement) {
       target.setAttribute("value", source.value);
@@ -66,86 +32,47 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
       target.textContent = source.value;
       target.removeAttribute("placeholder");
     } else if (source instanceof HTMLSelectElement && target instanceof HTMLSelectElement) {
-      Array.from(target.options).forEach((option, optionIndex) => {
-        option.toggleAttribute("selected", optionIndex === source.selectedIndex);
-      });
+      Array.from(target.options).forEach((option, optionIndex) => option.toggleAttribute("selected", optionIndex === source.selectedIndex));
     }
   });
 
-  const filenameWithExtension = `${filename.replace(/\.pdf$/i, "")}.pdf`;
-  const html2pdf = (await import("html2pdf.js")).default;
-  const options = {
-    margin: 0,
-    filename: filenameWithExtension,
-    image: { type: "jpeg" as const, quality: 0.98 },
-    html2canvas: {
-      scale: 3,
-      useCORS: true,
-      logging: false,
-      scrollX: 0,
-      scrollY: 0,
-      windowWidth: 1024,
-      backgroundColor: "#ffffff",
-      onclone: (clonedDocument: Document) => sanitizeClone(clonedDocument, previewElementId),
-    } satisfies Html2CanvasCloneOptions & Record<string, unknown>,
-    jsPDF: { unit: "mm" as const, format: "a4", orientation: "portrait" as const },
-    pagebreak: {
-      mode: ["css", "legacy"],
-      before: ".html2pdf__page-break",
-      avoid: [".experience-item", ".education-item", "li"],
-    },
-  };
+  // Keep the measured spacer heights: they encode the editor's column-aware
+  // page placement. Chromium applies A4 pagination to the live grid as vector
+  // text, without html2canvas slicing the grid into image bands.
+  clone.querySelectorAll<HTMLElement>(".cv-a4-spacer, .a4-spacer, [data-a4-spacer], [data-preview-spacer='true']")
+    .forEach((spacer) => spacer.setAttribute("aria-hidden", "true"));
 
-  await document.fonts?.ready;
-  await html2pdf().set(options).from(clone).save();
-}
+  const styles = Array.from(document.querySelectorAll<HTMLStyleElement | HTMLLinkElement>("style, link[rel='stylesheet']"))
+    .map((element) => element.outerHTML)
+    .join("\n");
+  const safeName = filename.replace(/\.pdf$/i, "").replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "BonList-CV";
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${styles}
+    <style>
+      @page { size: A4 portrait; margin: 0; }
+      html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; color: #0f172a; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      body { width: 210mm; }
+      #${previewElementId.replace(/[^a-zA-Z0-9_-]/g, "")} { width: 210mm !important; min-width: 210mm !important; max-width: 210mm !important; min-height: 297mm !important; height: auto !important; margin: 0 !important; box-sizing: border-box !important; overflow: visible !important; transform: none !important; box-shadow: none !important; border: 0 !important; }
+      #${previewElementId.replace(/[^a-zA-Z0-9_-]/g, "")} input, #${previewElementId.replace(/[^a-zA-Z0-9_-]/g, "")} textarea, #${previewElementId.replace(/[^a-zA-Z0-9_-]/g, "")} select { appearance: none !important; resize: none !important; background: transparent !important; border: 0 !important; box-shadow: none !important; color: inherit !important; -webkit-text-fill-color: currentColor !important; }
+      #${previewElementId.replace(/[^a-zA-Z0-9_-]/g, "")} textarea { overflow: visible !important; white-space: pre-wrap !important; }
+      .cv-a4-spacer, .a4-spacer, [data-a4-spacer], [data-preview-spacer='true'] { break-inside: auto !important; page-break-inside: auto !important; }
+      .cv-a4-keep, .experience-item, .education-item, li, header { break-inside: avoid; page-break-inside: avoid; }
+      .cv-section-heading, h2 { break-after: avoid; page-break-after: avoid; }
+    </style></head><body>${clone.outerHTML}</body></html>`;
 
-function sanitizeClone(clonedDocument: Document, previewElementId: string): void {
-  const view = clonedDocument.defaultView;
-  if (!view) return;
-  const colorProperties = [
-    "color", "background-color", "border-color", "border-top-color", "border-right-color",
-    "border-bottom-color", "border-left-color", "outline-color", "text-decoration-color",
-  ];
-  clonedDocument.querySelectorAll<HTMLElement>("*").forEach((element) => {
-    const computed = view.getComputedStyle(element);
-    colorProperties.forEach((property) => {
-      const value = computed.getPropertyValue(property);
-      if (!/(?:oklab|oklch|color-mix)\s*\(/i.test(value)) return;
-      const fallback = property === "color" ? "#0f172a" : property === "background-color" ? "#ffffff" : "#cbd5e1";
-      element.style.setProperty(property, colorToRgba(value, fallback), "important");
-    });
+  const response = await authFetch("/api/career/cv/export-pdf", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ html, filename: `${safeName}.pdf` }),
   });
-
-  const root = clonedDocument.getElementById(previewElementId);
-  if (root) Object.assign((root as HTMLElement).style, {
-    boxShadow: "none", border: "none", transform: "none", margin: "0",
-    width: "210mm", minWidth: "210mm", maxWidth: "210mm", height: "auto", overflow: "visible",
-  });
-  clonedDocument.querySelectorAll<HTMLElement>(".html2pdf__page-break").forEach((marker) => {
-    marker.style.setProperty("break-before", "page", "important");
-    marker.style.setProperty("page-break-before", "always", "important");
-    marker.style.setProperty("height", "0", "important");
-    marker.style.setProperty("margin", "0", "important");
-    marker.style.setProperty("padding", "0", "important");
-  });
-}
-
-function colorToRgba(value: string, fallback: string): string {
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1;
-    canvas.height = 1;
-    const context = canvas.getContext("2d", { willReadFrequently: true });
-    if (!context) return fallback;
-    const marker = "#010203";
-    context.fillStyle = marker;
-    context.fillStyle = value;
-    if (context.fillStyle === marker) return fallback;
-    context.fillRect(0, 0, 1, 1);
-    const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data;
-    return `rgba(${red}, ${green}, ${blue}, ${(alpha / 255).toFixed(3)})`;
-  } catch {
-    return fallback;
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(message || `PDF export failed (${response.status}).`);
   }
+  const pdf = await response.blob();
+  const url = URL.createObjectURL(pdf);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${safeName}.pdf`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

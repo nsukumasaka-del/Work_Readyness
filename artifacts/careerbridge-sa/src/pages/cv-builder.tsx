@@ -78,6 +78,7 @@ import { calculateCvCompletion } from "@/lib/cv-completion";
 import { buildParseUploadBody, parseUploadErrorMessage, readFileAsDataUrl } from "@/lib/cv-parse-upload";
 import { getNativeCv, NATIVE_CV_STORE_UPDATED, saveNativeCv } from "@/lib/native-cv-store";
 import { isAndroidApp } from "@/lib/platform";
+import { exportCvVisualPdf } from "@/utils/export-cv-visual-pdf";
 import {
   buildGeneratedCv as buildGeneratedCvLocally,
   extractCvDataFromText,
@@ -4780,10 +4781,11 @@ export default function CvBuilderPage() {
     setTimeout(() => setMessage(""), 3000);
   };
 
-  /** Generate a searchable, vector-text PDF from the CV document model. */
+  /** Print the rendered CV DOM so template styling and text remain intact. */
   const executeDownloadPdf = async (options?: { onReady?: () => void }) => {
-    if (!cv?.document) {
-      setError("Generate or load a CV before downloading PDF.");
+    const preview = printRef.current;
+    if (!cv?.document || !preview) {
+      setError("Open the CV preview and try exporting again.");
       options?.onReady?.();
       return;
     }
@@ -4795,171 +4797,15 @@ export default function CvBuilderPage() {
       persistGeneratedCv(updated);
     }
     try {
-      const { jsPDF } = await import("jspdf");
-      const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
       const safeBaseName = (documentTitle.trim() || `CV of ${cleaned.fullName || "Candidate"}`)
         .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
         .trim().replace(/\s+/g, "_");
       const templateName = TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "CV";
       const safeTemplateName = templateName.replace(/[^a-z0-9_-]/gi, "_");
-      const pageWidth = 210;
-      const pageHeight = 297;
-      const horizontalMargin = marginSize === "compact" ? 13 : marginSize === "wide" ? 23 : 18;
-      const verticalMargin = marginSize === "compact" ? 12 : marginSize === "wide" ? 21 : 16;
-      const contentWidth = pageWidth - horizontalMargin * 2;
-      const bottomLimit = pageHeight - verticalMargin;
-      const accent = hexToRgb(selectedColor.primary, [30, 58, 138]);
-      const fontFace = /garamond|merriweather|playfair/i.test(selectedFont.id) ? "times"
-        : /mono/i.test(selectedFont.id) ? "courier" : "helvetica";
-      const spacingFactor = lineSpacing === "tight" ? 1.12 : lineSpacing === "relaxed" ? 1.48 : 1.3;
-      let y = verticalMargin;
-
-      const pdfText = (value: unknown) => String(value ?? "")
-        .replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
-        .replace(/[\u2013\u2014]/g, "-").replace(/\u2022/g, "-")
-        .replace(/\u00A0/g, " ").replace(/[\u200B-\u200D\uFEFF]/g, "")
-        .replace(/\s+/g, " ").trim();
-      const lineHeight = (size: number) => size * 0.3528 * spacingFactor;
-      const ensureSpace = (height: number) => {
-        if (y + height > bottomLimit) {
-          pdf.addPage("a4", "portrait");
-          y = verticalMargin;
-        }
-      };
-      const writeWrapped = (value: unknown, options: {
-        size?: number; bold?: boolean; color?: [number, number, number]; indent?: number; after?: number;
-      } = {}) => {
-        const text = pdfText(value);
-        if (!text) return;
-        const size = options.size ?? fontSize;
-        const indent = options.indent ?? 0;
-        const leading = lineHeight(size);
-        pdf.setFont(fontFace, options.bold ? "bold" : "normal");
-        pdf.setFontSize(size);
-        pdf.setTextColor(...(options.color ?? [31, 41, 55]));
-        const lines = pdf.splitTextToSize(text, contentWidth - indent) as string[];
-        for (const line of lines) {
-          ensureSpace(leading);
-          pdf.text(line, horizontalMargin + indent, y);
-          y += leading;
-        }
-        y += options.after ?? 1.2;
-      };
-      const drawSection = (title: string) => {
-        if (!pdfText(title)) return;
-        y += 2.1;
-        ensureSpace(7.5);
-        pdf.setFont(fontFace, "bold");
-        pdf.setFontSize(11);
-        pdf.setTextColor(...accent);
-        pdf.text(pdfText(title).toUpperCase(), horizontalMargin, y + 3.5);
-        pdf.setDrawColor(...accent);
-        pdf.setLineWidth(0.35);
-        pdf.line(horizontalMargin, y + 5.1, pageWidth - horizontalMargin, y + 5.1);
-        y += 8;
-      };
-      const drawBullet = (value: unknown) => writeWrapped(`- ${pdfText(value)}`, { size: Math.max(9, fontSize - 0.5), indent: 1.5, after: 0.8 });
-      const uniqueClean = (values: unknown[]) => Array.from(new Set(values.map(pdfText).filter(Boolean)));
-
-      function hexToRgb(value: string, fallback: [number, number, number]): [number, number, number] {
-        const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(value);
-        return match ? [parseInt(match[1]!, 16), parseInt(match[2]!, 16), parseInt(match[3]!, 16)] : fallback;
-      }
-
-      // CV data is laid out as real PDF text. Editor-only A4 spacers, page
-      // guides, and canvas wrappers are not part of this source document.
-      const doc = cleaned;
-      const name = pdfText(doc.fullName) || "Candidate";
-      writeWrapped(name, { size: Math.max(20, fontSize + 9), bold: true, color: accent, after: 1 });
-      writeWrapped(doc.headline, { size: 12, color: [71, 85, 105], after: 2 });
-      const contact = uniqueClean([doc.email, doc.phone, doc.location, doc.linkedin, doc.website]).join("  |  ")
-        || pdfText(doc.contactLine);
-      if (contact) writeWrapped(contact, { size: 8.5, color: [71, 85, 105], after: 3 });
-
-      if (pdfText(doc.summary)) {
-        drawSection("Professional Summary");
-        writeWrapped(doc.summary, { size: fontSize, after: 1 });
-      }
-
-      if (doc.experiences?.length) {
-        drawSection("Work Experience");
-        doc.experiences.forEach((experience) => {
-          const roleLine = [pdfText(experience.role), pdfText(experience.company)].filter(Boolean).join(" | ");
-          writeWrapped(roleLine, { size: fontSize + 0.5, bold: true, after: 0.5 });
-          const dates = [pdfText(experience.startDate), pdfText(experience.current ? "Present" : experience.endDate)].filter(Boolean).join(" - ");
-          const metadata = [pdfText(experience.location), dates].filter(Boolean).join("  |  ");
-          if (metadata) writeWrapped(metadata, { size: 8.5, color: [100, 116, 139], after: 1 });
-          uniqueClean(experience.bullets || []).forEach(drawBullet);
-          y += 1.3;
-        });
-      }
-
-      if (doc.education?.length) {
-        drawSection("Education");
-        doc.education.forEach((education) => {
-          writeWrapped([pdfText(education.degree), pdfText(education.institution)].filter(Boolean).join(" | "), { bold: true, after: 0.4 });
-          const detail = [pdfText(education.location), pdfText(education.graduationYear), pdfText(education.details)].filter(Boolean).join("  |  ");
-          if (detail) writeWrapped(detail, { size: 9, color: [71, 85, 105], after: 1.2 });
-        });
-      }
-
-      const skillGroups = (doc.skillGroups || []).map((group) => ({
-        category: pdfText(group.category), skills: uniqueClean(group.skills || []),
-      })).filter((group) => group.skills.length);
-      const groupedSkills = new Set(skillGroups.flatMap((group) => group.skills.map((skill) => skill.toLowerCase())));
-      const extraSkills = uniqueClean([...(doc.skills || []), ...(doc.competencies || []), ...(doc.toolsAndSoftware || [])])
-        .filter((skill) => !groupedSkills.has(skill.toLowerCase()));
-      if (skillGroups.length || extraSkills.length) {
-        drawSection("Skills");
-        skillGroups.forEach((group) => writeWrapped(`${group.category ? `${group.category}: ` : ""}${group.skills.join(", ")}`, { size: 9.5, after: 1 }));
-        if (extraSkills.length) writeWrapped(extraSkills.join(", "), { size: 9.5, after: 1 });
-      }
-
-      if (doc.projects?.length) {
-        drawSection("Projects");
-        doc.projects.forEach((project) => {
-          writeWrapped([pdfText(project.title), pdfText(project.subtitle)].filter(Boolean).join(" | "), { bold: true, after: 0.4 });
-          if (pdfText(project.link)) writeWrapped(project.link, { size: 8.5, color: [71, 85, 105], after: 0.8 });
-          uniqueClean(project.bullets || []).forEach(drawBullet);
-        });
-      }
-      if (doc.certifications?.length) {
-        drawSection("Certifications");
-        doc.certifications.forEach((certification) => writeWrapped(
-          [pdfText(certification.name), pdfText(certification.issuer), pdfText(certification.year)].filter(Boolean).join(" | "),
-          { size: 9.5, after: 1 },
-        ));
-      }
-      if (doc.languages?.length) {
-        drawSection("Languages");
-        writeWrapped(uniqueClean(doc.languages).join(", "), { size: 9.5 });
-      }
-      if (doc.references?.length || doc.referenceDetails?.length) {
-        drawSection("References");
-        const references = doc.referenceDetails?.length
-          ? doc.referenceDetails.map((reference) => [reference.name, reference.title, reference.company, reference.phone].filter(Boolean).join(" | "))
-          : doc.references || [];
-        uniqueClean(references).forEach((reference) => writeWrapped(reference, { size: 9.5, after: 1 }));
-      }
-
-      const builtInSections = /^(summary|professional summary|about me|experience|work experience|employment history|education|qualifications|skills|core skills|languages|references|projects|certifications)$/i;
-      const renderedCustomSections = new Set<string>();
-      (doc.sections || []).forEach((section) => {
-        const heading = pdfText(section.heading);
-        const key = heading.toLowerCase();
-        if (!heading || builtInSections.test(heading) || renderedCustomSections.has(key) || !section.items?.length) return;
-        renderedCustomSections.add(key);
-        drawSection(heading);
-        uniqueClean(section.items).forEach(drawBullet);
-      });
-
-      if (pdfText(doc.footerNote) && !/generated by|bonlist cv studio/i.test(pdfText(doc.footerNote))) {
-        y += 2;
-        writeWrapped(doc.footerNote, { size: 8, color: [100, 116, 139], after: 0 });
-      }
-      pdf.save(`${safeBaseName}_${safeTemplateName}.pdf`);
-      setMessage("Your PDF CV has been downloaded.");
-      setTimeout(() => setMessage(""), 4000);
+      const filename = `${safeBaseName}_${safeTemplateName}`;
+      await exportCvVisualPdf(preview, filename);
+      setMessage("Print view opened. Choose Save as PDF to download your CV.");
+      setTimeout(() => setMessage(""), 5000);
     } catch (exportError) {
       console.error("[CV PDF export error]", exportError);
       setError(exportError instanceof Error ? `PDF generation failed: ${exportError.message}` : "PDF generation failed. Please try again.");

@@ -203,10 +203,6 @@ function afterAuthNavigate(
     setLocation('/admin');
     return;
   }
-  if (payload.adminRequiresMfaSetup) {
-    setLocation('/security/admin-mfa');
-    return;
-  }
   if (payload.requiresMfa && payload.mfaToken) {
     setLocation(`/login?mfaToken=${payload.mfaToken}`);
     return;

@@ -325,9 +325,9 @@ export type Paged<K extends string, T> = {
 
 /* ------------------------------------------------------------------ fetch */
 
-let unauthorizedHandler: (() => void) | null = null;
+let unauthorizedHandler: ((status: 401 | 403) => void) | null = null;
 
-export function setUnauthorizedHandler(handler: (() => void) | null) {
+export function setUnauthorizedHandler(handler: ((status: 401 | 403) => void) | null) {
   unauthorizedHandler = handler;
 }
 
@@ -353,7 +353,7 @@ export async function adminFetch<T>(path: string, token: string, init?: RequestI
 
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      unauthorizedHandler?.();
+      unauthorizedHandler?.(response.status);
     }
     throw new Error(payload?.error || `Request failed (${response.status})`);
   }

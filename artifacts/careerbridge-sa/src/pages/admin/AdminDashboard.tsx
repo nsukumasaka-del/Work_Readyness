@@ -23,11 +23,10 @@ import { Link, useLocation } from "wouter";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
+import { getAdminToken, getSessionToken, persistAdminAccess } from "@/lib/auth-session";
 
 import {
-  ADMIN_FLAG_KEY,
   ADMIN_PROFILE_KEY,
-  ADMIN_TOKEN_KEY,
   type AdminMe,
   type AdminNotification,
   type AdminRange,
@@ -138,22 +137,15 @@ function AdminGate() {
         <Lock className="mx-auto text-sky-300" size={28} />
         <h1 className="mt-4 text-2xl font-semibold tracking-tight">Admin access only</h1>
         <p className="mt-3 text-sm leading-6 text-slate-300">
-          Sign in with your admin email on the main BonList login page. Administrators must complete authenticator MFA
-          before the dashboard unlocks.
+          Sign in with an account that has administrator access to open the BonList console.
         </p>
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+        <div className="mt-6 flex justify-center">
           <Link
             href="/login"
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-500 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-sky-400"
             data-testid="link-admin-gate-login"
           >
             Go to Log in <ArrowRight size={15} />
-          </Link>
-          <Link
-            href="/security/admin-mfa"
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-600 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-slate-800"
-          >
-            Complete MFA setup
           </Link>
         </div>
       </div>
@@ -182,7 +174,7 @@ function flattenSearch(payload: SearchResponse | null): Array<SearchResultItem &
 }
 
 export function AdminApp() {
-  const [token, setToken] = useState<string | null>(() => sessionStorage.getItem(ADMIN_TOKEN_KEY));
+  const [token, setToken] = useState<string | null>(() => getAdminToken() || getSessionToken());
   const [section, setSection] = useState<SectionKey>("diagnostics");
   const [range, setRange] = useState<AdminRange>("30d");
   const [customFrom, setCustomFrom] = useState("");
@@ -204,15 +196,16 @@ export function AdminApp() {
   const notificationsRef = useRef<HTMLDivElement | null>(null);
 
   const signOutLocally = useCallback(() => {
-    sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-    sessionStorage.removeItem(ADMIN_FLAG_KEY);
+    persistAdminAccess(undefined, false);
     setToken(null);
     setMe(null);
   }, []);
 
   useEffect(() => {
-    setUnauthorizedHandler(() => {
-      setAuthError("Your admin session expired. Please log in again.");
+    setUnauthorizedHandler((status) => {
+      setAuthError(status === 403
+        ? "This account does not have administrator access."
+        : "Your sign-in session expired. Please log in again.");
       signOutLocally();
     });
     return () => setUnauthorizedHandler(null);
@@ -375,8 +368,7 @@ export function AdminApp() {
     if (token) {
       await adminFetch("/admin/logout", token, { method: "POST" }).catch(() => undefined);
     }
-    sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-    sessionStorage.removeItem(ADMIN_FLAG_KEY);
+    persistAdminAccess(undefined, false);
     sessionStorage.removeItem(ADMIN_PROFILE_KEY);
     setToken(null);
     setMe(null);

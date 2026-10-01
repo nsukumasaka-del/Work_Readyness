@@ -134,7 +134,7 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
   if (!env.DB) return json(503, { error: "The BonList database is unavailable." });
   const user = await getAuthenticatedUser(request, env);
   if (!user) return json(401, { error: "Please sign in as an administrator." });
-  if (!user.isAdmin) return json(403, { error: "Administrator access is required." });
+  if (!user.is_admin) return json(403, { error: "Administrator access is required." });
 
   if (path === "/api/admin/me") {
     return request.method === "GET"

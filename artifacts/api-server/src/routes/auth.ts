@@ -77,6 +77,15 @@ function toProfileResponse(profile: typeof profilesTable.$inferSelect, profileCo
   };
 }
 
+async function isActiveAdminEmail(email: string): Promise<boolean> {
+  const [admin] = await db
+    .select({ id: adminUsersTable.id })
+    .from(adminUsersTable)
+    .where(and(eq(adminUsersTable.email, email.toLowerCase()), eq(adminUsersTable.status, "active")))
+    .limit(1);
+  return Boolean(admin);
+}
+
 async function issueAuthSuccess(
   req: Parameters<typeof createUserSession>[0] extends never ? never : import("express").Request,
   res: import("express").Response,
@@ -362,61 +371,24 @@ router.post("/career/login", async (req, res) => {
       profile = created;
     }
 
-    if (!admin.mfaEnabled) {
-      // Grant admin access immediately — authenticator MFA is optional, not a login gate.
-      const adminSession = await createAdminSession(admin.id);
-      const session = await createUserSession({
-        profileId: profile.id,
-        userAgent: String(req.headers["user-agent"] || ""),
-        ipAddress: ip,
-      });
-      setSessionCookie(res, session.token, session.expiresAt);
-      const [{ value: profileCount }] = await db.select({ value: count() }).from(profilesTable);
-      res.json({
-        ...toProfileResponse(profile, profileCount),
-        sessionToken: session.token,
-        isAdmin: true,
-        adminToken: adminSession.token,
-        adminName: admin.name,
-        isPrimaryAdmin: Boolean(admin.isPrimary),
-        mfaEnabled: false,
-      });
-      return;
-    }
-
-    // If admin enabled TOTP, still allow password-only access for primary admin reliability.
-    // Optional: keep TOTP for non-primary admins only.
-    if (admin.isPrimary) {
-      const adminSession = await createAdminSession(admin.id);
-      const session = await createUserSession({
-        profileId: profile.id,
-        userAgent: String(req.headers["user-agent"] || ""),
-        ipAddress: ip,
-      });
-      setSessionCookie(res, session.token, session.expiresAt);
-      const [{ value: profileCount }] = await db.select({ value: count() }).from(profilesTable);
-      res.json({
-        ...toProfileResponse(profile, profileCount),
-        sessionToken: session.token,
-        isAdmin: true,
-        adminToken: adminSession.token,
-        adminName: admin.name,
-        isPrimaryAdmin: true,
-        mfaEnabled: Boolean(admin.mfaEnabled),
-      });
-      return;
-    }
-
-    const pending = await createOpaqueChallenge({
-      email: admin.email,
-      purpose: "mfa_login",
-      payload: { adminId: admin.id, profileId: profile.id, kind: "admin" },
+    // Admin status is the access control boundary. Do not require a separate
+    // authenticator challenge after the account password has been verified.
+    const adminSession = await createAdminSession(admin.id);
+    const session = await createUserSession({
+      profileId: profile.id,
+      userAgent: String(req.headers["user-agent"] || ""),
+      ipAddress: ip,
     });
+    setSessionCookie(res, session.token, session.expiresAt);
+    const [{ value: profileCount }] = await db.select({ value: count() }).from(profilesTable);
     res.json({
-      requiresMfa: true,
-      mfaToken: pending.challengeId,
-      maskedEmail: maskEmail(email),
-      methods: ["totp", "recovery"],
+      ...toProfileResponse(profile, profileCount),
+      sessionToken: session.token,
+      isAdmin: true,
+      adminToken: adminSession.token,
+      adminName: admin.name,
+      isPrimaryAdmin: Boolean(admin.isPrimary),
+      mfaEnabled: Boolean(admin.mfaEnabled),
     });
     return;
   }
@@ -431,7 +403,7 @@ router.post("/career/login", async (req, res) => {
     return;
   }
 
-  if (profile.mfaEnabled) {
+  if (profile.mfaEnabled && !(await isActiveAdminEmail(profile.email))) {
     const pending = await createOpaqueChallenge({
       email: profile.email,
       purpose: "mfa_login",
@@ -555,7 +527,7 @@ router.get("/career/auth/google/callback", async (req, res) => {
     const user = await exchangeGoogleCode(code, googleRedirectUri(publicApi));
     const { profile } = await upsertGoogleIdentity(user);
 
-    if (profile.mfaEnabled) {
+    if (profile.mfaEnabled && !(await isActiveAdminEmail(profile.email))) {
       const pending = await createOpaqueChallenge({
         email: profile.email,
         purpose: "mfa_login",
@@ -690,7 +662,7 @@ router.post("/career/auth/magic-verify", async (req, res) => {
       res.status(401).json({ error: "We couldn't complete sign-in. Please try again." });
       return;
     }
-    if (profile.mfaEnabled) {
+    if (profile.mfaEnabled && !(await isActiveAdminEmail(profile.email))) {
       const pending = await createOpaqueChallenge({
         email: profile.email,
         purpose: "mfa_login",

@@ -170,7 +170,7 @@ export async function handleCvDiagnostic(request: Request, env: D1Env): Promise<
       .bind(user.id).first<{ id: number; report_json: string }>();
     if (!row) return json(404, { error: "No CV review found yet." });
     const report = JSON.parse(row.report_json) as DiagnosticReport;
-    return json(200, { ...reportForViewer(report, user.isAdmin), id: row.id });
+    return json(200, { ...reportForViewer(report, Boolean(user.is_admin)), id: row.id });
   }
 
   if (request.method !== "POST") return json(405, { error: "Method not allowed" });
@@ -197,7 +197,7 @@ export async function handleCvDiagnostic(request: Request, env: D1Env): Promise<
     if (!user) return json(200, { ...reportForViewer(report, false), message: "Preview generated. Sign in to save and retrieve your review." });
     const result = await env.DB.prepare("INSERT INTO cv_reports (user_id, report_json) VALUES (?, ?)")
       .bind(user.id, JSON.stringify(report)).run();
-    return json(201, { ...reportForViewer(report, user.isAdmin), id: result.meta.last_row_id });
+    return json(201, { ...reportForViewer(report, Boolean(user.is_admin)), id: result.meta.last_row_id });
   } catch (error) {
     console.error("CV review failed", error);
     return json(500, { error: "Could not complete CV review. Please try again." });

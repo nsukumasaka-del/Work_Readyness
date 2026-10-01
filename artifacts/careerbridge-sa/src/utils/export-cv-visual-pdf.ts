@@ -16,7 +16,7 @@ export async function exportCvVisualPdf(
 
   await document.fonts?.ready;
   const clone = original.cloneNode(true) as HTMLElement;
-  inlineComputedStyles(original, clone);
+  await inlineComputedStyles(original, clone);
   clone.removeAttribute("inert");
   clone.querySelectorAll("script, iframe, object, embed").forEach((element) => element.remove());
   clone.querySelectorAll<HTMLElement>("*").forEach((element) => {
@@ -67,9 +67,9 @@ export async function exportCvVisualPdf(
       .a4-page-frame { break-after: page !important; page-break-after: always !important; }
       .a4-page-frame { position: relative; width: 210mm !important; height: 297mm !important; min-height: 297mm !important; max-height: 297mm !important; margin: 0 auto !important; padding: var(--cv-a4-pad-y, 12mm) var(--cv-a4-pad-x, 15mm) !important; box-sizing: border-box !important; overflow: hidden !important; box-shadow: none !important; border: 0 !important; border-radius: 0 !important; break-after: page !important; page-break-after: always !important; }
       .a4-page-frame:last-child { break-after: auto !important; page-break-after: auto !important; }
-      .a4-page-frame .a4-page-columns { display: grid !important; align-items: start !important; align-content: start !important; min-height: 0 !important; height: auto !important; break-inside: avoid !important; page-break-inside: avoid !important; }
-      .a4-page-frame .a4-page-column { align-self: start !important; justify-self: stretch !important; min-width: 0 !important; margin-top: 0 !important; break-inside: avoid !important; page-break-inside: avoid !important; }
-      .a4-page-frame .experience-item, .a4-page-frame .education-item, .a4-page-frame section, .a4-page-frame [data-a4-id] { break-inside: avoid !important; page-break-inside: avoid !important; }
+      .a4-page-frame .a4-page-columns { display: grid !important; align-items: start !important; align-content: start !important; min-height: 0 !important; max-height: none !important; height: auto !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+      .a4-page-frame .a4-page-column { align-self: start !important; justify-self: stretch !important; min-width: 0 !important; min-height: 0 !important; max-height: none !important; height: auto !important; margin-top: 0 !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+      .a4-page-frame .experience-item, .a4-page-frame .education-item, .a4-page-frame section, .a4-page-frame [data-a4-id] { min-height: 0 !important; max-height: none !important; height: auto !important; break-inside: avoid !important; page-break-inside: avoid !important; }
       #bonlist-cv-document .cv-skill-chip, #bonlist-cv-document [data-a4-id="languages"] .flex.flex-wrap > span { display: inline-flex !important; align-items: center !important; white-space: nowrap !important; word-break: keep-all !important; flex-shrink: 0 !important; }
       .a4-page-frame input, .a4-page-frame textarea, .a4-page-frame select { appearance: none !important; resize: none !important; background: transparent !important; border: 0 !important; box-shadow: none !important; color: inherit !important; -webkit-text-fill-color: currentColor !important; }
       .a4-page-frame textarea { overflow: visible !important; white-space: pre-wrap !important; }
@@ -97,19 +97,31 @@ export async function exportCvVisualPdf(
 
 /** Inline computed declarations so the Worker renderer retains the exact
  * responsive layout and Tailwind appearance even if it cannot fetch app CSS. */
-function inlineComputedStyles(sourceRoot: HTMLElement, cloneRoot: HTMLElement): void {
+async function inlineComputedStyles(sourceRoot: HTMLElement, cloneRoot: HTMLElement): Promise<void> {
   const sourceElements = [sourceRoot, ...Array.from(sourceRoot.querySelectorAll<HTMLElement>("*"))];
   const cloneElements = [cloneRoot, ...Array.from(cloneRoot.querySelectorAll<HTMLElement>("*"))];
-  sourceElements.forEach((source, index) => {
+  for (let index = 0; index < sourceElements.length; index += 1) {
+    const source = sourceElements[index];
     const target = cloneElements[index];
-    if (!target) return;
+    if (!source || !target) continue;
     const computed = window.getComputedStyle(source);
     for (let propertyIndex = 0; propertyIndex < computed.length; propertyIndex += 1) {
       const property = computed.item(propertyIndex);
       const value = computed.getPropertyValue(property);
-      if (property && value) target.style.setProperty(property, absolutizeCssUrls(value));
+      if (
+        property &&
+        value &&
+        property !== "height" &&
+        property !== "min-height" &&
+        property !== "max-height"
+      ) {
+        target.style.setProperty(property, value.includes("url(") ? absolutizeCssUrls(value) : value);
+      }
     }
-  });
+    if ((index + 1) % 32 === 0) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    }
+  }
 }
 
 function absolutizeCssUrls(value: string): string {
@@ -130,7 +142,7 @@ function createStaticTextControl(source: HTMLInputElement | HTMLTextAreaElement 
   output.setAttribute("data-export-text-control", "true");
 
   const copiedProperties = [
-    "display", "box-sizing", "width", "min-width", "max-width", "height", "min-height", "max-height",
+    "display", "box-sizing", "width", "min-width", "max-width",
     "margin-top", "margin-right", "margin-bottom", "margin-left", "padding-top", "padding-right", "padding-bottom", "padding-left",
     "font-family", "font-size", "font-style", "font-weight", "font-variant", "line-height", "letter-spacing",
     "color", "text-align", "text-transform", "text-indent", "vertical-align", "white-space", "overflow-wrap", "word-break",
@@ -147,10 +159,11 @@ function createStaticTextControl(source: HTMLInputElement | HTMLTextAreaElement 
   output.style.setProperty("outline", "0");
   output.style.setProperty("background", "transparent");
   output.style.setProperty("box-shadow", "none");
+  output.style.setProperty("height", "auto");
+  output.style.setProperty("min-height", "0");
+  output.style.setProperty("max-height", "none");
   if (source instanceof HTMLTextAreaElement) {
     output.style.setProperty("display", "block");
-    output.style.setProperty("height", "auto");
-    output.style.setProperty("min-height", "0");
   }
   return output;
 }
@@ -195,21 +208,46 @@ function buildExplicitA4Pages(source: HTMLElement, cleanedClone: HTMLElement): H
     return [cleanedClone];
   }
 
-  const pageHeight = source.offsetWidth * 297 / 210;
-  const sourceRect = source.getBoundingClientRect();
-  const sourceTop = sourceRect.top;
-  const renderScale = source.offsetWidth > 0 ? sourceRect.width / source.offsetWidth : 1;
-  const pageOf = (element: Element) => Math.max(0, Math.floor((element.getBoundingClientRect().top - sourceTop + 1) / Math.max(1, pageHeight * renderScale)));
+  const spacerElements = Array.from(source.querySelectorAll<HTMLElement>("[data-a4-spacer]"));
+  const spacerStyles = spacerElements.map((spacer) => spacer.getAttribute("style"));
+  const measuredPages = new Map<Element, number>();
+  const pageOf = (element: Element) => measuredPages.get(element) ?? 0;
   const markerPages = new Map<string, number>();
-  source.querySelectorAll<HTMLElement>("[data-a4-id]").forEach((element) => {
-    const id = element.getAttribute("data-a4-id");
-    if (id) markerPages.set(id, pageOf(element));
-  });
-  const pageCount = Math.max(
-    1,
-    Math.ceil(Math.max(0, source.scrollHeight - 8) / pageHeight),
-    ...Array.from(markerPages.values(), (page) => page + 1),
-  );
+  let pageCount = 1;
+  try {
+    spacerElements.forEach((spacer) => {
+      spacer.style.setProperty("height", "0px", "important");
+      spacer.style.setProperty("min-height", "0px", "important");
+      spacer.style.setProperty("margin", "0", "important");
+      spacer.style.setProperty("padding", "0", "important");
+      spacer.style.setProperty("overflow", "hidden", "important");
+    });
+
+    const pageHeight = source.offsetWidth * 297 / 210;
+    const sourceRect = source.getBoundingClientRect();
+    const sourceTop = sourceRect.top;
+    const renderScale = source.offsetWidth > 0 ? sourceRect.width / source.offsetWidth : 1;
+    source.querySelectorAll<HTMLElement>("*").forEach((element) => {
+      measuredPages.set(element, Math.max(0, Math.floor(
+        (element.getBoundingClientRect().top - sourceTop + 1) / Math.max(1, pageHeight * renderScale),
+      )));
+    });
+    source.querySelectorAll<HTMLElement>("[data-a4-id]").forEach((element) => {
+      const id = element.getAttribute("data-a4-id");
+      if (id) markerPages.set(id, pageOf(element));
+    });
+    pageCount = Math.max(
+      1,
+      Math.ceil(Math.max(0, source.scrollHeight - 8) / pageHeight),
+      ...Array.from(markerPages.values(), (page) => page + 1),
+    );
+  } finally {
+    spacerElements.forEach((spacer, index) => {
+      const previousStyle = spacerStyles[index];
+      if (previousStyle == null || previousStyle === "") spacer.removeAttribute("style");
+      else spacer.setAttribute("style", previousStyle);
+    });
+  }
   const cloneHeader = cloneChildren.find((child) => child.tagName === "HEADER");
   const isSplitColumns = sourceBody.classList.contains("grid");
   const sourceColumns = isSplitColumns
@@ -248,6 +286,8 @@ function buildExplicitA4Pages(source: HTMLElement, cleanedClone: HTMLElement): H
     grid.style.alignContent = "start";
     grid.style.gridAutoFlow = "row";
     grid.style.height = "auto";
+    grid.style.minHeight = "0";
+    grid.style.maxHeight = "none";
 
     for (let columnIndex = 0; columnIndex < sourceColumns.length; columnIndex += 1) {
       const sourceColumn = sourceColumns[columnIndex]!;
@@ -261,6 +301,9 @@ function buildExplicitA4Pages(source: HTMLElement, cleanedClone: HTMLElement): H
       column.style.justifySelf = "stretch";
       column.style.minWidth = "0";
       column.style.marginTop = "0";
+      column.style.height = "auto";
+      column.style.minHeight = "0";
+      column.style.maxHeight = "none";
 
       const sourceItems = Array.from(sourceColumn.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
       const cloneItems = Array.from(cloneColumn.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
@@ -274,6 +317,7 @@ function buildExplicitA4Pages(source: HTMLElement, cleanedClone: HTMLElement): H
           : [pageOf(item)];
         if (!itemPages.includes(pageIndex)) return;
         pruneToPage(item, itemClone, pageIndex, markerPages);
+        resetContentFlowHeights(itemClone);
         column.append(itemClone);
       });
       grid.append(column);
@@ -286,7 +330,10 @@ function buildExplicitA4Pages(source: HTMLElement, cleanedClone: HTMLElement): H
       if (childIndex <= bodyIndex || child.tagName === "FOOTER" || child.tagName === "HEADER") return;
       if (pageOf(child) !== pageIndex) return;
       const customClone = cloneChildren[childIndex]?.cloneNode(true);
-      if (customClone instanceof HTMLElement) page.append(customClone);
+      if (customClone instanceof HTMLElement) {
+        resetContentFlowHeights(customClone);
+        page.append(customClone);
+      }
     });
     if (pageIndex === pageCount - 1) {
       const footerIndex = sourceChildren.findIndex((child) => child.tagName === "FOOTER");
@@ -320,4 +367,17 @@ function pruneToPage(
   });
   clone.querySelectorAll(".cv-a4-spacer, .a4-spacer, [data-a4-spacer], [data-preview-spacer='true']")
     .forEach((spacer) => spacer.remove());
+}
+
+/** Content wrappers shrink after their markers are split between A4 pages.
+ * The page frame itself keeps its physical 297 mm height. */
+function resetContentFlowHeights(root: HTMLElement): void {
+  const reset = (element: HTMLElement) => {
+    element.style.height = "auto";
+    element.style.minHeight = "0";
+    element.style.maxHeight = "none";
+  };
+  reset(root);
+  root.querySelectorAll<HTMLElement>("section, .cv-a4-keep, .experience-item, .education-item, [data-a4-id]")
+    .forEach(reset);
 }

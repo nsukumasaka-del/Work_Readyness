@@ -2383,6 +2383,7 @@ export default function CvBuilderPage() {
   const [isPreFlightModalOpen, setIsPreFlightModalOpen] = useState(false);
   const [preFlightLoading, setPreFlightLoading] = useState(false);
   const [isPdfDownloading, setIsPdfDownloading] = useState(false);
+  const pdfDownloadLockRef = useRef(false);
   const [pdfDownloadStage, setPdfDownloadStage] = useState<CvPdfExportStage | null>(null);
   const [pendingDownloadAction, setPendingDownloadAction] = useState<"print" | "html" | "txt" | "doc" | null>(null);
 
@@ -4784,23 +4785,25 @@ export default function CvBuilderPage() {
 
   /** Print the rendered CV DOM so template styling and text remain intact. */
   const executeDownloadPdf = async (options?: { onReady?: () => void }) => {
+    if (pdfDownloadLockRef.current) return;
     const preview = printRef.current;
     if (!cv?.document || !preview) {
       setError("Open the CV preview and try exporting again.");
       options?.onReady?.();
       return;
     }
+    pdfDownloadLockRef.current = true;
     setIsPdfDownloading(true);
     setPdfDownloadStage("preparing");
-    // Give React a paint opportunity before the synchronous DOM capture begins.
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    const cleaned = sanitizeCvDocument(cv.document);
-    if (JSON.stringify(cleaned) !== JSON.stringify(cv.document)) {
-      const updated = { ...cv, document: cleaned };
-      setCv(updated);
-      persistGeneratedCv(updated);
-    }
     try {
+      // Let the loading state paint before DOM capture begins.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const cleaned = sanitizeCvDocument(cv.document);
+      if (JSON.stringify(cleaned) !== JSON.stringify(cv.document)) {
+        const updated = { ...cv, document: cleaned };
+        setCv(updated);
+        persistGeneratedCv(updated);
+      }
       const safeBaseName = (documentTitle.trim() || `CV of ${cleaned.fullName || "Candidate"}`)
         .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
         .trim().replace(/\s+/g, "_");
@@ -4814,6 +4817,7 @@ export default function CvBuilderPage() {
       console.error("[CV PDF export error]", exportError);
       setError(exportError instanceof Error ? `PDF generation failed: ${exportError.message}` : "PDF generation failed. Please try again.");
     } finally {
+      pdfDownloadLockRef.current = false;
       setIsPdfDownloading(false);
       setPdfDownloadStage(null);
       options?.onReady?.();

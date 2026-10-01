@@ -226,9 +226,19 @@ function selectProfessionalBullets(bullets: string[], limit = MAX_BULLETS_PER_RO
     .map((b) => polishBulletText(b));
 }
 
+function professionalTitleFrom(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const record = value as Record<string, unknown>;
+  for (const candidate of [record.professionalTitle, record.jobTitle, record.headline, record.title]) {
+    const title = scrubCvText(String(candidate || ""));
+    if (title) return title;
+  }
+  return "";
+}
+
 function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
   const fullName = scrubCvText(doc.fullName) || "";
-  const headline = scrubCvText(doc.headline) || "";
+  const headline = professionalTitleFrom(doc);
   const summary = scrubCvText(doc.summary);
   const email = scrubCvText(doc.email);
   const phone = scrubCvText(doc.phone);
@@ -978,7 +988,11 @@ function normalizeExtractedCvData(value: unknown): ExtractedCvData {
     location: nestedPersonal.location || topPersonal.location,
     linkedin: nestedPersonal.linkedin || topPersonal.linkedin,
     website: nestedPersonal.website || topPersonal.website,
-    professionalTitle: nestedPersonal.professionalTitle || topPersonal.professionalTitle,
+    professionalTitle:
+      professionalTitleFrom(nestedPersonal) ||
+      professionalTitleFrom(topPersonal) ||
+      professionalTitleFrom(nested) ||
+      professionalTitleFrom(raw),
   };
   const chooseArray = <T,>(inner?: T[] | null, outer?: T[] | null): T[] => {
     const safeInner = Array.isArray(inner) ? inner : [];
@@ -1807,7 +1821,7 @@ function TemplateThumbnail({
   const isCreative = tpl.id === "creative";
 
   const name = (doc?.fullName || "John Doe").trim();
-  const title = (doc?.headline || "Software Engineer / Professional").trim();
+  const title = doc ? professionalTitleFrom(doc) : "Software Engineer / Professional";
   const contact = [doc?.email || "john.doe@email.com", doc?.phone || "+27 82 555 0100", doc?.location || "Cape Town"].join(" · ");
   const summaryRaw = (doc?.summary || "Results-driven professional with a record of delivering reliable solutions, improving team workflows and supporting measurable business outcomes.").trim();
   const summary = summaryRaw.slice(0, 90) + (summaryRaw.length > 90 ? "…" : "");
@@ -5640,9 +5654,6 @@ export default function CvBuilderPage() {
               <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:from-amber-100 hover:to-orange-100 dark:border-amber-800 dark:from-amber-950/50 dark:to-orange-950/50 dark:text-amber-100" title="Open AI suggestions" aria-label="Open AI suggestions">
                 <Sparkles size={14} /><span>Suggestions</span><Crown size={12} className="text-amber-500" />
               </button>
-              <Link href="/pricing" className="inline-flex min-h-9 shrink-0 items-center rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-200" title="View BonList Credits">
-                {monetization.adminBypass ? "Admin access" : `${monetization.credits} Credits`}
-              </Link>
               <button type="button" disabled={!cv || saving} onClick={() => { void handleSaveCv(documentTitle.trim() || "My CV").then(() => canvasRef.current?.focus()); }} className="ml-auto inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-black px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50" title="Save your CV">
                 <Save size={14} /><span>{saving ? "Saving…" : "Save"}</span>
               </button>
@@ -6476,6 +6487,7 @@ export default function CvBuilderPage() {
                 const isCorporateBlue = selectedTemplate === "corporate_blue";
                 const isEditorialGold = selectedTemplate === "editorial_gold";
                 const isAnalystClean = selectedTemplate === "analyst_clean";
+                const professionalTitle = professionalTitleFrom(cv.document);
 
                 const renderSectionHeading = (title: string) => {
                   if (isSerifClassic) {
@@ -7241,12 +7253,14 @@ export default function CvBuilderPage() {
                           className="w-full bg-transparent text-center font-serif text-2xl font-bold tracking-tight text-slate-950 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm sm:text-3xl"
                           placeholder="Candidate Name"
                          />
-                        <AutoGrowTextarea
-                          value={cv.document.headline}
-                          onChange={(e) => updateDocumentField("headline", e.target.value)}
-                          placeholder="Professional Title"
-                          className="mt-1 w-full bg-transparent text-center font-serif text-sm italic text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
-                         />
+                        {professionalTitle ? (
+                          <AutoGrowTextarea
+                            value={professionalTitle}
+                            onChange={(e) => updateDocumentField("headline", e.target.value)}
+                            placeholder="Professional Title"
+                            className="mt-1 w-full bg-transparent text-center font-serif text-sm italic text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
+                          />
+                        ) : null}
                         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[11px] text-slate-600">
                           <input type="text" value={cv.document.location || ""} onChange={(e) => updateDocumentField("location", e.target.value)} placeholder="Location" className="bg-transparent text-center focus:outline-none" style={{ width: `${Math.max((cv.document.location || "").length + 1, 10)}ch` }} />
                           <span>·</span>
@@ -7269,12 +7283,14 @@ export default function CvBuilderPage() {
                           style={{ color: selectedColor.primary }}
                           placeholder="CANDIDATE NAME"
                          />
-                        <AutoGrowTextarea
-                          value={cv.document.headline}
-                          onChange={(e) => updateDocumentField("headline", e.target.value)}
-                          placeholder="PROFESSIONAL TITLE"
-                          className="mt-1 w-full bg-transparent text-xs font-bold uppercase tracking-widest text-slate-800 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
-                         />
+                        {professionalTitle ? (
+                          <AutoGrowTextarea
+                            value={professionalTitle}
+                            onChange={(e) => updateDocumentField("headline", e.target.value)}
+                            placeholder="PROFESSIONAL TITLE"
+                            className="mt-1 w-full bg-transparent text-xs font-bold uppercase tracking-widest text-slate-800 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
+                          />
+                        ) : null}
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
                           <input type="text" value={cv.document.location || ""} onChange={(e) => updateDocumentField("location", e.target.value)} placeholder="Location" className="bg-transparent focus:outline-none" style={{ width: `${Math.max((cv.document.location || "").length + 1, 10)}ch` }} />
                           <span>|</span>
@@ -7292,6 +7308,14 @@ export default function CvBuilderPage() {
                           style={{ color: selectedColor.primary }}
                           placeholder="Candidate Name"
                          />
+                        {professionalTitle ? (
+                          <AutoGrowTextarea
+                            value={professionalTitle}
+                            onChange={(e) => updateDocumentField("headline", e.target.value)}
+                            className="mt-1 w-full bg-transparent font-serif text-sm italic text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
+                            placeholder="Professional Title"
+                          />
+                        ) : null}
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-700">
                           <input type="text" value={cv.document.location || ""} onChange={(e) => updateDocumentField("location", e.target.value)} placeholder="Location" className="bg-transparent focus:outline-none" style={{ width: `${Math.max((cv.document.location || "").length + 1, 10)}ch` }} />
                           <span>|</span>
@@ -7310,12 +7334,14 @@ export default function CvBuilderPage() {
                               className="w-full whitespace-normal break-words leading-tight bg-transparent text-2xl font-black tracking-tight text-slate-900 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm sm:text-3xl"
                               placeholder="Candidate Name"
                              />
-                            <AutoGrowTextarea
-                              value={cv.document.headline}
-                              onChange={(e) => updateDocumentField("headline", e.target.value)}
-                              placeholder="Professional Title"
-                              className="mt-1 w-full bg-transparent text-sm text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
-                             />
+                            {professionalTitle ? (
+                              <AutoGrowTextarea
+                                value={professionalTitle}
+                                onChange={(e) => updateDocumentField("headline", e.target.value)}
+                                placeholder="Professional Title"
+                                className="mt-1 w-full bg-transparent text-sm text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
+                              />
+                            ) : null}
                           </div>
                           <div className="flex w-full min-w-0 max-w-full flex-wrap justify-start gap-x-3 gap-y-1 text-left text-[11px] text-slate-600">
                             <div className="min-w-0 max-w-full"><input type="text" value={cv.document.phone || ""} onChange={(e) => updateDocumentField("phone", e.target.value)} placeholder="Phone" className="max-w-full bg-transparent text-right focus:outline-none" style={{ width: `${Math.max((cv.document.phone || "").length + 1, 12)}ch`, maxWidth: "100%" }} /></div>
@@ -7342,12 +7368,14 @@ export default function CvBuilderPage() {
                           placeholder="Candidate Name"
                          />
 
-                        <AutoGrowTextarea
-                          value={cv.document.headline}
-                          onChange={(e) => updateDocumentField("headline", e.target.value)}
-                          placeholder="Professional Title / Target Role"
-                          className="mt-1 w-full bg-transparent text-sm font-semibold tracking-wide text-white/90 focus:outline-none focus:ring-1 focus:ring-white/40 rounded-sm sm:text-base placeholder:text-white/60"
-                         />
+                        {professionalTitle ? (
+                          <AutoGrowTextarea
+                            value={professionalTitle}
+                            onChange={(e) => updateDocumentField("headline", e.target.value)}
+                            placeholder="Professional Title / Target Role"
+                            className="mt-1 w-full bg-transparent text-sm font-semibold tracking-wide text-white/90 focus:outline-none focus:ring-1 focus:ring-white/40 rounded-sm sm:text-base placeholder:text-white/60"
+                          />
+                        ) : null}
 
                         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-white/90 overflow-visible">
                           <input
@@ -7410,12 +7438,14 @@ export default function CvBuilderPage() {
                           placeholder="CANDIDATE NAME"
                          />
 
-                        <AutoGrowTextarea
-                          value={cv.document.headline}
-                          onChange={(e) => updateDocumentField("headline", e.target.value)}
-                          placeholder="PROFESSIONAL TITLE / TARGET ROLE"
-                          className="mt-1 w-full bg-transparent text-center text-xs font-semibold uppercase tracking-widest text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
-                         />
+                        {professionalTitle ? (
+                          <AutoGrowTextarea
+                            value={professionalTitle}
+                            onChange={(e) => updateDocumentField("headline", e.target.value)}
+                            placeholder="PROFESSIONAL TITLE / TARGET ROLE"
+                            className="mt-1 w-full bg-transparent text-center text-xs font-semibold uppercase tracking-widest text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
+                          />
+                        ) : null}
 
                         <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-600 overflow-visible">
                           <input
@@ -7493,14 +7523,16 @@ export default function CvBuilderPage() {
                           placeholder="Candidate Name"
                          />
 
-                        <AutoGrowTextarea
-                          value={cv.document.headline}
-                          onChange={(e) => updateDocumentField("headline", e.target.value)}
-                          placeholder="Professional Title / Target Role"
-                          className={`mt-1 w-full bg-transparent text-sm font-semibold tracking-wide text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm sm:text-base ${
-                            isPolished ? "text-center" : ""
-                          }`}
-                         />
+                        {professionalTitle ? (
+                          <AutoGrowTextarea
+                            value={professionalTitle}
+                            onChange={(e) => updateDocumentField("headline", e.target.value)}
+                            placeholder="Professional Title / Target Role"
+                            className={`mt-1 w-full bg-transparent text-sm font-semibold tracking-wide text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm sm:text-base ${
+                              isPolished ? "text-center" : ""
+                            }`}
+                          />
+                        ) : null}
 
                         <div className={`mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 overflow-visible ${
                           isPolished ? "justify-center" : ""
@@ -9735,6 +9767,7 @@ function generateSemanticHtml(
 
   const contactBits = [doc.location, doc.phone, doc.email, doc.linkedin, doc.website].filter(Boolean).join(" | ");
   const contactLine = doc.contactLine || contactBits;
+  const professionalTitle = professionalTitleFrom(doc);
   const formatCvText = (raw: string) => {
     let safe = String(raw || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#39;");
     safe = safe.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
@@ -9746,7 +9779,7 @@ function generateSemanticHtml(
     ? `<header style="display:flex;justify-content:space-between;gap:1.5rem;align-items:flex-start;border-bottom:1px dashed #cbd5e1;padding-bottom:12px;">
         <div>
           <h1 style="${nameStyle}">${doc.fullName}</h1>
-          <div style="font-weight:500;color:#64748b;margin-top:4px;">${doc.headline || ""}</div>
+          ${professionalTitle ? `<div style="font-weight:500;color:#64748b;margin-top:4px;">${formatCvText(professionalTitle)}</div>` : ""}
         </div>
         <div style="text-align:right;font-size:9.5pt;color:#64748b;line-height:1.5;">
           ${[doc.phone, doc.email, doc.website, doc.location].filter(Boolean).map((v) => `<div>${v}</div>`).join("")}
@@ -9755,12 +9788,12 @@ function generateSemanticHtml(
     : isSerifClassic
       ? `<header style="text-align:center;border-bottom:1px solid #0f172a;padding-bottom:12px;">
           <h1 style="${nameStyle}">${doc.fullName}</h1>
-          <div style="font-style:italic;color:#475569;margin-top:4px;font-family:${headingFont};">${doc.headline || ""}</div>
+          ${professionalTitle ? `<div style="font-style:italic;color:#475569;margin-top:4px;font-family:${headingFont};">${formatCvText(professionalTitle)}</div>` : ""}
           <div class="contact" style="margin-top:8px;">${contactLine}</div>
         </header>`
       : `<header>
           <h1 style="${nameStyle}">${doc.fullName}</h1>
-          <div style="font-weight:600;color:#475569;${isCorporateBlue ? "text-transform:uppercase;letter-spacing:0.12em;font-size:9.5pt;" : ""}">${doc.headline || ""}</div>
+          ${professionalTitle ? `<div style="font-weight:600;color:#475569;${isCorporateBlue ? "text-transform:uppercase;letter-spacing:0.12em;font-size:9.5pt;" : ""}">${formatCvText(professionalTitle)}</div>` : ""}
           <div class="contact">${contactLine}</div>
         </header>`;
 

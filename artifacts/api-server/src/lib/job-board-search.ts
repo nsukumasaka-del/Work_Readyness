@@ -53,6 +53,8 @@ const TRUSTED_BOARDS = [
   { host: "jobmail.co.za", label: "JobMail", siteQuery: "jobmail.co.za" },
   { host: "adzuna.co.za", label: "Adzuna", siteQuery: "adzuna.co.za" },
   { host: "executiveplacements.com", label: "Executive Placements", siteQuery: "executiveplacements.com" },
+  { host: "remoteok.com", label: "RemoteOK", siteQuery: "remoteok.com" },
+  { host: "weworkremotely.com", label: "We Work Remotely", siteQuery: "weworkremotely.com" },
 ] as const;
 
 function decodeEntities(value: string): string {
@@ -69,6 +71,80 @@ function decodeEntities(value: string): string {
 
 function stripHtml(value: string): string {
   return decodeEntities(value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+}
+
+function detailText(value: string): string {
+  return decodeEntities(value.replace(/<\s*br\s*\/?\s*>|<\/\s*(?:p|li|div|h[1-6])\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ").replace(/[^\S\n]+/g, " ").replace(/\n\s*\n+/g, "\n").trim());
+}
+
+function detailItems(value: unknown): string[] {
+  const text = Array.isArray(value) ? value.map(String).join("\n") : typeof value === "string" ? value : "";
+  return detailText(text).split(/\n|[•▪]/).map((item) => item.trim()).filter((item) => item.length > 2).slice(0, 20);
+}
+
+function itemsUnderHeading(text: string, heading: RegExp): string[] {
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const start = lines.findIndex((line) => heading.test(line));
+  if (start < 0) return [];
+  const items: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^(?:requirements?|qualifications?|responsibilities|duties|benefits|about us|how to apply|skills)(?:\s|:|$)/i.test(line)) break;
+    const item = line.replace(/^[-•▪*]\s*/, "").trim();
+    if (item.length > 4) items.push(item);
+    if (items.length >= 15) break;
+  }
+  return items;
+}
+
+/** Fetches a single source listing on demand; search results remain fast. */
+export async function fetchTrustedJobDetails(rawUrl: string): Promise<{
+  fullDescription: string;
+  requirements: string[];
+  responsibilities: string[];
+  skills: string[];
+  sourceBoard: string;
+} | null> {
+  let url: URL;
+  try { url = new URL(rawUrl); } catch { return null; }
+  if (url.protocol !== "https:" || !hostAllowed(url.hostname)) return null;
+  const html = await fetchHtml(url.href, 8000, true);
+  if (!html) return null;
+  let posting: Record<string, unknown> | undefined;
+  for (const script of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const parsed = JSON.parse(script[1]) as unknown;
+      const entries = Array.isArray(parsed) ? parsed : [parsed];
+      for (const entry of entries) {
+        if (!entry || typeof entry !== "object") continue;
+        const graph = (entry as { "@graph"?: unknown[] })["@graph"];
+        for (const candidate of Array.isArray(graph) ? graph : [entry]) {
+          if (candidate && typeof candidate === "object" && String((candidate as { "@type"?: unknown })["@type"] || "").includes("JobPosting")) {
+            posting = candidate as Record<string, unknown>;
+            break;
+          }
+        }
+        if (posting) break;
+      }
+    } catch { /* Some boards emit malformed JSON-LD. */ }
+    if (posting) break;
+  }
+  const rawDescription = typeof posting?.description === "string" ? posting.description : "";
+  const fallback = html.match(/<meta[^>]+(?:name|property)=["'](?:description|og:description)["'][^>]+content=["']([^"']+)/i)?.[1] || "";
+  const fullDescription = detailText(rawDescription || fallback).slice(0, 16000);
+  const listedRequirements = detailItems(posting?.qualifications || posting?.experienceRequirements || posting?.educationRequirements);
+  const listedResponsibilities = detailItems(posting?.jobResponsibilities);
+  return {
+    fullDescription,
+    requirements: listedRequirements.length
+      ? listedRequirements
+      : itemsUnderHeading(fullDescription, /^(?:requirements?|qualifications?|what we(?:'re| are) looking for)\s*:?$/i),
+    responsibilities: listedResponsibilities.length
+      ? listedResponsibilities
+      : itemsUnderHeading(fullDescription, /^(?:responsibilities|duties|what you(?:'ll| will) do)\s*:?$/i),
+    skills: detailItems(posting?.skills),
+    sourceBoard: hostAllowed(url.hostname)?.label || "Job board",
+  };
 }
 
 function hashId(value: string): number {
@@ -199,7 +275,7 @@ function scoreListing(role: string, location: string | undefined, title: string,
   return Math.min(99, score);
 }
 
-async function fetchHtml(url: string, timeoutMs = 12000): Promise<string | null> {
+async function fetchHtml(url: string, timeoutMs = 12000, restrictRedirects = false): Promise<string | null> {
   try {
     const response = await fetch(url, {
       headers: {
@@ -208,6 +284,7 @@ async function fetchHtml(url: string, timeoutMs = 12000): Promise<string | null>
         "Accept-Language": "en-ZA,en;q=0.9",
       },
       signal: AbortSignal.timeout(timeoutMs),
+      redirect: restrictRedirects ? "error" : "follow",
     });
     if (!response.ok) return null;
     return await response.text();

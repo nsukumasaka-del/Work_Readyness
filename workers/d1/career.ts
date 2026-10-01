@@ -10,7 +10,7 @@ import {
   type D1Env,
   type UserRow,
 } from "./auth";
-import { searchTrustedJobBoards } from "../../artifacts/api-server/src/lib/job-board-search";
+import { fetchTrustedJobDetails, searchTrustedJobBoards } from "../../artifacts/api-server/src/lib/job-board-search";
 import { buildCareerAlignmentReport, estimateCareerYears } from "../../artifacts/api-server/src/lib/career-alignment";
 import { enrichCareerAdvisoryWithGemini, scoreJobListingsWithGemini } from "../../artifacts/api-server/src/lib/ai/gemini-client";
 import {
@@ -858,6 +858,15 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
   });
 }
 
+async function handleJobDetails(request: Request): Promise<Response> {
+  const input = await body(request);
+  const listingUrl = clean(input.url);
+  if (!listingUrl || listingUrl.length > 2048) return error(400, "A direct job listing URL is required.");
+  const details = await fetchTrustedJobDetails(listingUrl);
+  if (!details) return error(404, "The job board did not provide additional listing details.");
+  return json(details);
+}
+
 async function handleLatest(request: Request, env: D1Env, user: UserRow): Promise<Response> {
   const row = await env.DB.prepare(
     "SELECT id, report_json FROM cv_reports WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
@@ -1029,7 +1038,7 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
   const nativePath =
     (method === "POST" && (path === "/api/career/profile" || path === "/api/career/cv/parse-upload" || path === "/api/career/diagnostic" || path === "/api/career/cv/generate")) ||
     (method === "POST" && path === "/api/career/cv/save") ||
-    (method === "POST" && path === "/api/career/jobs/search") ||
+    (method === "POST" && (path === "/api/career/jobs/search" || path === "/api/career/jobs/details")) ||
     (method === "PATCH" && path === "/api/career/profile") ||
     (method === "GET" && (path === "/api/career/diagnostic/latest" || path === "/api/career/cv/latest")) ||
     (path === "/api/career/cv/documents" || /^\/api\/career\/cv\/documents\/\d+(?:\/duplicate)?$/.test(path));
@@ -1047,6 +1056,7 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
   }
   if (path === "/api/career/profile") return handleProfile(request, env, user);
   if (path === "/api/career/jobs/search" && method === "POST") return handleJobSearch(request, env, user);
+  if (path === "/api/career/jobs/details" && method === "POST") return handleJobDetails(request);
   if (path === "/api/career/cv/parse-upload") return handleParse(request, env, user);
   if (path === "/api/career/diagnostic") return handleDiagnostic(request, env, user);
   if (path === "/api/career/diagnostic/latest") return handleLatest(request, env, user);

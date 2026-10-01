@@ -34,8 +34,11 @@ async function handleCvPdfExport(request: Request, env: Env): Promise<Response> 
   const user = await getAuthenticatedUser(request, env);
   if (!user) return jsonError(401, "Please sign in to export your CV.");
 
+  // Each printable A4 frame carries a full clipped copy of the editor DOM.
+  // Keep a bounded limit while allowing multi-page CVs to reach Chromium.
+  const maxExportHtmlBytes = 16_000_000;
   const length = Number(request.headers.get("content-length") || 0);
-  if (length > 2_500_000) return jsonError(413, "CV document is too large to export.");
+  if (length > maxExportHtmlBytes) return jsonError(413, "CV document is too large to export.");
   let payload: Record<string, unknown>;
   try {
     const body: unknown = await request.json();
@@ -44,7 +47,7 @@ async function handleCvPdfExport(request: Request, env: Env): Promise<Response> 
     return jsonError(400, "A valid CV document is required.");
   }
   const html = typeof payload.html === "string" ? payload.html : "";
-  if (!html || html.length > 2_500_000 || !html.includes("bonlist-cv-document")) {
+  if (!html || new TextEncoder().encode(html).length > maxExportHtmlBytes || !html.includes("bonlist-cv-document")) {
     return jsonError(400, "The rendered CV document is missing or too large.");
   }
   // The client only sends the rendered CV. Never execute scripts from an

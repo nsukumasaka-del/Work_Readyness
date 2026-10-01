@@ -23,6 +23,58 @@ type TemplateRow = Record<string, unknown> & {
   created_at?: string;
 };
 
+type TemplateInput = {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  previewUrl: string | null;
+  active: number;
+};
+
+const DEFAULT_TEMPLATES: TemplateInput[] = [
+  ["serif_classic", "Serif Classic", "Traditional", "Formal serif layout for academic and professional CVs."],
+  ["corporate_blue", "Corporate Blue", "Modern", "Crisp corporate layout with blue accent headings."],
+  ["editorial_gold", "Editorial Gold", "Executive", "Editorial layout for legal, advisory and senior roles."],
+  ["analyst_clean", "Analyst Clean", "Modern", "Clean analytical layout for product, operations and technology."],
+  ["double_column", "Double Column", "Modern", "Compact two-column layout balancing highlights and career history."],
+  ["ivy_league", "Ivy League", "Traditional", "Distinguished academic and legal single-column layout."],
+  ["elegant", "Elegant", "Traditional", "Refined typography for leadership and communications roles."],
+  ["contemporary", "Contemporary", "Modern", "Fresh two-column layout with strong visual hierarchy."],
+  ["modern", "Modern", "Modern", "Sleek dual-column layout for digital and technical careers."],
+  ["timeline", "Timeline", "Creative", "Chronological milestone layout for career progression."],
+  ["creative", "Creative", "Creative", "Portfolio-forward layout with high visual impact."],
+  ["stylish", "Stylish", "Creative", "High-contrast layout for brand and creative leadership."],
+  ["single_column", "Single Column", "ATS-Friendly", "Linear ATS-optimized layout for enterprise portals."],
+  ["compact", "Compact", "Modern", "High-density layout designed for concise one-page CVs."],
+  ["polished", "Polished", "Executive", "Formal executive layout with structured role hierarchy."],
+  ["multicolumn", "Multicolumn", "Modern", "Modular multi-panel layout for hybrid specialists."],
+  ["classic", "Classic", "Traditional", "Timeless reverse-chronological corporate format."],
+  ["high_performer", "High Performer", "Executive", "Outcome-led format for quantified achievements."],
+  ["minimal", "Minimal", "Minimalist", "Distraction-free layout with generous whitespace."],
+].map(([id, name, category, description]) => ({ id, name, category, description, previewUrl: null, active: 1 }));
+
+function templateInput(value: unknown): TemplateInput | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  const id = String(body.id || "").trim();
+  const name = String(body.name || "").trim();
+  if (!/^[a-z0-9][a-z0-9_-]{0,79}$/i.test(id) || !name || name.length > 120) return null;
+  const description = String(body.description || "").trim().slice(0, 1000);
+  const category = String(body.category || "CV").trim().slice(0, 80) || "CV";
+  const rawPreview = body.previewUrl ?? body.preview_url;
+  const previewUrl = rawPreview ? String(rawPreview).trim().slice(0, 1000) : null;
+  const active = body.active === false || body.active === 0 || body.active === "0" ? 0 : 1;
+  return { id, name, description, category, previewUrl, active };
+}
+
+async function insertTemplate(db: D1Database, input: TemplateInput) {
+  return db.prepare(
+    `INSERT INTO templates (id, name, description, category, preview_url, active, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+  ).bind(input.id, input.name, input.description, input.category, input.previewUrl, input.active).run();
+}
+
 async function ensureTemplatesTable(db: D1Database): Promise<void> {
   await db.prepare(`CREATE TABLE IF NOT EXISTS templates (
     id TEXT PRIMARY KEY NOT NULL,
@@ -177,27 +229,106 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
   if (path === "/api/admin/templates" && request.method === "GET") {
     try {
       await ensureTemplatesTable(env.DB);
-      const rows = await env.DB.prepare("SELECT * FROM templates ORDER BY created_at DESC").all<TemplateRow>();
-      return json(200, { success: true, templates: rows.results || [] });
+      const term = (url.searchParams.get("q") || "").trim().slice(0, 100);
+      const category = (url.searchParams.get("category") || "").trim().slice(0, 80);
+      const filters: string[] = [];
+      const bindings: string[] = [];
+      if (term) {
+        filters.push("(id LIKE ? OR name LIKE ? OR description LIKE ?)");
+        bindings.push(`%${term}%`, `%${term}%`, `%${term}%`);
+      }
+      if (category) {
+        filters.push("category = ? COLLATE NOCASE");
+        bindings.push(category);
+      }
+      const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+      const rows = await env.DB.prepare(`SELECT * FROM templates ${where} ORDER BY created_at DESC`)
+        .bind(...bindings).all<TemplateRow>();
+      const categories = await env.DB.prepare(
+        "SELECT DISTINCT category FROM templates WHERE category <> '' ORDER BY category COLLATE NOCASE",
+      ).all<{ category: string }>();
+      return json(200, { success: true, templates: rows.results || [], categories: (categories.results || []).map((row) => row.category) });
     } catch (error) {
       console.error("[admin] Could not load templates", error);
       return json(500, { success: false, error: error instanceof Error ? error.message : "Could not load templates." });
     }
   }
 
+  if (path === "/api/admin/templates" && request.method === "POST") {
+    try {
+      await ensureTemplatesTable(env.DB);
+      const body = await request.json().catch(() => null) as Record<string, unknown> | null;
+      const rawItems = Array.isArray(body?.templates) ? body.templates.slice(0, 100) : [body];
+      const inputs = rawItems.map(templateInput);
+      if (!inputs.length || inputs.some((item) => !item)) {
+        return json(400, { success: false, error: "Each template needs a valid id and name." });
+      }
+      try {
+        await env.DB.batch(inputs.map((item) => {
+          const template = item as TemplateInput;
+          return env.DB.prepare(
+            `INSERT INTO templates (id, name, description, category, preview_url, active, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+          ).bind(template.id, template.name, template.description, template.category, template.previewUrl, template.active);
+        }));
+      } catch (error) {
+        if (String(error).toLowerCase().includes("unique")) {
+          return json(409, { success: false, error: "A template with that id already exists." });
+        }
+        throw error;
+      }
+      return json(201, { success: true, created: inputs.length });
+    } catch (error) {
+      console.error("[admin] Could not create templates", error);
+      return json(500, { success: false, error: error instanceof Error ? error.message : "Could not create templates." });
+    }
+  }
+
+  if (path === "/api/admin/templates/seed" && request.method === "POST") {
+    try {
+      await ensureTemplatesTable(env.DB);
+      let seeded = 0;
+      for (const template of DEFAULT_TEMPLATES) {
+        const existing = await env.DB.prepare("SELECT id FROM templates WHERE id = ? LIMIT 1").bind(template.id).first();
+        if (existing) continue;
+        await insertTemplate(env.DB, template);
+        seeded += 1;
+      }
+      return json(200, { success: true, seeded, total: DEFAULT_TEMPLATES.length });
+    } catch (error) {
+      console.error("[admin] Could not seed templates", error);
+      return json(500, { success: false, error: error instanceof Error ? error.message : "Could not seed templates." });
+    }
+  }
+
   const templateMatch = /^\/api\/admin\/templates\/([^/]+)$/.exec(path);
-  if (templateMatch && request.method === "DELETE") {
+  if (templateMatch) {
     const id = decodeURIComponent(templateMatch[1] || "").trim();
     if (!id || id.length > 160) return json(400, { success: false, error: "Invalid template id." });
     try {
       await ensureTemplatesTable(env.DB);
-      const existing = await env.DB.prepare("SELECT id FROM templates WHERE id = ? LIMIT 1").bind(id).first();
+      const existing = await env.DB.prepare("SELECT * FROM templates WHERE id = ? LIMIT 1").bind(id).first<TemplateRow>();
       if (!existing) return json(404, { success: false, error: "Template not found." });
-      await env.DB.prepare("DELETE FROM templates WHERE id = ?").bind(id).run();
-      return json(200, { success: true, message: `Template ${id} deleted successfully.` });
+      if (request.method === "GET") return json(200, { success: true, template: existing });
+      if (request.method === "PATCH" || request.method === "PUT") {
+        const body = await request.json().catch(() => null) as Record<string, unknown> | null;
+        const input = templateInput({ ...(body || {}), id });
+        if (!input) return json(400, { success: false, error: "A valid template name is required." });
+        await env.DB.prepare(
+          `UPDATE templates SET name = ?, description = ?, category = ?, preview_url = ?, active = ?, updated_at = datetime('now')
+           WHERE id = ?`,
+        ).bind(input.name, input.description, input.category, input.previewUrl, input.active, id).run();
+        const updated = await env.DB.prepare("SELECT * FROM templates WHERE id = ? LIMIT 1").bind(id).first<TemplateRow>();
+        return json(200, { success: true, template: updated });
+      }
+      if (request.method === "DELETE") {
+        await env.DB.prepare("DELETE FROM templates WHERE id = ?").bind(id).run();
+        return json(200, { success: true, message: `Template ${id} deleted successfully.` });
+      }
+      return json(405, { success: false, error: "Method not allowed." });
     } catch (error) {
-      console.error("[admin] Could not delete template", error);
-      return json(500, { success: false, error: error instanceof Error ? error.message : "Could not delete template." });
+      console.error("[admin] Could not manage template", error);
+      return json(500, { success: false, error: error instanceof Error ? error.message : "Could not manage template." });
     }
   }
 

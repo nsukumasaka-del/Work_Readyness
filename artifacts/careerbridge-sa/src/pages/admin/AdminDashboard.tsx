@@ -195,6 +195,20 @@ export function AdminApp() {
   const [authError, setAuthError] = useState("");
   const notificationsRef = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [mobileNavOpen]);
+
   const signOutLocally = useCallback(() => {
     persistAdminAccess(undefined, false);
     setToken(null);
@@ -452,9 +466,21 @@ export function AdminApp() {
   const showCustomRange = section === "overview" || section === "traffic";
 
   return (
-    <div className="min-h-[100dvh] overflow-x-hidden bg-slate-100 pt-[env(safe-area-inset-top,0px)] text-slate-900" data-testid="admin-dashboard">
-      <div className="mx-auto grid max-w-7xl gap-0 lg:grid-cols-[minmax(200px,220px)_minmax(0,1fr)]">
-        <aside className="relative z-20 border-b border-slate-800 bg-slate-950 px-4 py-5 text-slate-100 lg:min-h-[100dvh] lg:border-b-0 lg:border-r lg:border-slate-200">
+    <div className="m-0 min-h-[100dvh] w-full overflow-x-hidden bg-slate-100 p-0 pt-[env(safe-area-inset-top,0px)] text-slate-900" data-testid="admin-dashboard">
+      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-800 bg-slate-950 px-4 text-white lg:hidden">
+        <div className="flex items-center gap-2">
+          <img src="/brand/bonlist-mark.png" alt="" className="h-7 w-7 object-contain" width={28} height={28} />
+          <span className="font-semibold text-sky-300">BonList Admin</span>
+        </div>
+        <button type="button" onClick={() => setMobileNavOpen(true)} className="rounded-lg border border-slate-700 p-2 text-slate-200 hover:bg-slate-900" aria-label="Open admin navigation" aria-expanded={mobileNavOpen} data-testid="button-admin-mobile-nav">
+          <Menu size={20} />
+        </button>
+      </header>
+
+      {mobileNavOpen ? <button type="button" className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-[2px] lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close admin navigation" /> : null}
+
+      <div className="grid w-full gap-0 lg:grid-cols-[minmax(220px,240px)_minmax(0,1fr)]">
+        <aside className={`fixed inset-y-0 left-0 z-50 flex w-[min(18rem,86vw)] flex-col overflow-y-auto border-r border-slate-800 bg-slate-950 px-4 py-5 text-slate-100 shadow-2xl transition-transform duration-300 ease-out lg:sticky lg:top-0 lg:z-20 lg:h-[100dvh] lg:w-auto lg:translate-x-0 lg:shadow-none ${mobileNavOpen ? "translate-x-0" : "-translate-x-full"}`}>
           <div className="mb-4 flex items-center justify-between gap-3 px-2">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-300">Admin</p>
@@ -465,18 +491,18 @@ export function AdminApp() {
             </div>
             <button
               type="button"
-              onClick={() => setMobileNavOpen((current) => !current)}
+              onClick={() => setMobileNavOpen(false)}
               className="shrink-0 rounded-lg border border-slate-800 p-2 text-slate-300 lg:hidden"
-              aria-label="Toggle navigation"
+              aria-label="Close navigation"
               aria-expanded={mobileNavOpen}
-              data-testid="button-admin-mobile-nav"
+              data-testid="button-admin-mobile-nav-close"
             >
-              {mobileNavOpen ? <X size={16} /> : <Menu size={16} />}
+              <X size={18} />
             </button>
           </div>
 
           <nav
-            className={`${mobileNavOpen ? "block" : "hidden"} max-h-[70vh] space-y-1 overflow-y-auto lg:block lg:max-h-none`}
+            className="flex-1 space-y-1 overflow-y-auto"
             aria-label="Admin sections"
           >
             {visibleNav.map((item) => (
@@ -494,7 +520,7 @@ export function AdminApp() {
             ))}
           </nav>
 
-          <div className={`${mobileNavOpen ? "block" : "hidden"} mt-6 space-y-2 border-t border-slate-800 px-2 pt-4 lg:block`}>
+          <div className="mt-6 space-y-2 border-t border-slate-800 px-2 pt-4">
             {me ? (
               <div className="mb-3 rounded-xl border border-slate-800 bg-slate-900/60 p-3">
                 <p className="truncate text-xs font-semibold text-slate-200">{me.name || me.email}</p>
@@ -516,7 +542,7 @@ export function AdminApp() {
           </div>
         </aside>
 
-        <main className="min-w-0 overflow-x-hidden px-4 py-5 sm:px-5 md:px-8 md:py-6">
+        <main className="min-w-0 overflow-x-hidden px-4 py-5 sm:px-5 md:px-8 md:py-6 lg:px-10">
           <div className="mb-5 space-y-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1">

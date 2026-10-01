@@ -25,15 +25,17 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.security.MessageDigest;
 
 @CapacitorPlugin(name = "ApkInstaller")
 public class ApkInstallerPlugin extends Plugin {
   private static final String APK_MIME = "application/vnd.android.package-archive";
-  private static final long DOWNLOAD_TIMEOUT_MS = 8 * 60 * 1000L;
+  private static final long DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000L;
   private final Handler handler = new Handler(Looper.getMainLooper());
   private BroadcastReceiver downloadReceiver;
   private Runnable downloadPoll;
   private long activeDownloadId = -1L;
+  private File activeApkFile;
 
   @PluginMethod
   public void installApk(PluginCall call) {
@@ -45,6 +47,19 @@ public class ApkInstallerPlugin extends Plugin {
       }
 
       Context context = getContext();
+      Integer expectedVersionCode = call.getInt("expectedVersionCode");
+      Integer expectedSizeBytes = call.getInt("fileSizeBytes");
+      String expectedSha256 = call.getString("checksumSha256", "").trim().toLowerCase();
+      if (expectedVersionCode == null || expectedVersionCode < 1 || expectedSizeBytes == null
+          || expectedSizeBytes < 1024 || !expectedSha256.matches("[a-f0-9]{64}")) {
+        call.reject("The update service did not provide valid APK version and integrity metadata.");
+        return;
+      }
+      long installedVersionCode = versionCode(context.getPackageManager().getPackageInfo(context.getPackageName(), 0));
+      if (expectedVersionCode <= installedVersionCode) {
+        call.reject("This APK is not newer than the installed BonList version.");
+        return;
+      }
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
           && !context.getPackageManager().canRequestPackageInstalls()) {
         Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
@@ -79,15 +94,18 @@ public class ApkInstallerPlugin extends Plugin {
           .setMimeType(APK_MIME)
           .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
           .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, apkFile.getName());
+      request.addRequestHeader("Cache-Control", "no-cache, no-store, max-age=0");
+      request.addRequestHeader("Pragma", "no-cache");
       long downloadId = manager.enqueue(request);
       activeDownloadId = downloadId;
+      activeApkFile = apkFile;
       long startedAt = System.currentTimeMillis();
 
       downloadReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context receiverContext, Intent intent) {
           if (DownloadManager.ACTION_DOWNLOAD_COMPLETE.equals(intent.getAction())
               && intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) == downloadId) {
-            checkDownload(manager, downloadId, apkFile, startedAt);
+            checkDownload(manager, downloadId, apkFile, startedAt, expectedVersionCode, expectedSizeBytes, expectedSha256);
           }
         }
       };
@@ -109,7 +127,7 @@ public class ApkInstallerPlugin extends Plugin {
       downloadPoll = new Runnable() {
         @Override public void run() {
           if (activeDownloadId != downloadId) return;
-          checkDownload(manager, downloadId, apkFile, startedAt);
+          checkDownload(manager, downloadId, apkFile, startedAt, expectedVersionCode, expectedSizeBytes, expectedSha256);
           if (activeDownloadId == downloadId) handler.postDelayed(this, 1000L);
         }
       };
@@ -120,7 +138,8 @@ public class ApkInstallerPlugin extends Plugin {
     }
   }
 
-  private void checkDownload(DownloadManager manager, long downloadId, File apkFile, long startedAt) {
+  private void checkDownload(DownloadManager manager, long downloadId, File apkFile, long startedAt,
+      int expectedVersionCode, int expectedSizeBytes, String expectedSha256) {
     if (activeDownloadId != downloadId) return;
     int status;
     int reason;
@@ -145,11 +164,14 @@ public class ApkInstallerPlugin extends Plugin {
       return;
     }
     if (status == DownloadManager.STATUS_SUCCESSFUL) {
-      openInstaller(downloadId, apkFile);
+      if (total > 0 && total != expectedSizeBytes) {
+        failDownload("APK download size does not match the published release.");
+        return;
+      }
+      openInstaller(downloadId, apkFile, expectedVersionCode, expectedSizeBytes, expectedSha256);
       return;
     }
     if (System.currentTimeMillis() - startedAt > DOWNLOAD_TIMEOUT_MS) {
-      manager.remove(downloadId);
       failDownload("APK download timed out. Check your connection and try again.");
       return;
     }
@@ -159,11 +181,15 @@ public class ApkInstallerPlugin extends Plugin {
     }
   }
 
-  private void openInstaller(long downloadId, File apkFile) {
+  private void openInstaller(long downloadId, File apkFile, int expectedVersionCode,
+      int expectedSizeBytes, String expectedSha256) {
     Context context = getContext();
     try {
       if (!apkFile.isFile() || apkFile.length() < 1024) {
         throw new IllegalStateException("The downloaded APK is empty or incomplete.");
+      }
+      if (apkFile.length() != expectedSizeBytes) {
+        throw new IllegalStateException("The downloaded APK is incomplete (file size mismatch).");
       }
       try (FileInputStream input = new FileInputStream(apkFile)) {
         if (input.read() != 'P' || input.read() != 'K') {
@@ -173,6 +199,13 @@ public class ApkInstallerPlugin extends Plugin {
       PackageInfo packageInfo = context.getPackageManager().getPackageArchiveInfo(apkFile.getAbsolutePath(), 0);
       if (packageInfo == null || !context.getPackageName().equals(packageInfo.packageName)) {
         throw new IllegalStateException("The downloaded APK is not a BonList update.");
+      }
+      if (versionCode(packageInfo) != expectedVersionCode ||
+          versionCode(packageInfo) <= versionCode(context.getPackageManager().getPackageInfo(context.getPackageName(), 0))) {
+        throw new IllegalStateException("The downloaded APK version is not newer than the installed app.");
+      }
+      if (!sha256(apkFile).equals(expectedSha256)) {
+        throw new IllegalStateException("The downloaded APK failed its SHA-256 integrity check.");
       }
 
       Uri contentUri = FileProvider.getUriForFile(context,
@@ -191,11 +224,35 @@ public class ApkInstallerPlugin extends Plugin {
 
   private void failDownload(String message) {
     notifyListeners("apkInstallError", new JSObject().put("message", message));
+    DownloadManager manager = (DownloadManager) getContext().getSystemService(Context.DOWNLOAD_SERVICE);
+    if (manager != null && activeDownloadId != -1L) manager.remove(activeDownloadId);
+    if (activeApkFile != null && activeApkFile.exists()) activeApkFile.delete();
     clearDownload(getContext());
+  }
+
+  private long versionCode(PackageInfo info) {
+    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? info.getLongVersionCode() : info.versionCode;
+  }
+
+  private String sha256(File file) throws Exception {
+    MessageDigest digest = MessageDigest.getInstance("SHA-256");
+    try (FileInputStream input = new FileInputStream(file)) {
+      byte[] buffer = new byte[32768];
+      int count;
+      while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count);
+    }
+    char[] digits = "0123456789abcdef".toCharArray();
+    StringBuilder result = new StringBuilder(64);
+    for (byte value : digest.digest()) {
+      result.append(digits[(value >>> 4) & 15]);
+      result.append(digits[value & 15]);
+    }
+    return result.toString();
   }
 
   private void clearDownload(Context context) {
     activeDownloadId = -1L;
+    activeApkFile = null;
     if (downloadPoll != null) handler.removeCallbacks(downloadPoll);
     downloadPoll = null;
     if (downloadReceiver != null) {

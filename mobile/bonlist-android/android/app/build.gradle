@@ -1,5 +1,7 @@
 apply plugin: 'com.android.application'
 
+def bonlistSigningStore = System.getenv('BONLIST_APK_KEYSTORE')
+
 android {
     namespace "com.bonlist.careerbridge"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +9,8 @@ android {
         applicationId "com.bonlist.careerbridge"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
-        versionName "1.2.1"
+        versionCode 5
+        versionName "1.2.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +18,21 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    if (bonlistSigningStore) {
+        signingConfigs {
+            bonlistUpdate {
+                storeFile file(bonlistSigningStore)
+                storePassword System.getenv('BONLIST_APK_STORE_PASSWORD')
+                keyAlias System.getenv('BONLIST_APK_KEY_ALIAS')
+                keyPassword System.getenv('BONLIST_APK_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (bonlistSigningStore) signingConfig signingConfigs.bonlistUpdate
         }
     }
 }

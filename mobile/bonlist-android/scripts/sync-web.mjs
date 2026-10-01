@@ -118,21 +118,7 @@ function mirrorWebToWww() {
   // The website offers the APK as a download; bundling that APK inside the
   // Android app makes each subsequent build contain the previous app package.
   rmSync(resolve(www, "downloads/BonList.apk"), { force: true });
-  // Keep Download APK button working when a debug APK exists
-  const apkSrc = resolve(
-    mobileRoot,
-    "android/app/build/outputs/apk/debug/app-debug.apk",
-  );
-  const apkDestDir = resolve(
-    repoRoot,
-    "artifacts/careerbridge-sa/public/downloads",
-  );
-  const apkDest = resolve(apkDestDir, "BonList.apk");
-  if (existsSync(apkSrc)) {
-    mkdirSync(apkDestDir, { recursive: true });
-    cpSync(apkSrc, apkDest);
-    console.log(`[bonlist] APK copied → ${apkDest}`);
-  }
+  rmSync(resolve(www, "downloads/apk-manifest.json"), { force: true });
 
   const stamp = {
     syncedAt: new Date().toISOString(),

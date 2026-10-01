@@ -3,19 +3,9 @@ import { App } from "@capacitor/app";
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { CapacitorUpdater } from "@capgo/capacitor-updater";
 import { CheckCircle2, Download, RefreshCw, Smartphone, Wifi } from "lucide-react";
-import { apiUrl } from "@/lib/api-base";
+import { fetchAppUpdateMetadata, type AppUpdateMetadata } from "@/api/updateCheck";
 
-type TargetPlatform = "all" | "web-only" | "native-apk-required";
-type Release = {
-  latestVersion: string;
-  versionCode: number;
-  apkUrl: string;
-  bundleVersion: string;
-  bundleUrl: string;
-  targetPlatform: TargetPlatform;
-  requiresNewAPK: boolean;
-  releaseNotes: string;
-};
+type Release = AppUpdateMetadata;
 type Installed = { version: string; code: number; bundleVersion: string };
 
 const FALLBACK_VERSION = "1.0.0";
@@ -25,14 +15,14 @@ const isAndroidApk = () => Capacitor.isNativePlatform() && Capacitor.getPlatform
 
 type ApkInstallEvent = { message?: string; percent?: number };
 type ApkInstallerApi = {
-  installApk: (options: { url: string }) => Promise<{ started: boolean; permissionRequired?: boolean; downloadId?: number }>;
+  installApk: (options: { url: string; expectedVersionCode: number; fileSizeBytes: number; checksumSha256: string }) => Promise<{ started: boolean; permissionRequired?: boolean; downloadId?: number }>;
   addListener: (eventName: string, listener: (event: ApkInstallEvent) => void) => Promise<{ remove: () => Promise<void> }>;
 };
 const ApkInstaller = registerPlugin<ApkInstallerApi>("ApkInstaller");
 
 async function getInstalledVersion(): Promise<Installed> {
   let version = FALLBACK_VERSION;
-  let code = FALLBACK_VERSION_CODE;
+  let code = isAndroidApk() ? 0 : FALLBACK_VERSION_CODE;
   let bundleVersion = __BONLIST_BUNDLE_VERSION__ || "unknown";
   if (isAndroidApk()) {
     try {
@@ -57,44 +47,16 @@ async function getInstalledVersion(): Promise<Installed> {
 }
 
 export function isReleaseNewer(release: Pick<Release, "latestVersion" | "versionCode">, installed: Pick<Installed, "version" | "code">) {
-  if (Number.isFinite(release.versionCode) && release.versionCode > 0 && installed.code > 0) {
-    return release.versionCode > installed.code;
-  }
-  const parts = (value: string) => value.split(".").map((part) => Number.parseInt(part, 10) || 0);
-  const latest = parts(release.latestVersion);
-  const current = parts(installed.version);
-  for (let index = 0; index < Math.max(latest.length, current.length); index += 1) {
-    if ((latest[index] || 0) !== (current[index] || 0)) return (latest[index] || 0) > (current[index] || 0);
-  }
-  return false;
+  return Number.isSafeInteger(release.versionCode) && Number.isSafeInteger(installed.code) &&
+    installed.code > 0 && release.versionCode > installed.code;
 }
 
 export async function fetchAndroidRelease(): Promise<Release> {
-  const response = await fetch(apiUrl("/api/app/version"), { cache: "no-store" });
-  if (!response.ok) throw new Error(`Update service returned ${response.status}.`);
-  const value = await response.json();
-  if (!value || typeof value.latestVersion !== "string" || !Number.isFinite(Number(value.versionCode))) {
-    throw new Error("The update service returned invalid version information.");
-  }
-  const targetPlatform: TargetPlatform = ["all", "web-only", "native-apk-required"].includes(value.targetPlatform)
-    ? value.targetPlatform
-    : "all";
-  return {
-    latestVersion: value.latestVersion,
-    versionCode: Number(value.versionCode),
-    apkUrl: String(value.apkUrl || ""),
-    bundleVersion: String(value.bundleVersion || ""),
-    bundleUrl: String(value.bundleUrl || ""),
-    targetPlatform,
-    requiresNewAPK: Boolean(value.requiresNewAPK),
-    releaseNotes: String(value.releaseNotes || "No release notes provided."),
-  };
+  return fetchAppUpdateMetadata();
 }
 
 function apkUpdateRequired(release: Release, installed: Installed) {
-  return release.targetPlatform === "native-apk-required" ||
-    isReleaseNewer(release, installed) ||
-    (release.requiresNewAPK && installed.code < release.versionCode);
+  return release.apkAvailable && Boolean(release.apkUrl) && isReleaseNewer(release, installed);
 }
 
 function hasOtaUpdate(release: Release, installed: Installed) {
@@ -103,14 +65,19 @@ function hasOtaUpdate(release: Release, installed: Installed) {
 }
 
 async function installAndroidRelease(
-  apkUrl: string,
+  release: Release,
+  installedCode: number,
   callbacks: { onError: (message: string) => void; onComplete?: (message: string) => void; onProgress?: (percent: number | null) => void },
 ) {
-  const resolvedUrl = new URL(apkUrl, isAndroidApk() ? "https://www.bonlist.site/" : window.location.href);
+  if (!release.apkAvailable || !isReleaseNewer(release, { version: "", code: installedCode })) {
+    throw new Error("No newer verified APK is available for this device.");
+  }
+  const resolvedUrl = new URL(release.apkUrl, isAndroidApk() ? "https://www.bonlist.site/" : window.location.href);
   if (resolvedUrl.protocol === "http:" && /(^|\.)bonlist\.site$/i.test(resolvedUrl.hostname)) {
     resolvedUrl.protocol = "https:";
   }
   if (resolvedUrl.protocol !== "https:") throw new Error("APK updates require a secure HTTPS download URL.");
+  resolvedUrl.searchParams.set("t", String(Date.now()));
   if (!isAndroidApk()) {
     window.open(resolvedUrl.toString(), "_blank", "noopener,noreferrer");
     return;
@@ -140,7 +107,12 @@ async function installAndroidRelease(
     }));
     let timer: ReturnType<typeof setTimeout> | undefined;
     const result = await Promise.race([
-      ApkInstaller.installApk({ url: resolvedUrl.toString() }),
+      ApkInstaller.installApk({
+        url: resolvedUrl.toString(),
+        expectedVersionCode: release.versionCode,
+        fileSizeBytes: release.fileSizeBytes,
+        checksumSha256: release.checksumSha256,
+      }),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("Android did not respond while starting the APK download. Please try again.")), 20_000);
       }),
@@ -151,7 +123,7 @@ async function installAndroidRelease(
     if (!result.started) throw new Error("Android did not start the APK download.");
     if (!nativeFinished) {
       callbacks.onComplete?.("APK download started. Android will open the installer when it is ready.");
-      cleanupTimer = setTimeout(cleanup, 9 * 60_000);
+      cleanupTimer = setTimeout(cleanup, 16 * 60_000);
     }
   } catch (error) {
     cleanup();
@@ -266,7 +238,7 @@ function UpdateAction({ release, installed, busy, onError, onBusy, onComplete, o
         let startupTimer: ReturnType<typeof setTimeout> | undefined;
         try {
           await Promise.race([
-            installAndroidRelease(release.apkUrl, { onError, onComplete, onProgress }),
+            installAndroidRelease(release, installed.code, { onError, onComplete, onProgress }),
             new Promise<never>((_, reject) => {
               startupTimer = setTimeout(() => reject(new Error("The Android installer did not respond. Please try again.")), 25_000);
             }),
@@ -305,7 +277,8 @@ export function UpdatesPage() {
     try {
       const [current, available] = await Promise.all([getInstalledVersion(), fetchAndroidRelease()]);
       setInstalled(current); setRelease(available);
-      if (isAndroidApk() && available.targetPlatform === "web-only") setMessage("This web-only release does not apply to the Android APK.");
+      if (isAndroidApk() && current.code < 1) setError("Could not verify the installed APK version. Restart BonList and check again.");
+      else if (isAndroidApk() && available.targetPlatform === "web-only" && !apkUpdateRequired(available, current)) setMessage("This web-only release does not apply to the Android APK.");
       else if (!apkUpdateRequired(available, current) && !hasOtaUpdate(available, current)) setMessage("You have the latest app and web bundle.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not check for updates.");
@@ -329,7 +302,7 @@ export function UpdatesPage() {
         <div className="mt-6 grid gap-3 rounded-2xl bg-secondary/40 p-4 sm:grid-cols-2">
           <p className="text-base text-foreground md:text-sm"><span className="font-semibold">Installed APK:</span> v{installed.version} (build {installed.code})</p>
           <p className="text-base text-foreground md:text-sm"><span className="font-semibold">Active web bundle:</span> {installed.bundleVersion}</p>
-          <p className="text-base text-foreground md:text-sm"><span className="font-semibold">Latest APK:</span> {release ? `v${release.latestVersion} (build ${release.versionCode})` : "Not checked"}</p>
+          <p className="text-base text-foreground md:text-sm"><span className="font-semibold">Latest APK:</span> {release?.apkAvailable ? `v${release.latestVersion} (build ${release.versionCode})` : "Unavailable"}</p>
           <p className="text-base text-foreground md:text-sm"><span className="font-semibold">Latest web bundle:</span> {release?.bundleVersion || "Not checked"}</p>
         </div>
         {release && <div className="mt-5"><h2 className="font-semibold text-foreground">Release notes</h2><p className="mt-1 whitespace-pre-line text-base text-muted-foreground md:text-sm">{release.releaseNotes}</p><p className="mt-2 text-xs text-muted-foreground">Target: {release.targetPlatform}{release.requiresNewAPK ? " · Native APK update required for older builds" : " · OTA compatible"}</p></div>}
@@ -359,7 +332,7 @@ export function AppUpdatePrompt() {
     if (!isAndroidApk()) return;
     let active = true;
     void Promise.all([getInstalledVersion(), fetchAndroidRelease()]).then(([current, available]) => {
-      const applicable = available.targetPlatform !== "web-only" && (apkUpdateRequired(available, current) || hasOtaUpdate(available, current));
+      const applicable = apkUpdateRequired(available, current) || hasOtaUpdate(available, current);
       if (active && applicable && sessionStorage.getItem("bonlist-update-later") !== `${available.latestVersion}:${available.bundleVersion}`) {
         setInstalled(current); setRelease(available);
       }

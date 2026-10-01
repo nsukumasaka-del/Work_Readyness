@@ -13,6 +13,7 @@ on:
       - "mobile/bonlist-android/**"
       - "artifacts/careerbridge-sa/**"
       - "workers/**"
+      - "scripts/stage-android-apk.mjs"
       - "wrangler.toml"
       - ".github/workflows/build-android-apk.yml"
 
@@ -81,20 +82,48 @@ jobs:
           node ./scripts/write-capacitor-config.mjs
           node ./scripts/sync-web.mjs --cap-sync
 
-      - name: Build debug APK
+      - name: Prepare update-compatible signing key
+        env:
+          BONLIST_APK_KEYSTORE_BASE64: ${{ secrets.BONLIST_APK_KEYSTORE_BASE64 }}
+          BONLIST_APK_STORE_PASSWORD: ${{ secrets.BONLIST_APK_STORE_PASSWORD }}
+          BONLIST_APK_KEY_ALIAS: ${{ secrets.BONLIST_APK_KEY_ALIAS }}
+          BONLIST_APK_KEY_PASSWORD: ${{ secrets.BONLIST_APK_KEY_PASSWORD }}
+        run: |
+          if [ -z "$BONLIST_APK_KEYSTORE_BASE64" ] || [ -z "$BONLIST_APK_STORE_PASSWORD" ] || [ -z "$BONLIST_APK_KEY_ALIAS" ] || [ -z "$BONLIST_APK_KEY_PASSWORD" ]; then
+            echo "Stable APK signing secrets are required before publishing an in-place Android update." >&2
+            exit 1
+          fi
+          printf '%s' "$BONLIST_APK_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/bonlist-update.jks"
+          echo "BONLIST_APK_KEYSTORE=$RUNNER_TEMP/bonlist-update.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
         working-directory: mobile/bonlist-android/android
+        env:
+          BONLIST_APK_STORE_PASSWORD: ${{ secrets.BONLIST_APK_STORE_PASSWORD }}
+          BONLIST_APK_KEY_ALIAS: ${{ secrets.BONLIST_APK_KEY_ALIAS }}
+          BONLIST_APK_KEY_PASSWORD: ${{ secrets.BONLIST_APK_KEY_PASSWORD }}
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Verify APK update signing identity
+        run: |
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          if [ -z "$APKSIGNER" ]; then echo "Android apksigner is unavailable." >&2; exit 1; fi
+          CURRENT="artifacts/careerbridge-sa/public/downloads/BonList.apk"
+          NEXT="mobile/bonlist-android/android/app/build/outputs/apk/release/app-release.apk"
+          OLD_CERT="$("$APKSIGNER" verify --print-certs "$CURRENT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          NEW_CERT="$("$APKSIGNER" verify --print-certs "$NEXT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          if [ -z "$OLD_CERT" ] || [ "$OLD_CERT" != "$NEW_CERT" ]; then
+            echo "The new APK signing certificate does not match the currently published APK." >&2
+            exit 1
+          fi
 
       - name: Stage APK for web download and Cloudflare assets
         run: |
-          mkdir -p artifacts/careerbridge-sa/public/downloads
-          mkdir -p artifacts/careerbridge-sa/dist/public/downloads
-          APK="mobile/bonlist-android/android/app/build/outputs/apk/debug/app-debug.apk"
-          cp "$APK" artifacts/careerbridge-sa/public/downloads/BonList.apk
-          cp "$APK" artifacts/careerbridge-sa/dist/public/downloads/BonList.apk
+          node scripts/stage-android-apk.mjs release
           ls -lh artifacts/careerbridge-sa/public/downloads/BonList.apk
+          cat artifacts/careerbridge-sa/public/downloads/apk-manifest.json
 
       - name: Deploy web assets and APK to Cloudflare
         env:
@@ -106,7 +135,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: BonList-apk
-          path: artifacts/careerbridge-sa/public/downloads/BonList.apk
+          path: |
+            artifacts/careerbridge-sa/public/downloads/BonList.apk
+            artifacts/careerbridge-sa/public/downloads/apk-manifest.json
           if-no-files-found: error
 
       - name: Publish GitHub Release (manual runs)

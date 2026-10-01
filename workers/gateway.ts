@@ -367,7 +367,14 @@ async function serveApkAsset(request: Request, env: Env): Promise<Response> {
     });
   }
   const url = new URL(request.url);
-  const asset = await env.ASSETS.fetch(new Request(url, { method: "GET", headers: request.headers }));
+  const assetHeaders = new Headers(request.headers);
+  assetHeaders.delete("If-None-Match");
+  assetHeaders.delete("If-Modified-Since");
+  assetHeaders.set("Cache-Control", "no-cache");
+  const asset = await env.ASSETS.fetch(new Request(url, { method: request.method, headers: assetHeaders }));
+  if (!asset.ok || (asset.headers.get("Content-Type") || "").toLowerCase().includes("text/html")) {
+    return new Response("APK unavailable.", { status: 404, headers: { "Cache-Control": "no-store" } });
+  }
   const headers = new Headers(asset.headers);
   headers.set("Content-Type", "application/vnd.android.package-archive");
   headers.set("Content-Disposition", 'attachment; filename="BonList.apk"');
@@ -382,6 +389,39 @@ async function serveApkAsset(request: Request, env: Env): Promise<Response> {
     statusText: asset.statusText,
     headers,
   });
+}
+
+type ApkReleaseManifest = {
+  applicationId: string;
+  latestVersion: string;
+  versionCode: number;
+  fileSizeBytes: number;
+  checksumSha256: string;
+};
+
+async function readApkReleaseManifest(env: Env, origin: string): Promise<ApkReleaseManifest | null> {
+  try {
+    const manifestResponse = await env.ASSETS.fetch(new Request(new URL("/downloads/apk-manifest.json", origin), {
+      headers: { "Cache-Control": "no-cache" },
+    }));
+    if (!manifestResponse.ok) return null;
+    const manifest = await manifestResponse.json() as Partial<ApkReleaseManifest>;
+    if (manifest.applicationId !== "com.bonlist.careerbridge" ||
+        !manifest.latestVersion ||
+        !Number.isSafeInteger(manifest.versionCode) || Number(manifest.versionCode) < 1 ||
+        !Number.isSafeInteger(manifest.fileSizeBytes) || Number(manifest.fileSizeBytes) < 1024 ||
+        !/^[a-f0-9]{64}$/i.test(String(manifest.checksumSha256 || ""))) return null;
+    const apkResponse = await env.ASSETS.fetch(new Request(new URL("/downloads/BonList.apk", origin), {
+      method: "HEAD", headers: { "Cache-Control": "no-cache" },
+    }));
+    if (!apkResponse.ok || (apkResponse.headers.get("Content-Type") || "").toLowerCase().includes("text/html")) return null;
+    const length = Number(apkResponse.headers.get("Content-Length"));
+    if (Number.isFinite(length) && length > 0 && length !== manifest.fileSizeBytes) return null;
+    return manifest as ApkReleaseManifest;
+  } catch (error) {
+    console.warn("[app-version] APK release manifest unavailable", error);
+    return null;
+  }
 }
 
 async function hasValidOtaBundle(env: Env, url: URL): Promise<boolean> {
@@ -417,9 +457,12 @@ export default {
     }
 
     if (url.pathname === "/api/app/version" && request.method === "GET") {
-      const latestVersion = String(env.ANDROID_LATEST_VERSION || "1.2.1").trim();
-      const parsedVersionCode = Number(env.ANDROID_VERSION_CODE || 4);
-      const configuredApkUrl = String(env.ANDROID_APK_URL || "https://www.bonlist.site/downloads/BonList.apk").trim();
+      const apkRelease = await readApkReleaseManifest(env, url.origin);
+      const apkUrl = apkRelease ? new URL("/downloads/BonList.apk", url.origin) : null;
+      if (apkUrl && apkRelease) {
+        apkUrl.searchParams.set("v", String(apkRelease.versionCode));
+        apkUrl.searchParams.set("sha", apkRelease.checksumSha256.slice(0, 16));
+      }
       let bundleManifest: Record<string, unknown> = {};
       let hasBundle = false;
       try {
@@ -432,12 +475,16 @@ export default {
         console.warn("[app-version] OTA manifest unavailable; returning APK metadata only", error);
       }
       return withNativeCors(request, new Response(JSON.stringify({
-        latestVersion,
-        versionCode: Number.isFinite(parsedVersionCode) && parsedVersionCode > 0 ? parsedVersionCode : 1,
-        apkUrl: configuredApkUrl,
+        latestVersion: apkRelease?.latestVersion || String(env.ANDROID_LATEST_VERSION || "").trim(),
+        versionCode: apkRelease?.versionCode || 0,
+        latestVersionCode: apkRelease?.versionCode || 0,
+        apkUrl: apkUrl?.toString() || "",
+        apkAvailable: Boolean(apkRelease),
+        fileSizeBytes: apkRelease?.fileSizeBytes || 0,
+        checksumSha256: apkRelease?.checksumSha256 || "",
         bundleVersion: hasBundle ? String(bundleManifest.bundleVersion || "") : "",
         bundleUrl: hasBundle ? String(bundleManifest.bundleUrl || "") : "",
-        targetPlatform: hasBundle ? String(bundleManifest.targetPlatform || "all") : "web-only",
+        targetPlatform: hasBundle ? String(bundleManifest.targetPlatform || "all") : apkRelease ? "native-apk-required" : "web-only",
         requiresNewAPK: hasBundle && Boolean(bundleManifest.requiresNewAPK),
         releaseNotes: String(bundleManifest.releaseNotes || env.ANDROID_RELEASE_NOTES || "Current stable BonList Android release."),
       }), {

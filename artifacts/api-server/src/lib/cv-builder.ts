@@ -127,6 +127,35 @@ export interface CvCertificationItem {
   year?: string;
 }
 
+const formalEducationCredentialRe = /\b(?:matric(?:ulation)?|grade\s*12|national\s+senior\s+certificate|senior\s+certificate|n\s*[1-6]\b|ncv\b|national\s+certificate\s*\(?vocational\)?|higher\s+certificate|national\s+diploma|diploma|bachelor(?:'s)?|master(?:'s)?|doctorate|degree|b\.?sc\.?|b\.?com\.?|b\.?tech\.?|ph\.?d\.?)\b|\bcertificate\s*[-–—]\s*(?:mechanical|electrical|civil)(?:\s+engineering)?\b/i;
+
+function qualificationKey(value: string): string {
+  return value.toLowerCase().replace(/\b(?:19|20)\d{2}\b/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/** Apply only to parsed CV content; manually added credentials remain editable. */
+export function filterDistinctParsedCertifications(
+  certifications: CvCertificationItem[] = [],
+  education: CvEducationItem[] = [],
+): CvCertificationItem[] {
+  const seen = new Set<string>();
+  return certifications.filter((cert) => {
+    const name = cert?.name?.trim() || "";
+    const key = qualificationKey(name);
+    const identity = `${key}|${qualificationKey(cert.issuer || "")}`;
+    if (!key || seen.has(identity) || formalEducationCredentialRe.test(name)) return false;
+    const duplicatesEducation = education.some((item) => {
+      const degree = qualificationKey(item.degree || "");
+      return degree.length >= 5 &&
+        !/^(?:certificate|qualification|course|education|training|diploma|degree)$/.test(degree) &&
+        (key === degree || key.includes(degree) || degree.includes(key));
+    });
+    if (duplicatesEducation) return false;
+    seen.add(identity);
+    return true;
+  });
+}
+
 export interface CvSkillGroup {
   category: string;
   skills: string[];
@@ -2217,13 +2246,17 @@ export function verifyExtractedDataAgainstRawText(
   });
 
   // 5. Verify Certifications
-  const verifiedCertifications = (extracted.certifications || []).filter((cert) => {
-    const nameMatch = textHasTerm(cert.name, 0.4);
-    if (nameMatch || normalizedRaw.includes(cert.name.toLowerCase().slice(0, 12))) {
+  const verifiedCertifications = filterDistinctParsedCertifications(
+    extracted.certifications?.length ? extracted.certifications : extracted.cv_content?.certifications || [],
+    verifiedEducation,
+  ).filter((cert) => {
+    const nameMatch = textHasTerm(cert.name, 0.8);
+    if (nameMatch) {
       verifiedEntities.push(`Certification: ${cert.name}`);
       return true;
     }
-    return true; // Keep extracted certifications
+    droppedHallucinations.push(`Unverified certification (absent from source document): ${cert.name}`);
+    return false;
   });
 
   // 6. Verify Languages & References
@@ -2575,7 +2608,7 @@ function extractCvDataFromTextInternal(rawText: string, fileName?: string): Extr
     line.trim().length > 180;
   const isKnownSectionHeading = (line: string) =>
     /^(?:personal(?:\s+(?:details|information))?|contact(?:\s+details)?|professional\s+summary|summary|profile|about me|professional statement|executive summary|career objective|biography|key impact(?:\s+at\s+.+)?|key achievements|selected achievements|career highlights|highlights|work history|employment history|career history|professional experience|work experience|relevant experience|previous employment|experience|education(?:\s*(?:and|&)\s*qualifications)?|qualifications|academic history|tertiary education|academic background|studies|education\s*&\s*training|academic qualifications|professional skills|skills(?:\s*(?:and|&)\s*competencies)?|core competencies|competencies|tools\s*&\s*technologies|tools and technologies|technical skills|key skills|technologies|software\s*&\s*tools|expertise|core skills|hard\s*&\s*soft skills|systems|projects|key projects|portfolio|notable projects|personal projects|selected projects|certifications?(?:\s*[,/&]\s*(?:licen[cs]es?|languages?))?|certificates|licen[cs]es?(?:\s*[,/&]\s*(?:certifications?|languages?))?|accreditations|courses(?:\s*&\s*certifications)?|professional certifications|languages?(?:\s*(?:spoken|skills|proficiency))?|references|referees|testimonials)\s*:?$/i.test(line.trim());
-  const credentialLineRe = /\b(?:driver'?s?\s+licen[cs]e|code\s*(?:8|10|b|c1)\b|\bPDP\b|\bPSIRA\b|\bmatric\b|\bdiploma\b|\bB\.?Sc\.?\b|\bcertificat(?:e|ion)\b|\blicen[cs]e\b|\blicen[cs]ed\b)\b/i;
+  const credentialLineRe = /\b(?:driver'?s?\s+licen[cs]e|code\s*(?:8|10|b|c1)\b|PDP\b|PSIRA\b|certificat(?:e|ion)\b|certified\b|licen[cs]e\b|licen[cs]ed\b|accreditation\b|first\s+aid\b)\b/i;
   const languageNames = ["English", "Zulu", "isiZulu", "Xhosa", "isiXhosa", "Sotho", "Sesotho", "Afrikaans", "Tswana", "Setswana", "Sepedi", "Northern Sotho", "Venda", "Tshivenda", "Tsonga", "itsonga", "Swati", "siSwati", "Ndebele", "isiNdebele"];
   const languageNameRe = new RegExp(`\\b(?:${languageNames.join("|")})\\b`, "ig");
   const isReferenceDataLine = (line: string) => {
@@ -3131,7 +3164,7 @@ function extractCvDataFromTextInternal(rawText: string, fileName?: string): Extr
       if (clean.length > 3) {
         const parts = clean.split(/[|—–,]/).map((p) => p.trim());
         const certName = parts[0] || clean;
-        const issuer = parts[1] || "Accredited Body";
+        const issuer = parts[1] || "";
         const year = clean.match(/\b(?:19|20)\d{2}\b/)?.[0] || undefined;
         certifications.push({
           id: `cert-${certifications.length + 1}`,
@@ -3270,7 +3303,7 @@ function extractCvDataFromTextInternal(rawText: string, fileName?: string): Extr
     education,
     skills: finalSkills,
     toolsAndSoftware,
-    certifications,
+    certifications: filterDistinctParsedCertifications(certifications, education),
     languages,
     projects,
     references,

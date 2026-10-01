@@ -88,6 +88,9 @@ export async function exportCvVisualPdf(
       }
       #bonlist-cv-document .no-print, #bonlist-cv-document [data-preview-only='true'],
       #bonlist-cv-document .cv-page-guides, #bonlist-cv-document .cv-page-badge { display: none !important; }
+      #bonlist-cv-document .cv-certification-row { display: flex !important; flex-wrap: nowrap !important; align-items: baseline !important; }
+      #bonlist-cv-document .cv-certification-row > div { min-width: 0 !important; flex: 1 1 auto !important; word-break: normal !important; overflow-wrap: break-word !important; }
+      #bonlist-cv-document .cv-certification-row > span { flex: 0 0 auto !important; white-space: nowrap !important; }
     </style></head><body><main id="bonlist-cv-document" class="cv-export-document">${paginatedPages.map((page) => page.outerHTML).join("")}</main></body></html>`;
 
   onStageChange?.("rendering");

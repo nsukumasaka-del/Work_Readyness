@@ -82,6 +82,7 @@ import { exportCvVisualPdf, type CvPdfExportStage } from "@/utils/export-cv-visu
 import {
   buildGeneratedCv as buildGeneratedCvLocally,
   extractCvDataFromText,
+  filterDistinctParsedCertifications,
   normalizeStructure,
 } from "../../../api-server/src/lib/cv-builder";
 
@@ -1002,7 +1003,10 @@ function normalizeExtractedCvData(value: unknown): ExtractedCvData {
     skills: canonicalSkills,
     toolsAndSoftware: [],
     competencies: [],
-    certifications: chooseArray(nested.certifications, raw.certifications),
+    certifications: filterDistinctParsedCertifications(
+      chooseArray(nested.certifications, raw.certifications),
+      chooseArray(nested.education, raw.education),
+    ),
     languages: chooseArray(nested.languages, raw.languages),
     projects: chooseArray(nested.projects, raw.projects),
     references: chooseArray(nested.references, raw.references),
@@ -1166,9 +1170,12 @@ async function parseCvUpload(file: File, onProgress?: (message: string) => void)
         skills: mergeStrings(remoteContent.skills, remoteContent.toolsAndSoftware, remoteContent.competencies, localContent.skills, localContent.toolsAndSoftware, localContent.competencies),
         toolsAndSoftware: mergeStrings(remoteContent.toolsAndSoftware, localContent.toolsAndSoftware),
         competencies: mergeStrings(remoteContent.competencies, localContent.competencies),
-        certifications: mergeRecords(remoteContent.certifications, localContent.certifications,
-          (item) => [item.name, item.issuer, item.year].map(normalizeKey).filter(Boolean).join("|"),
-          (preferred, other) => ({ ...other, ...preferred, id: preferred.id || other.id, name: preferred.name || other.name, issuer: preferred.issuer || other.issuer, year: preferred.year || other.year })),
+        certifications: filterDistinctParsedCertifications(
+          mergeRecords(remoteContent.certifications, localContent.certifications,
+            (item) => [item.name, item.issuer, item.year].map(normalizeKey).filter(Boolean).join("|"),
+            (preferred, other) => ({ ...other, ...preferred, id: preferred.id || other.id, name: preferred.name || other.name, issuer: preferred.issuer || other.issuer, year: preferred.year || other.year })),
+          mergeRecords(remoteContent.education, localContent.education, educationIdentity, mergeEducation),
+        ),
         languages: mergeStrings(remoteContent.languages, localContent.languages),
         projects: mergeRecords(remoteContent.projects, localContent.projects,
           (item) => [item.title, item.subtitle].map(normalizeKey).filter(Boolean).join("|"),
@@ -2623,10 +2630,10 @@ export default function CvBuilderPage() {
       certifications: [
         ...prev.certifications,
         {
-          id: `cert-${prev.certifications.length + 1}`,
-          name: "Certification Name",
-          issuer: "Issuing Organization",
-          year: "2024",
+          id: `cert-${Date.now()}`,
+          name: "",
+          issuer: "",
+          year: "",
         },
       ],
     }));
@@ -5958,6 +5965,29 @@ export default function CvBuilderPage() {
                       ))}
                       {!cv.document.sections?.length ? <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">No custom sections yet. Add one when it helps show relevant qualifications or projects.</p> : null}
                     </div>
+                    <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Certifications & licenses</h4>
+                          <p className="mt-1 text-[11px] text-slate-500">Optional credentials separate from formal education.</p>
+                        </div>
+                        <button type="button" onClick={() => {
+                          updateDocumentField("certifications", [...(cv.document.certifications || []), { id: `cert-${Date.now()}`, name: "", issuer: "", year: "" }]);
+                          setVisibleSections((previous) => ({ ...previous, certifications: true }));
+                        }} className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-xl border border-indigo-200 px-3 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"><Plus size={13} /> Add certificate</button>
+                      </div>
+                      <div className="space-y-2">
+                        {(cv.document.certifications || []).map((cert, index) => (
+                          <div key={cert.id || index} className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:grid-cols-2">
+                            <input aria-label={`Certificate ${index + 1} name`} value={cert.name} onChange={(event) => { const items = [...(cv.document.certifications || [])]; items[index] = { ...cert, name: event.target.value }; updateDocumentField("certifications", items); }} className="min-h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500/15" placeholder="Certificate or license name" />
+                            <input aria-label={`Certificate ${index + 1} issuer`} value={cert.issuer} onChange={(event) => { const items = [...(cv.document.certifications || [])]; items[index] = { ...cert, issuer: event.target.value }; updateDocumentField("certifications", items); }} className="min-h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500/15" placeholder="Issuing organization" />
+                            <input aria-label={`Certificate ${index + 1} year`} value={cert.year || ""} onChange={(event) => { const items = [...(cv.document.certifications || [])]; items[index] = { ...cert, year: event.target.value }; updateDocumentField("certifications", items); }} className="min-h-10 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500/15" placeholder="Year (optional)" />
+                            <button type="button" aria-label={`Remove certificate ${index + 1}`} onClick={() => updateDocumentField("certifications", (cv.document.certifications || []).filter((_, itemIndex) => itemIndex !== index))} className="min-h-10 rounded-xl border border-rose-200 px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50">Remove</button>
+                          </div>
+                        ))}
+                        {!cv.document.certifications?.length ? <p className="text-xs text-slate-500">No certificates added.</p> : null}
+                      </div>
+                    </div>
                   </section>
                 ) : null}
                 <details className="rounded-xl border border-border bg-card p-3">
@@ -6990,83 +7020,26 @@ export default function CvBuilderPage() {
                   </>
                 );
 
-                const certificationsSection = visibleSections.certifications && (
+                const visibleCertifications = (cv.document.certifications || []).filter((cert) => cert.name.trim());
+                const certificationsSection = visibleSections.certifications && visibleCertifications.length > 0 && (
                   <>
                     <A4PageSpacer id="certifications" height={a4Spacers.certifications || 0} />
-                  <section data-a4-id="certifications" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.certifications || []).length === 0 ? "hidden" : ""}`}>
-                    <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const newCert: CvCertificationItem = {
-                            id: `cert-${(cv.document.certifications || []).length + 1}`,
-                            name: "Certification / License Name",
-                            issuer: "Issuing Organization",
-                            year: "Year",
-                          };
-                          updateDocumentField("certifications", [...(cv.document.certifications || []), newCert]);
-                        }}
-                        className="text-[10px] font-bold text-primary hover:underline"
-                      >
-                        + Add Certification
-                      </button>
-                    </div>
-
-                    {renderSectionHeading("Certifications & Accreditations")}
-
-                    {(cv.document.certifications || []).length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground italic no-print">
-                        No certifications listed. Click &quot;+ Add Certification&quot; above to add accreditations.
-                      </p>
-                    ) : (
+                    <section data-a4-id="certifications" className="cv-a4-keep space-y-2 rounded-xl p-1 -m-1">
+                      {renderSectionHeading("Certifications & Accreditations")}
                       <div className="space-y-1.5">
-                        {(cv.document.certifications || []).map((cert, cIdx) => (
-                          <div key={cert.id || cIdx} className="flex flex-wrap items-center justify-between text-xs gap-2">
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                type="text"
-                                value={cert.name}
-                                onChange={(e) => {
-                                  const certs = [...(cv.document.certifications || [])];
-                                  certs[cIdx] = { ...cert, name: e.target.value };
-                                  updateDocumentField("certifications", certs);
-                                }}
-                                className="font-semibold text-slate-900 bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
-                                placeholder="Certificate Name"
-                              />
-                              <span className="text-slate-400">·</span>
-                              <input
-                                type="text"
-                                value={cert.issuer}
-                                onChange={(e) => {
-                                  const certs = [...(cv.document.certifications || [])];
-                                  certs[cIdx] = { ...cert, issuer: e.target.value };
-                                  updateDocumentField("certifications", certs);
-                                }}
-                                className="text-slate-600 bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
-                                placeholder="Issuer"
-                              />
+                        {visibleCertifications.map((cert, index) => (
+                          <div key={cert.id || index} className="cv-certification-row flex min-w-0 items-baseline gap-x-2 text-xs leading-snug">
+                            <div className="min-w-0 flex-1 break-words">
+                              <span className="font-semibold text-slate-900">{cert.name}</span>
+                              {cert.issuer?.trim() ? <span className="text-slate-600">{"\u00a0·\u00a0"}{cert.issuer}</span> : null}
                             </div>
-                            <input
-                              type="text"
-                              value={cert.year || ""}
-                              onChange={(e) => {
-                                const certs = [...(cv.document.certifications || [])];
-                                certs[cIdx] = { ...cert, year: e.target.value };
-                                updateDocumentField("certifications", certs);
-                              }}
-                              style={{ width: `${Math.max((cert.year || "").length + 1, 5)}ch` }}
-                              className="bg-transparent text-right text-[11px] text-slate-500 focus:outline-none"
-                              placeholder="Year"
-                            />
+                            {cert.year?.trim() ? <span className="shrink-0 whitespace-nowrap text-right text-[11px] text-slate-500">{cert.year}</span> : null}
                           </div>
                         ))}
                       </div>
-                    )}
-                  </section>
+                    </section>
                   </>
                 );
-
                 const languagesSection = visibleSections.languages && (
                   <>
                     <A4PageSpacer id="languages" height={a4Spacers.languages || 0} />

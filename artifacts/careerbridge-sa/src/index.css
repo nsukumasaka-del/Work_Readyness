@@ -808,11 +808,33 @@
   white-space: normal !important;
 }
 
-#bonlist-cv-document .cv-skill-chip {
+#bonlist-cv-document .cv-badge-list {
+  min-width: 0;
+  width: 100%;
   max-width: 100%;
+  align-content: flex-start;
+  align-items: flex-start;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  padding-bottom: 0.375rem;
+}
+
+#bonlist-cv-document .cv-skill-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 100%;
+  height: auto !important;
+  min-height: 1.5rem;
+  max-height: none !important;
+  line-height: 1.35;
   white-space: normal !important;
   overflow-wrap: break-word;
   word-break: normal;
+  break-inside: avoid;
 }
 
 #bonlist-cv-document.cv-margin-compact {

@@ -79,6 +79,7 @@ import { buildParseUploadBody, parseUploadErrorMessage, readFileAsDataUrl } from
 import { getNativeCv, NATIVE_CV_STORE_UPDATED, saveNativeCv } from "@/lib/native-cv-store";
 import { isAndroidApp } from "@/lib/platform";
 import { exportCvVisualPdf, type CvPdfExportStage } from "@/utils/export-cv-visual-pdf";
+import { sanitizeSkillBadge } from "@/utils/sanitizeSkills";
 import {
   buildGeneratedCv as buildGeneratedCvLocally,
   extractCvDataFromText,
@@ -6782,7 +6783,7 @@ export default function CvBuilderPage() {
                 const skillsSection = visibleSections.skills && (
                   <>
                     <A4PageSpacer id="skills" height={a4Spacers.skills || 0} />
-                  <section data-a4-id="skills" className="relative group/section cv-a4-keep rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
+                  <section data-a4-id="skills" className="relative group/section cv-a4-keep min-w-0 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -6815,7 +6816,7 @@ export default function CvBuilderPage() {
                         No skills listed yet. Click &quot;+ Add Skill&quot; to add competencies.
                       </p>
                     ) : (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
+                      <div className="cv-badge-list mt-2 flex flex-wrap gap-1.5">
                         {cv.document.skills.map((skill, sIdx) => {
                           const isMatch =
                             highlightJobKeywords &&
@@ -6832,7 +6833,7 @@ export default function CvBuilderPage() {
                                 color: isMatch ? "#065f46" : selectedColor.primary,
                               }}
                             >
-                              {skill}
+                              {sanitizeSkillBadge(skill)}
                             </span>
                           );
                         })}
@@ -7045,7 +7046,7 @@ export default function CvBuilderPage() {
                     <A4PageSpacer id="languages" height={a4Spacers.languages || 0} />
                   <section
                     data-a4-id="languages"
-                    className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.languages || []).length === 0 ? "hidden" : ""}`}
+                    className={`relative group/section cv-a4-keep min-w-0 space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.languages || []).length === 0 ? "hidden" : ""}`}
                   >
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
@@ -7069,11 +7070,11 @@ export default function CvBuilderPage() {
                         No languages listed.
                       </p>
                     ) : (
-                      <div className="flex flex-wrap gap-1.5 mt-1">
+                      <div className="cv-badge-list flex flex-wrap gap-1.5 mt-1">
                         {(cv.document.languages || []).map((lang, lIdx) => (
                           <span
                             key={lIdx}
-                            className="rounded-lg border px-2.5 py-0.5 text-[11px] font-medium"
+                            className="cv-skill-chip rounded-lg border px-2.5 py-0.5 text-[11px] font-medium"
                             style={{
                               backgroundColor: selectedColor.secondary,
                               borderColor: selectedColor.border,
@@ -9743,7 +9744,7 @@ function generateSemanticHtml(
     ul { margin: 4px 0; padding-left: 1.2rem; }
     li { margin-bottom: 2px; overflow-wrap: anywhere; word-break: break-word; }
     .skills { display: flex; flex-wrap: wrap; gap: 4px; }
-    .skill-tag { background: ${color.secondary}; border: 1px solid ${color.border}; color: ${color.primary}; padding: 2px 8px; border-radius: 4px; font-size: 9pt; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+    .skill-tag { display: inline-flex; flex: 0 0 auto; align-items: center; width: max-content; max-width: 100%; height: auto; line-height: 1.4; background: ${color.secondary}; border: 1px solid ${color.border}; color: ${color.primary}; padding: 2px 8px; border-radius: 4px; font-size: 9pt; white-space: normal; overflow-wrap: break-word; word-break: normal; break-inside: avoid; }
     footer { margin-top: 2rem; font-size: 8pt; color: #94a3b8; text-align: center; }
   </style>
 </head>
@@ -9798,7 +9799,7 @@ function generateSemanticHtml(
   <section>
     <h2>${isSerifClassic ? "SKILLS" : isCorporateBlue ? "TECHNICAL SKILLS" : isAnalystClean ? "S K I L L S" : "Skills & Competencies"}</h2>
     <div class="skills">
-      ${doc.skills.map((s) => `<span class="skill-tag">${s}</span>`).join(" ")}
+      ${doc.skills.map((s) => `<span class="skill-tag">${formatCvText(sanitizeSkillBadge(s))}</span>`).join(" ")}
     </div>
   </section>` : ""}
 
@@ -9806,7 +9807,7 @@ function generateSemanticHtml(
   <section>
     <h2>${isSerifClassic ? "SYSTEMS" : isAnalystClean ? "S Y S T E M S" : "Systems & Software"}</h2>
     <div class="skills">
-      ${doc.toolsAndSoftware.map((s) => `<span class="skill-tag">${s}</span>`).join(" ")}
+      ${doc.toolsAndSoftware.map((s) => `<span class="skill-tag">${formatCvText(sanitizeSkillBadge(s))}</span>`).join(" ")}
     </div>
   </section>` : ""}
 

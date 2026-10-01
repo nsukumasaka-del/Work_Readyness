@@ -91,6 +91,13 @@ export async function exportCvVisualPdf(
       #bonlist-cv-document .cv-certification-row { display: flex !important; flex-wrap: nowrap !important; align-items: baseline !important; }
       #bonlist-cv-document .cv-certification-row > div { min-width: 0 !important; flex: 1 1 auto !important; word-break: normal !important; overflow-wrap: break-word !important; }
       #bonlist-cv-document .cv-certification-row > span { flex: 0 0 auto !important; white-space: nowrap !important; }
+      #bonlist-cv-document .cv-badge-list { height: auto !important; max-height: none !important; overflow: visible !important; align-content: flex-start !important; }
+      #bonlist-cv-document .cv-skill-chip {
+        display: inline-flex !important; flex: 0 0 auto !important; align-items: center !important;
+        width: max-content !important; max-width: 100% !important;
+        height: auto !important; max-height: none !important; line-height: 1.35 !important;
+        white-space: normal !important; word-break: normal !important; overflow-wrap: break-word !important;
+      }
     </style></head><body><main id="bonlist-cv-document" class="cv-export-document">${paginatedPages.map((page) => page.outerHTML).join("")}</main></body></html>`;
 
   onStageChange?.("rendering");

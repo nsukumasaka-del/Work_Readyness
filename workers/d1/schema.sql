@@ -194,6 +194,18 @@ CREATE TABLE IF NOT EXISTS user_template_entitlements (
 );
 CREATE INDEX IF NOT EXISTS idx_template_entitlements_user ON user_template_entitlements(user_id, status);
 
+CREATE TABLE IF NOT EXISTS templates (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT 'CV',
+  preview_url TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_templates_created ON templates(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS credit_accounts (
   user_id TEXT PRIMARY KEY NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   balance INTEGER NOT NULL DEFAULT 0 CHECK (balance >= 0),

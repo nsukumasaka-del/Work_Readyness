@@ -8,6 +8,7 @@ import {
   Eye,
   FileText,
   LayoutDashboard,
+  LayoutTemplate,
   Lock,
   LogOut,
   Menu,
@@ -53,6 +54,7 @@ import JobsSection from "./sections/JobsSection";
 import OverviewSection from "./sections/OverviewSection";
 import SettingsSection from "./sections/SettingsSection";
 import TrafficSection from "./sections/TrafficSection";
+import TemplatesSection from "./sections/TemplatesSection";
 import UsersSection from "./sections/UsersSection";
 
 const POLL_MS = 5000;
@@ -101,6 +103,13 @@ const NAV: NavItem[] = [
     label: "Jobs",
     icon: <BriefcaseBusiness size={16} />,
     description: "Create, publish and archive listings in the jobs catalog.",
+  },
+  {
+    id: "templates",
+    label: "Templates",
+    icon: <LayoutTemplate size={16} />,
+    description: "Review and remove CV or document templates stored in the catalog.",
+    permission: PERMISSIONS.templates,
   },
   {
     id: "admins",
@@ -750,6 +759,15 @@ export function AdminApp() {
               refreshTick={sectionProps.refreshTick}
               focusId={sectionProps.focusId}
               onFocusHandled={sectionProps.onFocusHandled}
+              onMutated={sectionProps.onMutated}
+            />
+          ) : null}
+
+          {section === "templates" ? (
+            <TemplatesSection
+              token={sectionProps.token}
+              can={sectionProps.can}
+              refreshTick={sectionProps.refreshTick}
               onMutated={sectionProps.onMutated}
             />
           ) : null}

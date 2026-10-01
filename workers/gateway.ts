@@ -9,6 +9,7 @@ import { handleD1Career } from "./d1/career";
 import { handleCvTools } from "./d1/cv-tools";
 import { getAuthenticatedUser } from "./d1/auth";
 import { handlePlatformTools } from "./d1/platform-tools";
+import { handleCvAdmin } from "./cv-admin";
 import { canUseTemplate, chargeFeatureCredits, getFeatureQuote, handleMonetization } from "./d1/monetization";
 import puppeteer from "@cloudflare/puppeteer";
 import {
@@ -563,6 +564,8 @@ export default {
         }
         const monetizationResponse = await handleMonetization(request, env);
         if (monetizationResponse) return withNativeCors(request, monetizationResponse);
+        const adminResponse = await handleCvAdmin(request, env);
+        if (adminResponse) return withNativeCors(request, adminResponse);
         const careerResponse = await handleD1Career(request, env);
         if (careerResponse) return withNativeCors(request, careerResponse);
         const cvToolsResponse = await handleCvTools(request, env);

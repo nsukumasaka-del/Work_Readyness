@@ -13,6 +13,7 @@ export type SectionKey =
   | "coaching"
   | "traffic"
   | "jobs"
+  | "templates"
   | "admins"
   | "audit"
   | "settings";
@@ -52,6 +53,7 @@ export const PERMISSIONS = {
   diagnostics: "manage_diagnostics",
   coaching: "manage_coaching",
   jobs: "manage_jobs",
+  templates: "manage_templates",
   admins: "manage_admins",
   settings: "manage_settings",
   audit: "view_audit",
@@ -92,6 +94,7 @@ export type OverviewKpis = {
   jobsPublished?: number;
   jobsDraft?: number;
   jobsArchived?: number;
+  activeTemplates?: number;
   avgAuthenticity: number;
   avgAts: number;
 };
@@ -194,6 +197,22 @@ export type AdminJob = {
   closingDate: string | null;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type AdminTemplate = {
+  id: string | number;
+  name?: string | null;
+  description?: string | null;
+  category?: string | null;
+  preview_url?: string | null;
+  previewUrl?: string | null;
+  active?: boolean | number | string | null;
+  status?: string | null;
+  created_at?: string | null;
+  createdAt?: string | null;
+  updated_at?: string | null;
+  updatedAt?: string | null;
+  [key: string]: unknown;
 };
 
 export type JobInput = {
@@ -483,12 +502,13 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     PERMISSIONS.diagnostics,
     PERMISSIONS.coaching,
     PERMISSIONS.jobs,
+    PERMISSIONS.templates,
     PERMISSIONS.admins,
     PERMISSIONS.settings,
     PERMISSIONS.audit,
   ],
   moderator: [PERMISSIONS.users, PERMISSIONS.diagnostics, PERMISSIONS.coaching, PERMISSIONS.audit],
-  content_manager: [PERMISSIONS.jobs, PERMISSIONS.audit],
+  content_manager: [PERMISSIONS.jobs, PERMISSIONS.templates, PERMISSIONS.audit],
 };
 
 export function makeCan(me: AdminMe | null) {
@@ -524,6 +544,7 @@ export function sectionForActivity(item: { type?: string | null; section?: strin
   if (raw.includes("diagnostic") || raw.includes("cv") || raw.includes("review")) return "diagnostics";
   if (raw.includes("coach")) return "coaching";
   if (raw.includes("job")) return "jobs";
+  if (raw.includes("template")) return "templates";
   if (raw.includes("visit") || raw.includes("traffic")) return "traffic";
   if (raw.includes("admin")) return "admins";
   if (raw.includes("audit")) return "audit";

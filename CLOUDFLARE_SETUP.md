@@ -19,11 +19,13 @@ npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0005_
 npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0006_cv_review.sql
 npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0007_cv_builder.sql
 npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0008_application_outcomes.sql
+npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0012_templates.sql
 ```
 
 The `0006` migration is required for CV review/profile storage. The `0007`
 migration prepares persistent edge CV storage for builder versioning. The
-`0008` migration stores application outcomes for the CV builder.
+`0008` migration stores application outcomes for the CV builder. The `0012`
+migration adds the admin-managed CV and document template catalog.
 
 ## 2. Configure the Worker
 

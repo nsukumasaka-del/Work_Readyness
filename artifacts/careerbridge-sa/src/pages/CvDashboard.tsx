@@ -135,8 +135,8 @@ export default function CvDashboardPage() {
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">CV workspace</p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight">My Resumes</h1>
-            <p className="mt-2 text-sm text-slate-600">Continue editing, update your documents, or create a new CV.</p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight">My CVs</h1>
+            <p className="mt-2 text-sm text-slate-600">Your saved career documents stay editable and ready whenever you need them.</p>
           </div>
           <Link href="/cv-builder?intake=1" className="inline-flex items-center gap-2 rounded-xl bg-[#00A884] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#008f70]">
             <Plus size={16} /> Create New CV
@@ -179,6 +179,7 @@ export default function CvDashboardPage() {
                       <div className="min-w-0">
                         <h2 className="truncate font-semibold">{item.title}</h2>
                         <p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><CalendarDays size={12} /> Updated {dateLabel(item.updatedAt || item.createdAt)}</p>
+                        <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">Template · {item.structure || "Standard"}</p>
                       </div>
                       <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">{score}%</span>
                     </div>
@@ -193,7 +194,9 @@ export default function CvDashboardPage() {
                     </div>
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <Link href={editorUrl} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700">Edit</Link>
-                      <Link href={editorUrl + "&print=1"} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold hover:bg-slate-50"><Download size={13} /> Download PDF</Link>
+                      <Link href={editorUrl + "&view=preview"} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold hover:bg-slate-50">Preview</Link>
+                      <Link href={editorUrl + "&view=preview&print=1"} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold hover:bg-slate-50"><Download size={13} /> Download</Link>
+                      <Link href={editorUrl + "&step=job"} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold hover:bg-slate-50">Tailor to job</Link>
                       <button type="button" disabled={busyId === item.id} onClick={() => void runDocumentAction(item.id, "duplicate")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50"><Copy size={13} /> Duplicate</button>
                       <button type="button" disabled={busyId === item.id} onClick={() => void runDocumentAction(item.id, "rename")} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50"><Pencil size={13} /> Rename</button>
                     </div>

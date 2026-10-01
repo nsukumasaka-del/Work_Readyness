@@ -9,6 +9,7 @@ import { handleD1Career } from "./d1/career";
 import { handleCvTools } from "./d1/cv-tools";
 import { getAuthenticatedUser } from "./d1/auth";
 import { handlePlatformTools } from "./d1/platform-tools";
+import { canUseTemplate, chargeFeatureCredits, getFeatureQuote, handleMonetization } from "./d1/monetization";
 import puppeteer from "@cloudflare/puppeteer";
 import {
   generateCvAssistantJson,
@@ -47,6 +48,10 @@ async function handleCvPdfExport(request: Request, env: Env): Promise<Response> 
     return jsonError(400, "A valid CV document is required.");
   }
   const html = typeof payload.html === "string" ? payload.html : "";
+  const templateId = typeof payload.templateId === "string" ? payload.templateId.trim().slice(0, 80) : "serif_classic";
+  if (!await canUseTemplate(env, user, templateId)) {
+    return jsonError(402, "Unlock this template once to export and reuse it for life.");
+  }
   if (!html || new TextEncoder().encode(html).length > maxExportHtmlBytes || !html.includes("bonlist-cv-document")) {
     return jsonError(400, "The rendered CV document is missing or too large.");
   }
@@ -217,6 +222,16 @@ async function handleCvAssistant(request: Request, env: Env, task: CvAssistantTa
   } catch {
     return jsonError(400, "Send a valid JSON CV request.");
   }
+  const premiumFeatureId = task === "improve" ? "improve_cv" : task === "tailor" ? "tailor_cv" : null;
+  const user = premiumFeatureId ? await getAuthenticatedUser(request, env) : null;
+  const idempotencyKey = text(input.idempotencyKey, 160);
+  if (premiumFeatureId) {
+    if (!user) return jsonError(401, "Please sign in to use this premium career tool.");
+    if (input.creditConsent !== true || !idempotencyKey) return jsonError(400, "Confirm the displayed BonList Credit cost before continuing.");
+    const quote = await getFeatureQuote(env, user, premiumFeatureId);
+    if (!quote) return jsonError(503, "Premium feature pricing is temporarily unavailable.");
+    if (!quote.allowed) return jsonError(402, `This action requires ${quote.feature.credit_cost} BonList Credits. Your balance is ${quote.balance}.`);
+  }
   const apiKey = String(env.GEMINI_API_KEY || "").trim();
   if (!apiKey) return jsonError(503, "CV AI tools are temporarily unavailable.");
 
@@ -253,7 +268,13 @@ async function handleCvAssistant(request: Request, env: Env, task: CvAssistantTa
     if (task === "advisor" && typeof result.answer !== "string") throw new Error("Gemini advisor response was invalid.");
     if ((task === "improve" || task === "tailor") && !Array.isArray(result.proposals)) throw new Error("Gemini returned an invalid proposal list.");
     if (task === "tailor" && typeof result.overallMatch !== "number") throw new Error("Gemini returned an invalid match score.");
-    return new Response(JSON.stringify(result), {
+    let creditResult: Record<string, unknown> | undefined;
+    if (premiumFeatureId && user) {
+      const charge = await chargeFeatureCredits(env, user, premiumFeatureId, idempotencyKey);
+      if (!charge.ok) return jsonError(charge.status, charge.error);
+      creditResult = { charged: charge.charged, balance: charge.balance, adminBypass: "adminBypass" in charge ? charge.adminBypass : false };
+    }
+    return new Response(JSON.stringify({ ...result, creditTransaction: creditResult }), {
       headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
     });
   } catch (error) {
@@ -531,8 +552,8 @@ export default {
       }
       if (env.DB) {
         try {
-          const authResponse = await handleD1Auth(request, env);
-          if (authResponse) return withNativeCors(request, authResponse);
+        const authResponse = await handleD1Auth(request, env);
+        if (authResponse) return withNativeCors(request, authResponse);
         } catch (err) {
           console.error("[auth] D1 auth handler failed:", err);
           return withNativeCors(request, jsonError(
@@ -540,6 +561,8 @@ export default {
             "Authentication is temporarily unavailable. Please try again.",
           ));
         }
+        const monetizationResponse = await handleMonetization(request, env);
+        if (monetizationResponse) return withNativeCors(request, monetizationResponse);
         const careerResponse = await handleD1Career(request, env);
         if (careerResponse) return withNativeCors(request, careerResponse);
         const cvToolsResponse = await handleCvTools(request, env);

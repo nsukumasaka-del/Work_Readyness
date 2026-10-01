@@ -51,6 +51,10 @@ ANDROID_RELEASE_NOTES = "BonList Android 1.2.3: verified OTA downloads with mand
 #   GOOGLE_CLIENT_ID
 #   GOOGLE_CLIENT_SECRET
 #
+# Required before accepting verified payment callbacks. This secret must also
+# be configured in the payment provider's server-side webhook integration:
+#   PAYMENT_WEBHOOK_SECRET
+#
 # Google OAuth callback URL (register in Google Cloud Console):
 #   https://bonlist.nsukumasaka.workers.dev/api/career/auth/google/callback
 # ---------------------------------------------------------------------------

@@ -62,6 +62,11 @@ import {
   type Entitlement,
 } from '@/lib/entitlements';
 import { ensureCvProfile } from '@/lib/cv-profile';
+import {
+  EMPTY_MONETIZATION,
+  fetchMonetizationStatus,
+  type MonetizationStatus,
+} from '@/lib/monetization';
 import { buildParseUploadBody, readFileAsDataUrl } from '@/lib/cv-parse-upload';
 import { JobListingCard, JobListingDetails } from '@/components/jobs/JobListingCard';
 import { directApplicationUrl, toJobListing, type JobDetailsPayload, type JobListingSource } from '@/types/job';
@@ -1391,8 +1396,14 @@ function AppShell({ children }: { children: ReactNode }) {
             <div className="space-y-3">
               <LogoMark />
               <p className="max-w-md text-sm leading-6 text-muted-foreground">
-                Create a profile first so we can support your search — then review your CV and unlock role matches.
+                Your CV workspace for building, improving and keeping a career document ready for what comes next.
               </p>
+              <nav aria-label="Privacy and support" className="flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold text-muted-foreground">
+                <Link href="/privacy" className="hover:text-primary">Privacy</Link>
+                <Link href="/terms" className="hover:text-primary">Terms</Link>
+                <Link href="/data" className="hover:text-primary">Data handling &amp; deletion</Link>
+                <Link href="/support" className="hover:text-primary">Contact &amp; support</Link>
+              </nav>
             </div>
             {!inNativeApp ? (
             <button
@@ -1497,6 +1508,7 @@ function Home() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileReady, setProfileReady] = useState(false);
   const [entitlement, setEntitlement] = useState<Entitlement>(defaultEntitlement());
+  const [monetization, setMonetization] = useState<MonetizationStatus>(EMPTY_MONETIZATION);
   const [latestReport, setLatestReport] = useState<DiagnosticReport | null>(() => {
     try {
       const stored = sessionStorage.getItem(REPORT_KEY) || sessionStorage.getItem('bonlist-report');
@@ -1560,6 +1572,17 @@ function Home() {
     refreshEntitlement();
     window.addEventListener('careerbridge-entitlement-updated', refreshEntitlement);
     return () => window.removeEventListener('careerbridge-entitlement-updated', refreshEntitlement);
+  }, [profile?.id]);
+
+  useEffect(() => {
+    if (!profile?.id) {
+      setMonetization(EMPTY_MONETIZATION);
+      return;
+    }
+    const refresh = () => void fetchMonetizationStatus().then(setMonetization).catch(() => setMonetization(EMPTY_MONETIZATION));
+    refresh();
+    window.addEventListener('bonlist-monetization-updated', refresh);
+    return () => window.removeEventListener('bonlist-monetization-updated', refresh);
   }, [profile?.id]);
 
   useEffect(() => {
@@ -1682,14 +1705,14 @@ function Home() {
       : 'Run a CV review to see fresh matches';
     const actionCards = [
       {
-        href: '/#upload-section', title: 'Free AI CV Review & Score',
-        copy: 'Instant AI score, ATS optimization check, career direction mapping, and authenticity feedback.',
-        action: 'Upload CV for Free Review', icon: FileCheck2, badge: 'FREE', tone: 'bg-emerald-500/10 text-emerald-700',
+        href: '/#upload-section', title: 'CV Review',
+        copy: 'Check your CV structure, ATS readiness, role fit and the areas worth improving next.',
+        action: 'Review my CV', icon: FileCheck2, badge: 'FREE', tone: 'bg-emerald-500/10 text-emerald-700',
       },
       {
-        href: '/cv-builder?intake=1', title: 'AI CV Builder & Templates',
-        copy: 'Build or edit ATS-compliant CVs with customizable templates tailored to your target role.',
-        action: 'Launch CV Builder', icon: Sparkles, badge: 'EDITABLE', tone: 'bg-sky-500/10 text-sky-700',
+        href: '/cv-builder?intake=1', title: 'My CV Workspace',
+        copy: 'Build, edit and keep an ATS-friendly CV that stays ready whenever an opportunity appears.',
+        action: 'Open CV workspace', icon: Sparkles, badge: 'YOUR CV', tone: 'bg-sky-500/10 text-sky-700',
       },
       {
         href: '/jobs', title: 'Profile-Matched Jobs',
@@ -1709,17 +1732,22 @@ function Home() {
               </div>
               <div className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${paidPlanActive ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}>
                 <span className={`h-2 w-2 rounded-full ${paidPlanActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                {paidPlanActive ? `Paid plan active · ${entitlement.planName || 'Premium'} features` : 'Free tier · Upgrade for premium job matching'}
+                {paidPlanActive ? `Paid access · ${entitlement.planName || 'Premium'}` : 'Free workspace · Upgrade only when you need it'}
               </div>
             </div>
-            <p className="mt-2 text-sm text-muted-foreground">Pick up where you left off and take the next step toward your target role.</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <span>Pick up where you left off and take the next step toward your target role.</span>
+              <Link href="/pricing" className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-primary/40 hover:text-primary dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                {monetization.adminBypass ? 'Admin access' : `${monetization.credits} BonList credits`}
+              </Link>
+            </div>
           </div>
         </section>
 
         <main className="mx-auto max-w-7xl px-5 py-6 pb-[calc(2rem+var(--safe-bottom))] md:px-8 md:py-8 md:pb-[calc(2rem+var(--safe-bottom))]">
           <section aria-label="Quick actions" className="grid gap-4 md:grid-cols-3">
             {actionCards.map((card) => (
-              <Link key={card.title} href={card.href} onClick={card.title === 'Free AI CV Review & Score' ? openDiagnosticUpload : undefined} className="group flex min-h-48 flex-col rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/85 dark:hover:border-indigo-800" data-testid={`dashboard-action-${card.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`}>
+              <Link key={card.title} href={card.href} onClick={card.title === 'CV Review' ? openDiagnosticUpload : undefined} className="group flex min-h-48 flex-col rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/85 dark:hover:border-indigo-800" data-testid={`dashboard-action-${card.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`}>
                 <div className="flex items-start justify-between gap-3">
                   <span className={`grid h-11 w-11 place-items-center rounded-xl ${card.tone}`}><card.icon size={20} /></span>
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">{card.badge}</span>
@@ -1931,23 +1959,22 @@ function Home() {
           <div className="rise-in">
             <img
               src="/brand/bonlist-logo.png"
-              alt="BonList - Your Shortcut to Getting Hired."
+              alt="BonList"
               className="h-[4.5rem] w-auto max-w-[min(480px,94vw)] object-contain object-left sm:h-20 md:h-24"
             />
             <h1 className="display mt-5 max-w-xl text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl md:text-[2.75rem] md:leading-[1.1]">
-              Transform your CV into interview Invitations today!
+              Your CV. Always ready.
             </h1>
             <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground md:text-lg">
-              Upload your CV now for the perfect accurate review and revamp  then see recommended roles that fit your profile and expertise ASAP.
+              Build a professional CV, keep it current, and use practical career tools when you need them. Your work stays yours throughout your career.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link href="/signup" className="btn-primary" data-testid="link-start-profile">
-                Sign up to get started <ArrowRight size={16} />
+              <Link href="/signup?returnTo=/cv-builder" className="btn-primary" data-testid="link-start-profile">
+                Build My CV <ArrowRight size={16} />
               </Link>
-              <a href="#cv-check" className="btn-secondary" data-testid="link-how-review-works">
-                Then upload your CV
-              </a>
+              <Link href="/signup?returnTo=/#upload-section" className="btn-secondary" data-testid="link-how-review-works">Review My CV</Link>
             </div>
+            <p className="mt-4 text-sm font-semibold text-foreground">Build it once. Own it for life.</p>
           </div>
           <div className="rise-in delay-1">
             <HeroProductVisual />
@@ -1958,21 +1985,21 @@ function Home() {
       <section id="cv-check" className="mx-auto max-w-6xl px-5 py-16 md:px-8 md:py-20">
         <div className="grid items-start gap-10 lg:grid-cols-[0.9fr_1.1fr]">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Step 2</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Your starting point</p>
             <h2 className="display mt-3 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
-              Upload your CV for review and revamp.
+              Bring your current CV, or start fresh.
             </h2>
             <p className="mt-4 text-[15px] leading-7 text-muted-foreground">
-              Create a profile first so we can keep track of your visit and personalise your CV review.
+              Create a secure profile to save your work, review your CV and keep one career document ready for every next move.
             </p>
             <ul className="mt-6 space-y-3 text-sm text-muted-foreground">
               <li className="flex gap-2">
                 <ShieldCheck size={16} className="mt-0.5 shrink-0 text-primary" />
-                Profile first and then CV upload
+                Save and update your CV from one workspace
               </li>
               <li className="flex gap-2">
                 <FileCheck2 size={16} className="mt-0.5 shrink-0 text-primary" />
-                Detailed review + 6 recommended roles after upload
+                Get practical feedback and relevant role matches
               </li>
             </ul>
           </div>
@@ -1982,14 +2009,14 @@ function Home() {
             </div>
             <h3 className="display mt-5 text-2xl font-semibold text-foreground">Create a profile to continue</h3>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              We ask for a short profile before CV upload so we can support your search and understand how many people BonList is helping.
+              Your profile keeps your CV, reviews and purchased templates connected to you across sessions and devices.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link href="/login" className="btn-secondary" data-testid="link-login-from-cv">
                 Log in
               </Link>
               <Link href="/signup" className="btn-primary" data-testid="link-create-profile-from-cv">
-                Create account to unlock CV review <ArrowRight size={16} />
+                Create account <ArrowRight size={16} />
               </Link>
             </div>
           </div>
@@ -2000,32 +2027,33 @@ function Home() {
         <div className="mb-10 max-w-2xl">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">How it works</p>
           <h2 className="display mt-3 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
-            We&apos;re here for every step of your search.
+            One CV workspace for your working life.
           </h2>
           <p className="mt-4 text-[15px] leading-7 text-muted-foreground">
-            Build evidence once, then move with focus — local jobs, interview stories, and human support when you need it.
+            Keep the essentials free, own purchased templates permanently, and use focused help only when it adds value.
           </p>
         </div>
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {[
             {
-              icon: FileCheck2,
-              title: 'Read the evidence',
-              copy: 'Check the signals recruiters actually see: clarity, proof, and fit.',
+              icon: FileText,
+              title: 'Build',
+              copy: 'Create and maintain one clear, professional CV in a guided workspace.',
               delay: 'delay-1',
             },
             {
-              icon: Search,
-              title: 'Make a focused move',
-              copy: 'Choose from local roles and prompts that match your real experience.',
+              icon: FileCheck2,
+              title: 'Improve',
+              copy: 'Review ATS readiness, strengthen wording and tailor your CV when needed.',
               delay: 'delay-2',
             },
             {
-              icon: HeartHandshake,
-              title: 'Build with support',
-              copy: 'Practice the conversation, then bring the hard parts to a human coach.',
+              icon: ShieldCheck,
+              title: 'Own',
+              copy: 'Unlock a paid template once and keep using it for life on your account.',
               delay: 'delay-3',
             },
+            { icon: BriefcaseBusiness, title: 'Apply', copy: 'Find relevant openings and prepare for the conversations that follow.', delay: 'delay-3' },
           ].map((step) => (
             <div key={step.title} className={`rise-in ${step.delay} border-t-2 border-primary pt-5`}>
               <step.icon className="text-primary" size={22} />
@@ -2033,6 +2061,35 @@ function Home() {
               <p className="mt-2 text-sm leading-6 text-muted-foreground">{step.copy}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="border-y border-border bg-slate-50/80 dark:bg-slate-950/50">
+        <div className="mx-auto grid max-w-6xl gap-6 px-5 py-16 md:grid-cols-3 md:px-8 md:py-20">
+          <article className="rounded-3xl border border-border bg-card p-7 shadow-sm">
+            <ShieldCheck className="text-primary" size={24} />
+            <h2 className="display mt-5 text-2xl font-semibold text-foreground">Permanent template ownership</h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">Paid CV templates are a once-off R50 purchase. Once unlocked, the template remains available to your account for future edits and downloads.</p>
+          </article>
+          <article className="rounded-3xl border border-border bg-card p-7 shadow-sm">
+            <Sparkles className="text-primary" size={24} />
+            <h2 className="display mt-5 text-2xl font-semibold text-foreground">Help when you need it</h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">Use BonList credits for focused CV improvements, ATS reviews and job-specific tailoring. You always see the credit cost before confirming.</p>
+          </article>
+          <article className="rounded-3xl border border-border bg-card p-7 shadow-sm">
+            <Smartphone className="text-primary" size={24} />
+            <h2 className="display mt-5 text-2xl font-semibold text-foreground">Web and Android</h2>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">Continue your career work across the BonList website and Android app with the same secure account and saved CVs.</p>
+          </article>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-5 py-16 text-center md:px-8 md:py-20">
+        <h2 className="display text-3xl font-semibold text-foreground md:text-4xl">Keep your next opportunity within reach.</h2>
+        <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">Start with the free workspace, build a CV you can keep current, and add premium tools only when they help you move forward.</p>
+        <div className="mt-7 flex flex-wrap justify-center gap-3">
+          <Link href="/signup?returnTo=/cv-builder" className="btn-primary">Build My CV <ArrowRight size={16} /></Link>
+          <Link href="/login" className="btn-secondary">Log in</Link>
         </div>
       </section>
     </div>
@@ -3744,6 +3801,17 @@ function Field({
 }
 
 const PUBLIC_AUTH_PATHS = new Set(['/login', '/signup', '/forgot-password', '/reset-password', '/auth/callback']);
+const PUBLIC_INFO_PATHS = new Set(['/pricing', '/privacy', '/terms', '/data', '/support']);
+
+function PublicInfoPage({ kind }: { kind: 'privacy' | 'terms' | 'data' | 'support' }) {
+  const content = {
+    privacy: ['Privacy Policy', 'BonList stores the account and CV information needed to provide the workspace. CV content is used to deliver requested CV, review and career features, and is not used for unrelated purposes without consent.'],
+    terms: ['Terms of Use', 'Use BonList to create and manage truthful career documents. Career guidance and match scores are advisory and do not guarantee interviews, employment or ATS outcomes.'],
+    data: ['Data handling & deletion', 'You can manage saved CVs from My CVs. For account or data deletion requests, contact support from the email address associated with your BonList account.'],
+    support: ['Contact & support', 'For product, account, privacy or deletion support, email nsukumasaka@gmail.com. Do not include passwords, identity numbers or payment card details in support messages.'],
+  }[kind];
+  return <main className="mx-auto min-h-[60vh] max-w-3xl px-5 py-16 md:px-8"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">BonList</p><h1 className="display mt-3 text-4xl font-semibold text-foreground">{content[0]}</h1><p className="mt-5 text-sm leading-7 text-muted-foreground">{content[1]}</p><Link href="/" className="btn-secondary mt-8">Back to BonList</Link></main>;
+}
 
 function ProtectedApp() {
   const [location, setLocation] = useLocation();
@@ -3933,6 +4001,21 @@ function Router() {
           <Route path="/reset-password" component={ResetPasswordPage} />
           <Route path="/auth/callback" component={AuthCallbackPage} />
         </Switch>
+      </RoutedErrorBoundary>
+    );
+  }
+  if (PUBLIC_INFO_PATHS.has(pathname)) {
+    return (
+      <RoutedErrorBoundary>
+        <AppShell>
+          <Switch>
+            <Route path="/pricing" component={PricingPage} />
+            <Route path="/privacy" component={() => <PublicInfoPage kind="privacy" />} />
+            <Route path="/terms" component={() => <PublicInfoPage kind="terms" />} />
+            <Route path="/data" component={() => <PublicInfoPage kind="data" />} />
+            <Route path="/support" component={() => <PublicInfoPage kind="support" />} />
+          </Switch>
+        </AppShell>
       </RoutedErrorBoundary>
     );
   }

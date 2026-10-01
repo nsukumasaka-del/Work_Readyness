@@ -6,6 +6,7 @@ export type CvPdfExportStage = "preparing" | "rendering" | "downloading";
 export async function exportCvVisualPdf(
   previewElementId: string,
   filename: string,
+  templateId: string,
   onStageChange?: (stage: CvPdfExportStage) => void,
 ): Promise<void> {
   onStageChange?.("preparing");
@@ -104,7 +105,7 @@ export async function exportCvVisualPdf(
   const response = await authFetch("/api/career/cv/export-pdf", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ html, filename: `${safeName}.pdf` }),
+    body: JSON.stringify({ html, filename: `${safeName}.pdf`, templateId }),
   });
   if (!response.ok) {
     throw new Error(await readExportError(response));

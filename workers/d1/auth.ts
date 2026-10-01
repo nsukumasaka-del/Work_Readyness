@@ -38,6 +38,7 @@ export type D1Env = MailEnv & {
   PRIMARY_ADMIN_NAME?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  PAYMENT_WEBHOOK_SECRET?: string;
 };
 
 export type UserRow = {

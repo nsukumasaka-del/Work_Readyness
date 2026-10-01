@@ -16,6 +16,11 @@ import {
   type PlanId,
 } from "@/lib/entitlements";
 import { authFetch } from "@/lib/auth-session";
+import {
+  EMPTY_MONETIZATION,
+  fetchMonetizationStatus,
+  type MonetizationStatus,
+} from "@/lib/monetization";
 
 type PlanCard = {
   id: PlanId;
@@ -112,6 +117,7 @@ export default function PricingPage() {
   const [entitlement, setEntitlement] = useState<Entitlement>(
     defaultEntitlement(profile?.id || 0),
   );
+  const [monetization, setMonetization] = useState<MonetizationStatus>(EMPTY_MONETIZATION);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -131,6 +137,8 @@ export default function PricingPage() {
       if (profile?.id) {
         const next = await fetchEntitlement(profile.id);
         if (!cancelled) setEntitlement(next);
+        const ownership = await fetchMonetizationStatus().catch(() => EMPTY_MONETIZATION);
+        if (!cancelled) setMonetization(ownership);
       }
     })();
     return () => {
@@ -258,12 +266,10 @@ export default function PricingPage() {
           Pricing
         </p>
         <h1 className="display mt-3 text-4xl font-semibold text-foreground md:text-5xl">
-          Choose how you want to grow.
+          Start free. Pay for lasting value.
         </h1>
         <p className="mt-4 text-sm leading-6 text-muted-foreground md:text-base">
-          Three monthly subscriptions for everyday platform access — plus one
-          stand-alone 3-month career transformation programme that unlocks
-          everything.
+          Build and maintain your CV in the free workspace. Own a premium template for life with a once-off purchase, or use BonList Credits for substantial career services.
         </p>
         {entitlement.planName ? (
           <p className="mt-4 text-xs font-medium text-foreground">
@@ -276,6 +282,34 @@ export default function PricingPage() {
           </p>
         ) : null}
       </div>
+
+      <section className="mt-10 grid gap-5 md:grid-cols-2">
+        <article className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">CV templates</p>
+          <h2 className="display mt-3 text-2xl font-semibold text-foreground">R50 · Lifetime ownership</h2>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">Unlock a premium template once, then edit, save, download and reuse it for as long as your BonList account remains active.</p>
+          <div className="mt-5 flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-900">
+            <span className="text-sm font-semibold text-foreground">Your owned templates</span>
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200">{monetization.adminBypass ? "All · Admin" : monetization.ownedTemplateIds.length}</span>
+          </div>
+          <Link href="/cv-builder/templates" className="btn-secondary mt-5 w-full">Browse templates <ArrowRight size={15} /></Link>
+        </article>
+        <article className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">BonList Credits</p>
+          <div className="mt-3 flex items-end justify-between gap-4">
+            <h2 className="display text-2xl font-semibold text-foreground">R50 = 5 credits</h2>
+            <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">{monetization.adminBypass ? "Unlimited · Admin" : `${monetization.credits} available`}</span>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">Credits are for meaningful services such as advanced CV improvement, ATS review and tailoring a CV to a specific role. The cost is shown before every use.</p>
+          <ul className="mt-5 space-y-2">
+            {(monetization.features.length ? monetization.features : [
+              { id: "improve_cv", name: "Advanced CV Improvement", description: "", creditCost: 2 },
+              { id: "ats_review", name: "Advanced ATS Review", description: "", creditCost: 2 },
+              { id: "tailor_cv", name: "Tailor My CV for a Job", description: "", creditCost: 3 },
+            ]).map((feature) => <li key={feature.id} className="flex items-center justify-between gap-4 text-sm"><span className="text-foreground">{feature.name}</span><span className="font-semibold text-primary">{feature.creditCost} credits</span></li>)}
+          </ul>
+        </article>
+      </section>
 
       <section className="mt-10">
         <h2 className="display text-2xl font-semibold text-foreground">

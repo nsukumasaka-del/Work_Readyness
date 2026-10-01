@@ -78,6 +78,7 @@ import { calculateCvCompletion } from "@/lib/cv-completion";
 import { buildParseUploadBody, parseUploadErrorMessage, readFileAsDataUrl } from "@/lib/cv-parse-upload";
 import { getNativeCv, NATIVE_CV_STORE_UPDATED, saveNativeCv } from "@/lib/native-cv-store";
 import { isAndroidApp } from "@/lib/platform";
+import { EMPTY_MONETIZATION, fetchMonetizationStatus, templateAccess, type MonetizationStatus } from "@/lib/monetization";
 import { exportCvVisualPdf, type CvPdfExportStage } from "@/utils/export-cv-visual-pdf";
 import { sanitizeSkillBadge } from "@/utils/sanitizeSkills";
 import {
@@ -2218,6 +2219,12 @@ export default function CvBuilderPage() {
 
   // Styling & Customization (Enhancv Clone Architecture with Custom Brand Colors)
   const [selectedTemplate, setSelectedTemplate] = useState<string>("serif_classic");
+  const [monetization, setMonetization] = useState<MonetizationStatus>(EMPTY_MONETIZATION);
+  useEffect(() => {
+    let active = true;
+    void fetchMonetizationStatus().then((value) => { if (active) setMonetization(value); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [profile?.id]);
   const [selectedColor, setSelectedColor] = useState(COLOR_THEMES[0]!);
   const [selectedFont, setSelectedFont] = useState(FONT_OPTIONS[0]!);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
@@ -3479,6 +3486,8 @@ export default function CvBuilderPage() {
     }));
 
     const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+    if (searchParams?.get("view") === "preview") setMobileWorkspaceView("preview");
+    if (searchParams?.get("step") === "job") setShowJobMatchDrawer(true);
     const isOfflineWorkstation = searchParams?.get("offline") === "1" && isAndroidApp();
     if (!isOfflineWorkstation && (prof?.name || prof?.email)) {
       void ensureCvProfile({
@@ -4120,8 +4129,23 @@ export default function CvBuilderPage() {
     setIsImproveModalOpen(true);
   };
 
+  const confirmCreditUse = (featureId: "improve_cv" | "tailor_cv") => {
+    const fallbackCost = featureId === "tailor_cv" ? 3 : 2;
+    const feature = monetization.features.find((item) => item.id === featureId);
+    const cost = feature?.creditCost ?? fallbackCost;
+    if (!monetization.adminBypass && monetization.credits < cost) {
+      setError(`${feature?.name || "This action"} requires ${cost} BonList Credits. You currently have ${monetization.credits}.`);
+      return null;
+    }
+    if (!monetization.adminBypass && !window.confirm(`${feature?.name || "Continue"} will use ${cost} BonList Credits. Continue?`)) return null;
+    const randomPart = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return `${featureId}:${randomPart}`;
+  };
+
   const handleRunImproveCv = async (scope: ImproveCvScope = improveScope) => {
     if (!cv) return;
+    const idempotencyKey = confirmCreditUse("improve_cv");
+    if (!idempotencyKey) return;
     setImproveLoading(true);
     setError("");
     try {
@@ -4132,6 +4156,8 @@ export default function CvBuilderPage() {
           cvDocument: cv.document,
           scope,
           targetJob: jobDescription.trim() || cv.document.headline || undefined,
+          creditConsent: true,
+          idempotencyKey,
         }),
       });
       const data = (await res.json()) as ImproveCvReport & { error?: string };
@@ -4141,6 +4167,7 @@ export default function CvBuilderPage() {
       for (const p of data.proposals) drafts[p.id] = p.after;
       setImproveDrafts(drafts);
       setImproveScope(scope);
+      void fetchMonetizationStatus().then((next) => { setMonetization(next); window.dispatchEvent(new Event("bonlist-monetization-updated")); });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not improve CV");
     } finally {
@@ -4417,6 +4444,8 @@ export default function CvBuilderPage() {
   // Job Tailoring with Advanced 6-Tier & Transferable Skills
   const handleRunTailoring = async () => {
     if (!cv || !jobDescription.trim()) return;
+    const idempotencyKey = confirmCreditUse("tailor_cv");
+    if (!idempotencyKey) return;
     setTailoringLoading(true);
     try {
       const [resTailor, resAdvanced, resTrans] = await Promise.all([
@@ -4426,6 +4455,8 @@ export default function CvBuilderPage() {
           body: JSON.stringify({
             cvDocument: cv.document,
             jobDescription,
+            creditConsent: true,
+            idempotencyKey,
           }),
         }),
         authFetch("/api/career/cv/match-advanced", {
@@ -4449,6 +4480,10 @@ export default function CvBuilderPage() {
       if (resTailor.ok) {
         const data = (await resTailor.json()) as JobMatchReport;
         setTailoringReport(data);
+        void fetchMonetizationStatus().then((next) => { setMonetization(next); window.dispatchEvent(new Event("bonlist-monetization-updated")); });
+      } else {
+        const failure = await resTailor.json().catch(() => ({})) as { error?: string };
+        throw new Error(failure.error || "Could not tailor this CV.");
       }
       if (resAdvanced.ok) {
         const adv = (await resAdvanced.json()) as JobMatchAdvancedReport;
@@ -4458,8 +4493,8 @@ export default function CvBuilderPage() {
         const trans = (await resTrans.json()) as TransferableSkillsReport;
         setTransferableReport(trans);
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not tailor this CV.");
     } finally {
       setTailoringLoading(false);
     }
@@ -4800,6 +4835,12 @@ export default function CvBuilderPage() {
       options?.onReady?.();
       return;
     }
+    const access = templateAccess(monetization, selectedTemplate);
+    if (!access.canExport) {
+      setError("Unlock this template once for R50 to download, edit and reuse it for life.");
+      options?.onReady?.();
+      return;
+    }
     pdfDownloadLockRef.current = true;
     setIsPdfDownloading(true);
     setPdfDownloadStage("preparing");
@@ -4818,7 +4859,7 @@ export default function CvBuilderPage() {
       const templateName = TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "CV";
       const safeTemplateName = templateName.replace(/[^a-z0-9_-]/gi, "_");
       const filename = `${safeBaseName}_${safeTemplateName}`;
-      await exportCvVisualPdf(preview.id || "bonlist-cv-document", filename, setPdfDownloadStage);
+      await exportCvVisualPdf(preview.id || "bonlist-cv-document", filename, selectedTemplate, setPdfDownloadStage);
       setMessage("Your CV PDF download has started.");
       setTimeout(() => setMessage(""), 4000);
     } catch (exportError) {
@@ -5389,12 +5430,14 @@ export default function CvBuilderPage() {
             <button type="button" onClick={() => { setSelectedTemplate("serif_classic"); setLocation("/cv-builder/edit?intake=1"); }} className="flex min-h-[330px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white/60 p-6 text-center transition hover:border-indigo-500 hover:bg-indigo-50/60 dark:border-slate-700 dark:bg-slate-900/50 dark:hover:bg-indigo-950/20"><span className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-slate-100 text-3xl font-light text-slate-500 dark:bg-slate-800 dark:text-slate-300">+</span><strong className="text-base">Start from Scratch</strong><span className="mt-2 max-w-48 text-xs leading-5 text-slate-500 dark:text-slate-400">Open the editor and enter your information in a clean ATS-friendly layout.</span></button>
             {catalogTemplates.map((template, index) => {
               const premium = ["editorial_gold", "creative", "stylish", "polished", "high_performer"].includes(template.id);
+              const access = templateAccess(monetization, template.id);
               const categoryLabel = template.category === "Traditional" ? "PROFESSIONAL" : template.category.toUpperCase();
               return <article key={template.id} className="group relative rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900">
-                {premium ? <span className="absolute right-5 top-5 z-10 rounded-full bg-amber-100 px-2.5 py-1 text-[9px] font-black tracking-wide text-amber-800 shadow-sm dark:bg-amber-950 dark:text-amber-200">PRO</span> : null}
+                <span className={`absolute right-5 top-5 z-10 rounded-full px-2.5 py-1 text-[9px] font-black tracking-wide shadow-sm ${access.owned ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : premium ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"}`}>{access.owned ? "✓ OWNED" : premium ? "R50 · LIFETIME" : "FREE"}</span>
                 <TemplateThumbnail tpl={template} selected={selectedTemplate === template.id} onSelect={() => selectLandingTemplate(template.id)} doc={cv?.document} />
                 <div className="mt-3 flex items-start justify-between gap-2"><div className="min-w-0"><span className="text-[9px] font-bold tracking-[0.12em] text-indigo-600 dark:text-indigo-300">{categoryLabel}</span><h2 className="mt-1 truncate text-sm font-bold">{template.name}</h2><p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500 dark:text-slate-400">{template.tagline}</p></div><span className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-[9px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{index === 0 ? "1–2 pages" : template.pageDensity}</span></div>
-                <button type="button" onClick={() => selectLandingTemplate(template.id)} className="mt-3 min-h-10 w-full rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 transition hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-indigo-950/40">Use this template</button>
+                <button type="button" onClick={() => selectLandingTemplate(template.id)} className="mt-3 min-h-10 w-full rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 transition hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-indigo-950/40">{access.owned ? "Use owned template" : premium ? "Preview template" : "Use free template"}</button>
+                {premium && !access.owned ? <p className="mt-2 text-center text-[10px] leading-4 text-slate-500">Unlock once. Edit and reuse this template for life.</p> : null}
               </article>;
             })}
           </div>
@@ -5509,8 +5552,13 @@ export default function CvBuilderPage() {
                 <input value={templateSearch} onChange={(event) => setTemplateSearch(event.target.value)} className="min-h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Search templates" aria-label="Search templates" />
               </label>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredTemplates.map((template) => (
-                  <article key={template.id} className="group flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-700 hover:shadow-lg">
+                {filteredTemplates.map((template) => {
+                  const access = templateAccess(monetization, template.id);
+                  return (
+                  <article key={template.id} className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-700 hover:shadow-lg">
+                    <span className={`absolute right-5 top-5 z-10 rounded-full px-2.5 py-1 text-[9px] font-black tracking-wide shadow-sm ${access.owned ? "bg-emerald-100 text-emerald-800" : access.premium ? "bg-amber-100 text-amber-800" : "bg-white text-slate-700"}`}>
+                      {access.owned ? "✓ YOURS FOR LIFE" : access.premium ? "R50 · LIFETIME" : "FREE"}
+                    </span>
                     <TemplateThumbnail
                       tpl={template}
                       selected={selectedTemplate === template.id}
@@ -5532,11 +5580,12 @@ export default function CvBuilderPage() {
                         <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{template.tagline}</p>
                       </div>
                       <button type="button" onClick={() => { handleTemplateChange(template.id); setIsTemplateModalOpen(false); }} className={`inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition ${selectedTemplate === template.id ? "bg-emerald-600 text-white" : "bg-black text-white hover:bg-slate-700"}`}>
-                        {selectedTemplate === template.id ? <><Check size={14} /> Selected</> : "Use Template"}
+                        {selectedTemplate === template.id ? <><Check size={14} /> Selected</> : access.canExport ? "Use Template" : "Preview"}
                       </button>
                     </div>
+                    {access.premium && !access.owned ? <p className="px-1 pb-1 text-[11px] leading-4 text-slate-400">Unlock once. Edit and reuse this template for life.</p> : null}
                   </article>
-                ))}
+                )})}
               </div>
               {!filteredTemplates.length ? <p className="py-12 text-center text-sm text-slate-500">No templates match your search.</p> : null}
             </div>
@@ -5591,6 +5640,9 @@ export default function CvBuilderPage() {
               <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:from-amber-100 hover:to-orange-100 dark:border-amber-800 dark:from-amber-950/50 dark:to-orange-950/50 dark:text-amber-100" title="Open AI suggestions" aria-label="Open AI suggestions">
                 <Sparkles size={14} /><span>Suggestions</span><Crown size={12} className="text-amber-500" />
               </button>
+              <Link href="/pricing" className="inline-flex min-h-9 shrink-0 items-center rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-200" title="View BonList Credits">
+                {monetization.adminBypass ? "Admin access" : `${monetization.credits} Credits`}
+              </Link>
               <button type="button" disabled={!cv || saving} onClick={() => { void handleSaveCv(documentTitle.trim() || "My CV").then(() => canvasRef.current?.focus()); }} className="ml-auto inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-black px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50" title="Save your CV">
                 <Save size={14} /><span>{saving ? "Saving…" : "Save"}</span>
               </button>
@@ -7742,7 +7794,7 @@ export default function CvBuilderPage() {
                 onClick={() => void handleRunTailoring()}
                 className="w-full rounded-xl bg-primary py-2 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-50"
               >
-                {tailoringLoading ? "Analyzing 6-Tier Fit…" : "Run Keyword & Fit Analysis"}
+                {tailoringLoading ? "Analysing role fit…" : monetization.adminBypass ? "Tailor CV · Admin access" : `Tailor CV to this job · ${monetization.features.find((item) => item.id === "tailor_cv")?.creditCost ?? 3} credits`}
               </button>
 
               {advancedMatchReport && (
@@ -9185,7 +9237,7 @@ export default function CvBuilderPage() {
                 ) : (
                   <>
                     <Sparkles size={13} />
-                    Analyse &amp; suggest
+                    Improve CV · {monetization.adminBypass ? "Admin access" : `${monetization.features.find((item) => item.id === "improve_cv")?.creditCost ?? 2} credits`}
                   </>
                 )}
               </button>

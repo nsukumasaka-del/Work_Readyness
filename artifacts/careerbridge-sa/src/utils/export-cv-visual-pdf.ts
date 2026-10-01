@@ -1,7 +1,14 @@
 import { authFetch } from "@/lib/auth-session";
 
+export type CvPdfExportStage = "preparing" | "rendering" | "downloading";
+
 /** Generate a selectable-text PDF from Chromium's print layout on the Worker. */
-export async function exportCvVisualPdf(previewElementId: string, filename: string): Promise<void> {
+export async function exportCvVisualPdf(
+  previewElementId: string,
+  filename: string,
+  onStageChange?: (stage: CvPdfExportStage) => void,
+): Promise<void> {
+  onStageChange?.("preparing");
   const original = document.getElementById(previewElementId);
   if (!(original instanceof HTMLElement)) {
     throw new Error(`CV preview element #${previewElementId} was not found.`);
@@ -60,13 +67,16 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
       .a4-page-frame { break-after: page !important; page-break-after: always !important; }
       .a4-page-frame { position: relative; width: 210mm !important; height: 297mm !important; min-height: 297mm !important; max-height: 297mm !important; margin: 0 auto !important; padding: var(--cv-a4-pad-y, 12mm) var(--cv-a4-pad-x, 15mm) !important; box-sizing: border-box !important; overflow: hidden !important; box-shadow: none !important; border: 0 !important; border-radius: 0 !important; break-after: page !important; page-break-after: always !important; }
       .a4-page-frame:last-child { break-after: auto !important; page-break-after: auto !important; }
-      .a4-page-frame .a4-page-columns { display: grid !important; grid-template-columns: inherit; align-items: start; min-height: 0 !important; height: auto !important; }
+      .a4-page-frame .a4-page-columns { display: grid !important; align-items: start !important; align-content: start !important; min-height: 0 !important; height: auto !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+      .a4-page-frame .a4-page-column { align-self: start !important; justify-self: stretch !important; min-width: 0 !important; margin-top: 0 !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+      .a4-page-frame .experience-item, .a4-page-frame .education-item, .a4-page-frame section, .a4-page-frame [data-a4-id] { break-inside: avoid !important; page-break-inside: avoid !important; }
       #bonlist-cv-document .cv-skill-chip, #bonlist-cv-document [data-a4-id="languages"] .flex.flex-wrap > span { display: inline-flex !important; align-items: center !important; white-space: nowrap !important; word-break: keep-all !important; flex-shrink: 0 !important; }
       .a4-page-frame input, .a4-page-frame textarea, .a4-page-frame select { appearance: none !important; resize: none !important; background: transparent !important; border: 0 !important; box-shadow: none !important; color: inherit !important; -webkit-text-fill-color: currentColor !important; }
       .a4-page-frame textarea { overflow: visible !important; white-space: pre-wrap !important; }
       .a4-page-frame:last-child { break-after: auto !important; page-break-after: auto !important; }
     </style></head><body><main id="bonlist-cv-document" class="cv-export-document">${paginatedPages.map((page) => page.outerHTML).join("")}</main></body></html>`;
 
+  onStageChange?.("rendering");
   const response = await authFetch("/api/career/cv/export-pdf", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -75,6 +85,7 @@ export async function exportCvVisualPdf(previewElementId: string, filename: stri
   if (!response.ok) {
     throw new Error(await readExportError(response));
   }
+  onStageChange?.("downloading");
   const pdf = await response.blob();
   const url = URL.createObjectURL(pdf);
   const link = document.createElement("a");
@@ -227,18 +238,29 @@ function buildExplicitA4Pages(source: HTMLElement, cleanedClone: HTMLElement): H
 
     const grid = document.createElement("div");
     grid.className = `${cloneBody.className} a4-page-columns`;
+    grid.style.cssText = cloneBody.style.cssText;
     const gridStyle = getComputedStyle(sourceBody);
+    grid.style.display = "grid";
     grid.style.gridTemplateColumns = isSplitColumns ? gridStyle.gridTemplateColumns : "minmax(0, 1fr)";
     grid.style.columnGap = isSplitColumns ? gridStyle.columnGap : "0";
     grid.style.rowGap = isSplitColumns ? gridStyle.rowGap : "0";
     grid.style.alignItems = "start";
+    grid.style.alignContent = "start";
+    grid.style.gridAutoFlow = "row";
     grid.style.height = "auto";
 
     for (let columnIndex = 0; columnIndex < sourceColumns.length; columnIndex += 1) {
       const sourceColumn = sourceColumns[columnIndex]!;
       const cloneColumn = cloneColumns[columnIndex]!;
       const column = document.createElement("div");
-      column.className = cloneColumn.className;
+      column.className = `${cloneColumn.className} a4-page-column`;
+      column.style.cssText = cloneColumn.style.cssText;
+      column.style.gridColumn = String(columnIndex + 1);
+      column.style.gridRow = "1";
+      column.style.alignSelf = "start";
+      column.style.justifySelf = "stretch";
+      column.style.minWidth = "0";
+      column.style.marginTop = "0";
 
       const sourceItems = Array.from(sourceColumn.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
       const cloneItems = Array.from(cloneColumn.children).filter((child): child is HTMLElement => child instanceof HTMLElement);

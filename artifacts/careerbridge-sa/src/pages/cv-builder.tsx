@@ -78,7 +78,7 @@ import { calculateCvCompletion } from "@/lib/cv-completion";
 import { buildParseUploadBody, parseUploadErrorMessage, readFileAsDataUrl } from "@/lib/cv-parse-upload";
 import { getNativeCv, NATIVE_CV_STORE_UPDATED, saveNativeCv } from "@/lib/native-cv-store";
 import { isAndroidApp } from "@/lib/platform";
-import { exportCvVisualPdf } from "@/utils/export-cv-visual-pdf";
+import { exportCvVisualPdf, type CvPdfExportStage } from "@/utils/export-cv-visual-pdf";
 import {
   buildGeneratedCv as buildGeneratedCvLocally,
   extractCvDataFromText,
@@ -2383,6 +2383,7 @@ export default function CvBuilderPage() {
   const [isPreFlightModalOpen, setIsPreFlightModalOpen] = useState(false);
   const [preFlightLoading, setPreFlightLoading] = useState(false);
   const [isPdfDownloading, setIsPdfDownloading] = useState(false);
+  const [pdfDownloadStage, setPdfDownloadStage] = useState<CvPdfExportStage | null>(null);
   const [pendingDownloadAction, setPendingDownloadAction] = useState<"print" | "html" | "txt" | "doc" | null>(null);
 
   // Career Positioning Engine (Section 30)
@@ -4790,6 +4791,9 @@ export default function CvBuilderPage() {
       return;
     }
     setIsPdfDownloading(true);
+    setPdfDownloadStage("preparing");
+    // Give React a paint opportunity before the synchronous DOM capture begins.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     const cleaned = sanitizeCvDocument(cv.document);
     if (JSON.stringify(cleaned) !== JSON.stringify(cv.document)) {
       const updated = { ...cv, document: cleaned };
@@ -4803,7 +4807,7 @@ export default function CvBuilderPage() {
       const templateName = TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "CV";
       const safeTemplateName = templateName.replace(/[^a-z0-9_-]/gi, "_");
       const filename = `${safeBaseName}_${safeTemplateName}`;
-      await exportCvVisualPdf(preview.id || "bonlist-cv-document", filename);
+      await exportCvVisualPdf(preview.id || "bonlist-cv-document", filename, setPdfDownloadStage);
       setMessage("Your CV PDF download has started.");
       setTimeout(() => setMessage(""), 4000);
     } catch (exportError) {
@@ -4811,6 +4815,7 @@ export default function CvBuilderPage() {
       setError(exportError instanceof Error ? `PDF generation failed: ${exportError.message}` : "PDF generation failed. Please try again.");
     } finally {
       setIsPdfDownloading(false);
+      setPdfDownloadStage(null);
       options?.onReady?.();
     }
   };
@@ -8863,7 +8868,9 @@ export default function CvBuilderPage() {
               <button
                 type="button"
                 onClick={() => setIsPreFlightModalOpen(false)}
-                className="rounded-xl border border-border p-1.5 text-muted-foreground hover:bg-secondary"
+                disabled={isPdfDownloading}
+                className="rounded-xl border border-border p-1.5 text-muted-foreground hover:bg-secondary disabled:cursor-wait disabled:opacity-40"
+                aria-label="Close final check"
               >
                 <X size={15} />
               </button>
@@ -8881,7 +8888,8 @@ export default function CvBuilderPage() {
                   <button
                     type="button"
                     onClick={() => setIsPreFlightModalOpen(false)}
-                    className="rounded-xl border border-border px-4 py-2 text-xs font-semibold hover:bg-secondary"
+                    disabled={isPdfDownloading}
+                    className="rounded-xl border border-border px-4 py-2 text-xs font-semibold hover:bg-secondary disabled:cursor-wait disabled:opacity-40"
                   >
                     Return
                   </button>
@@ -8890,12 +8898,37 @@ export default function CvBuilderPage() {
                     onClick={handleConfirmPreFlightDownload}
                     disabled={isPdfDownloading}
                     aria-busy={isPdfDownloading}
-                    className="rounded-xl bg-primary px-5 py-2 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+                    className="inline-flex min-w-40 items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:cursor-wait disabled:opacity-75"
                   >
-                    {isPdfDownloading ? "Generating PDF…" : "Download Final CV"}
+                    {isPdfDownloading ? <RefreshCw size={14} className="animate-spin" aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}
+                    {isPdfDownloading
+                      ? pdfDownloadStage === "preparing"
+                        ? "Preparing layout…"
+                        : pdfDownloadStage === "downloading"
+                          ? "Starting download…"
+                          : "Rendering PDF…"
+                      : "Download Final CV"}
                   </button>
                 </div>
               </div>
+              {isPdfDownloading ? (
+                <div className="mt-3" role="status" aria-live="polite">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                    <div
+                      className={`h-full rounded-full bg-primary transition-all duration-500 ${
+                        pdfDownloadStage === "preparing" ? "w-1/3" : pdfDownloadStage === "downloading" ? "w-full" : "w-2/3"
+                      }`}
+                    />
+                  </div>
+                  <p className="mt-1.5 text-[10px] font-medium text-muted-foreground">
+                    {pdfDownloadStage === "preparing"
+                      ? "Capturing the exact CV layout and page positions."
+                      : pdfDownloadStage === "downloading"
+                        ? "Your completed PDF is being transferred to this device."
+                        : "Creating a selectable, print-ready PDF. Keep this window open."}
+                  </p>
+                </div>
+              ) : null}
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">

@@ -808,6 +808,47 @@
   white-space: normal !important;
 }
 
+#bonlist-cv-document.cv-inline-edit-mode input,
+#bonlist-cv-document.cv-inline-edit-mode textarea,
+#bonlist-cv-document.cv-inline-edit-mode [data-inline-editable="true"] {
+  border-radius: 0.25rem;
+  outline: 1px dashed transparent;
+  outline-offset: 2px;
+  cursor: text;
+  transition: background-color 120ms ease, outline-color 120ms ease, box-shadow 120ms ease;
+}
+
+#bonlist-cv-document.cv-inline-edit-mode input:hover,
+#bonlist-cv-document.cv-inline-edit-mode textarea:hover,
+#bonlist-cv-document.cv-inline-edit-mode [data-inline-editable="true"]:hover {
+  background-color: rgb(238 242 255 / 0.72) !important;
+  outline-color: rgb(129 140 248 / 0.7);
+}
+
+#bonlist-cv-document.cv-inline-edit-mode input:focus,
+#bonlist-cv-document.cv-inline-edit-mode textarea:focus,
+#bonlist-cv-document.cv-inline-edit-mode [data-inline-editable="true"]:focus {
+  background-color: rgb(255 255 255 / 0.96) !important;
+  outline: 2px solid rgb(99 102 241 / 0.8);
+  box-shadow: 0 0 0 4px rgb(99 102 241 / 0.12);
+}
+
+#bonlist-cv-document .cv-inline-bullet {
+  padding-inline-start: 1rem !important;
+  background-image: radial-gradient(circle, currentColor 0 2px, transparent 2.5px);
+  background-position: 0.25rem 0.65em;
+  background-repeat: no-repeat;
+}
+
+@media print {
+  #bonlist-cv-document.cv-inline-edit-mode input,
+  #bonlist-cv-document.cv-inline-edit-mode textarea,
+  #bonlist-cv-document.cv-inline-edit-mode [data-inline-editable="true"] {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+}
+
 #bonlist-cv-document .cv-badge-list {
   min-width: 0;
   width: 100%;

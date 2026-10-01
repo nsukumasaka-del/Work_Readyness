@@ -1,6 +1,7 @@
 import {
   type ChangeEvent,
   type DragEvent,
+  type FocusEvent as ReactFocusEvent,
   type PointerEvent as ReactPointerEvent,
   type TextareaHTMLAttributes,
   Fragment,
@@ -13,6 +14,10 @@ import { createPortal } from "react-dom";
 import { Link, useLocation } from "wouter";
 import {
   AlertCircle,
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
   ArrowRight,
   Award,
   Bold,
@@ -51,6 +56,7 @@ import {
   MoveDown,
   MoveUp,
   Palette,
+  Pencil,
   Crown,
   Plus,
   RefreshCw,
@@ -98,6 +104,18 @@ const CV_WIZARD_STEPS = [
 
 const MAX_BULLETS_PER_ROLE = 12;
 const MAX_BULLET_CHARS = 280;
+
+type InlineTextAlignment = "left" | "center" | "right" | "justify";
+
+type InlineTextFormat = {
+  alignment?: InlineTextAlignment;
+  bold?: boolean;
+  italic?: boolean;
+  bullet?: boolean;
+  fontScale?: number;
+};
+
+type InlineFormattingMap = Record<string, InlineTextFormat>;
 
 const PDF_JUNK_RE =
   /\b(?:\d+\s+\d+\s+obj|endobj|endstream|stream\b|xref\b|trailer\b|startxref|\/Type\s*\/|\/Filter\s*\/|\/Length\s+\d+|<<|>>)\b/i;
@@ -606,6 +624,7 @@ export interface GeneratedCvResponse {
     fontSize?: number;
     lineSpacing?: "tight" | "balanced" | "relaxed";
     marginSize?: "compact" | "normal" | "wide";
+    inlineFormatting?: InlineFormattingMap;
   };
   document: GeneratedCvDocument;
   cv_content?: CvContentData;
@@ -2258,6 +2277,9 @@ export default function CvBuilderPage() {
   const [fontSize, setFontSize] = useState<number>(10.5); // pt
   const [lineSpacing, setLineSpacing] = useState<"tight" | "balanced" | "relaxed">("balanced");
   const [marginSize, setMarginSize] = useState<"compact" | "normal" | "wide">("normal");
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [inlineFormatting, setInlineFormatting] = useState<InlineFormattingMap>({});
+  const [activeInlineField, setActiveInlineField] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState<number>(() =>
     typeof window !== "undefined" && window.innerWidth < 768 ? 75 : 100,
   );
@@ -3551,6 +3573,7 @@ export default function CvBuilderPage() {
           if (preferences?.fontSize) setFontSize(preferences.fontSize);
           if (preferences?.lineSpacing) setLineSpacing(preferences.lineSpacing);
           if (preferences?.marginSize) setMarginSize(preferences.marginSize);
+          setInlineFormatting(preferences?.inlineFormatting || {});
           hasGeneratedRef.current = true;
           if (searchParams?.get("print") === "1") {
             window.setTimeout(() => handleDirectDownload("print"), 900);
@@ -3611,6 +3634,7 @@ export default function CvBuilderPage() {
       hasGeneratedRef.current = true;
       setIsIntakeModalOpen(false);
       setSelectedTemplate(existing.structure || "professional");
+      setInlineFormatting(existing.preferences?.inlineFormatting || {});
       void runQualityEvaluation(condensed.document);
       return;
     }
@@ -3648,6 +3672,7 @@ export default function CvBuilderPage() {
           if (preferences?.fontSize) setFontSize(preferences.fontSize);
           if (preferences?.lineSpacing) setLineSpacing(preferences.lineSpacing);
           if (preferences?.marginSize) setMarginSize(preferences.marginSize);
+          setInlineFormatting(preferences?.inlineFormatting || {});
           hasGeneratedRef.current = true;
         })
         .catch((loadError) => {
@@ -3926,6 +3951,7 @@ export default function CvBuilderPage() {
       fontSize,
       lineSpacing,
       marginSize,
+      inlineFormatting,
     },
   });
 
@@ -3994,6 +4020,48 @@ export default function CvBuilderPage() {
     persistGeneratedCv(updatedCv);
   };
 
+  const editablePreviewFields = () =>
+    Array.from(
+      printRef.current?.querySelectorAll<HTMLElement>(
+        "input:not([type='hidden']), textarea, [data-inline-editable='true']",
+      ) || [],
+    );
+
+  const inlineFieldKey = (element: HTMLElement) => {
+    const index = editablePreviewFields().indexOf(element);
+    return index >= 0 ? `preview-field-${index}` : null;
+  };
+
+  const handleInlineFieldFocus = (event: ReactFocusEvent<HTMLElement>) => {
+    if (!isEditMode) return;
+    const element = event.target;
+    if (!(element instanceof HTMLElement) || !element.matches("input:not([type='hidden']), textarea, [data-inline-editable='true']")) return;
+    setActiveInlineField(inlineFieldKey(element));
+  };
+
+  const updateActiveInlineFormat = (patch: Partial<InlineTextFormat>) => {
+    if (!activeInlineField) return;
+    setInlineFormatting((current) => ({
+      ...current,
+      [activeInlineField]: { ...current[activeInlineField], ...patch },
+    }));
+  };
+
+  useLayoutEffect(() => {
+    editablePreviewFields().forEach((element, index) => {
+      const format = inlineFormatting[`preview-field-${index}`] || {};
+      element.style.textAlign = format.alignment || "";
+      element.style.fontWeight = format.bold ? "700" : "";
+      element.style.fontStyle = format.italic ? "italic" : "";
+      element.style.fontSize = format.fontScale && format.fontScale !== 1 ? `${format.fontScale}em` : "";
+      element.classList.toggle("cv-inline-bullet", Boolean(format.bullet));
+    });
+  }, [cv, selectedTemplate, inlineFormatting]);
+
+  useEffect(() => {
+    if (!isEditMode) setActiveInlineField(null);
+  }, [isEditMode]);
+
   const moveCustomSection = (from: number, to: number) => {
     if (!cv || from === to) return;
     const sections = [...(cv.document.sections || [])];
@@ -4024,7 +4092,7 @@ export default function CvBuilderPage() {
         void saveNativeCv({ ...cv, title }, true, { title, preferences: payload.preferences });
       }
     }
-  }, [cv, documentTitle, selectedTemplate, selectedColor.id, selectedFont.id, fontSize, lineSpacing, marginSize, isIntakeModalOpen]);
+  }, [cv, documentTitle, selectedTemplate, selectedColor.id, selectedFont.id, fontSize, lineSpacing, marginSize, inlineFormatting, isIntakeModalOpen]);
 
   useEffect(() => {
     if (!isAndroidApp()) return;
@@ -4925,6 +4993,7 @@ export default function CvBuilderPage() {
       setError("Generate or load a CV before downloading.");
       return;
     }
+    setIsEditMode(false);
     setIsExportFormatModalOpen(true);
   };
 
@@ -6422,6 +6491,28 @@ export default function CvBuilderPage() {
               <span className="ml-2 shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-500 sm:text-xs">{a4PageCount} {a4PageCount === 1 ? "page" : "pages"}</span>
             </div>
             <div className="flex w-full shrink-0 items-center justify-end gap-1.5 sm:w-auto sm:gap-2">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isEditMode}
+                disabled={!cv}
+                onClick={() => {
+                  setIsEditMode((current) => !current);
+                  setMobileWorkspaceView("preview");
+                }}
+                className={`inline-flex min-h-9 items-center gap-2 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold transition disabled:opacity-50 sm:min-h-10 sm:rounded-2xl sm:px-3 sm:text-xs ${
+                  isEditMode
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+                title={isEditMode ? "Turn off direct preview editing" : "Edit text directly on the CV preview"}
+              >
+                <Pencil size={14} />
+                <span>Edit Mode</span>
+                <span className={`relative h-5 w-9 rounded-full transition ${isEditMode ? "bg-emerald-500" : "bg-slate-300"}`} aria-hidden>
+                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${isEditMode ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+                </span>
+              </button>
               <button type="button" onClick={() => { setImportStep("upload"); setLocation("/cv-builder/import"); }} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-200 sm:min-h-10 sm:gap-2 sm:rounded-2xl sm:px-4 sm:py-2.5 sm:text-xs" title="Import an existing resume">
                 <FileUp size={14} /><span>Import Resume</span>
               </button>
@@ -6430,6 +6521,31 @@ export default function CvBuilderPage() {
               </button>
             </div>
           </header>
+          {isEditMode ? (
+            <div className="no-print sticky top-[65px] z-20 mx-auto mt-2 flex max-w-[calc(100%-1rem)] flex-wrap items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 sm:top-[73px]" role="toolbar" aria-label="Inline text formatting">
+              <span className="px-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                {activeInlineField ? "Format selection" : "Select text to format"}
+              </span>
+              {([
+                ["left", AlignLeft, "Align left"],
+                ["center", AlignCenter, "Align center"],
+                ["right", AlignRight, "Align right"],
+                ["justify", AlignJustify, "Justify"],
+              ] as const).map(([alignment, Icon, label]) => (
+                <button key={alignment} type="button" disabled={!activeInlineField} aria-label={label} aria-pressed={activeInlineField ? inlineFormatting[activeInlineField]?.alignment === alignment : false} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ alignment })} className={`rounded-lg p-2 transition hover:bg-slate-100 disabled:opacity-35 ${activeInlineField && inlineFormatting[activeInlineField]?.alignment === alignment ? "bg-indigo-100 text-indigo-700" : "text-slate-600"}`}>
+                  <Icon size={15} />
+                </button>
+              ))}
+              <span className="mx-1 h-6 w-px bg-slate-200" />
+              <button type="button" disabled={!activeInlineField} aria-label="Bold" aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.bold) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ bold: !inlineFormatting[activeInlineField]?.bold })} className={`rounded-lg p-2 transition hover:bg-slate-100 disabled:opacity-35 ${activeInlineField && inlineFormatting[activeInlineField]?.bold ? "bg-indigo-100 text-indigo-700" : "text-slate-600"}`}><Bold size={15} /></button>
+              <button type="button" disabled={!activeInlineField} aria-label="Italic" aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.italic) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ italic: !inlineFormatting[activeInlineField]?.italic })} className={`rounded-lg p-2 transition hover:bg-slate-100 disabled:opacity-35 ${activeInlineField && inlineFormatting[activeInlineField]?.italic ? "bg-indigo-100 text-indigo-700" : "text-slate-600"}`}><Italic size={15} /></button>
+              <button type="button" disabled={!activeInlineField} aria-label="Toggle bullet" aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.bullet) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ bullet: !inlineFormatting[activeInlineField]?.bullet })} className={`rounded-lg p-2 transition hover:bg-slate-100 disabled:opacity-35 ${activeInlineField && inlineFormatting[activeInlineField]?.bullet ? "bg-indigo-100 text-indigo-700" : "text-slate-600"}`}><List size={15} /></button>
+              <span className="mx-1 h-6 w-px bg-slate-200" />
+              <button type="button" disabled={!activeInlineField} aria-label="Decrease text size" onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ fontScale: Math.max(0.75, (inlineFormatting[activeInlineField]?.fontScale || 1) - 0.1) })} className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 disabled:opacity-35"><Minus size={14} /></button>
+              <Type size={15} className="text-slate-500" aria-hidden />
+              <button type="button" disabled={!activeInlineField} aria-label="Increase text size" onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ fontScale: Math.min(1.5, (inlineFormatting[activeInlineField]?.fontScale || 1) + 0.1) })} className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 disabled:opacity-35"><Plus size={14} /></button>
+            </div>
+          ) : null}
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
             <div className="flex min-h-max w-full shrink-0 flex-1 justify-center bg-slate-100/70 px-2 pt-6 pb-32 sm:px-6 min-[1025px]:pb-6">
@@ -6888,6 +7004,14 @@ export default function CvBuilderPage() {
                           return (
                             <span
                               key={sIdx}
+                              data-inline-editable="true"
+                              contentEditable={isEditMode}
+                              suppressContentEditableWarning
+                              onBlur={(event) => {
+                                const skills = [...cv.document.skills];
+                                skills[sIdx] = sanitizeSkillBadge(event.currentTarget.textContent || "");
+                                updateDocumentField("skills", skills);
+                              }}
                               className={`cv-skill-chip rounded-lg border px-2.5 py-0.5 text-[11px] font-medium transition ${
                                 isMatch ? "ring-2 ring-emerald-500 bg-emerald-50 text-emerald-800" : ""
                               }`}
@@ -7229,14 +7353,15 @@ export default function CvBuilderPage() {
                 return (
                   <article
                     ref={printRef}
-                    inert
+                    inert={isEditMode ? undefined : true}
+                    onFocusCapture={handleInlineFieldFocus}
                     id="bonlist-cv-document"
                     style={{
                       fontFamily: selectedFont.family,
                       fontSize: `${fontSize}pt`,
                       ...(BACKGROUND_PATTERNS.find((p) => p.id === bgPattern)?.style || {}),
                     }}
-                    className={`cv-page-sheet cv-margin-${marginSize} overflow-visible bg-white text-slate-900 transition-all ${
+                    className={`cv-page-sheet cv-margin-${marginSize} ${isEditMode ? "cv-inline-edit-mode" : ""} overflow-visible bg-white text-slate-900 transition-all ${
                       lineSpacing === "tight"
                         ? "space-y-4"
                         : lineSpacing === "relaxed"

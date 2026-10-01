@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { App } from "@capacitor/app";
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { CapacitorUpdater } from "@capgo/capacitor-updater";
 import { CheckCircle2, Download, RefreshCw, Smartphone, Wifi } from "lucide-react";
 import { apiUrl } from "@/lib/api-base";
@@ -23,16 +23,12 @@ const FALLBACK_VERSION_CODE = 1;
 const ACTIVE_BUNDLE_KEY = "bonlist-active-bundle-version";
 const isAndroidApk = () => Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
 
-declare global {
-  interface Window {
-    Capacitor?: {
-      isNativePlatform?: () => boolean;
-      Plugins?: {
-        ApkInstaller?: { installApk?: (options: { url: string }) => Promise<{ started: boolean; permissionRequired?: boolean }> };
-      };
-    };
-  }
-}
+type ApkInstallEvent = { message?: string; percent?: number };
+type ApkInstallerApi = {
+  installApk: (options: { url: string }) => Promise<{ started: boolean; permissionRequired?: boolean; downloadId?: number }>;
+  addListener: (eventName: string, listener: (event: ApkInstallEvent) => void) => Promise<{ remove: () => Promise<void> }>;
+};
+const ApkInstaller = registerPlugin<ApkInstallerApi>("ApkInstaller");
 
 async function getInstalledVersion(): Promise<Installed> {
   let version = FALLBACK_VERSION;
@@ -106,15 +102,61 @@ function hasOtaUpdate(release: Release, installed: Installed) {
     Boolean(release.bundleVersion && release.bundleUrl && release.bundleVersion !== installed.bundleVersion);
 }
 
-async function installAndroidRelease(apkUrl: string) {
+async function installAndroidRelease(
+  apkUrl: string,
+  callbacks: { onError: (message: string) => void; onComplete?: (message: string) => void; onProgress?: (percent: number | null) => void },
+) {
+  const resolvedUrl = new URL(apkUrl, isAndroidApk() ? "https://www.bonlist.site/" : window.location.href);
+  if (resolvedUrl.protocol === "http:" && /(^|\.)bonlist\.site$/i.test(resolvedUrl.hostname)) {
+    resolvedUrl.protocol = "https:";
+  }
+  if (resolvedUrl.protocol !== "https:") throw new Error("APK updates require a secure HTTPS download URL.");
   if (!isAndroidApk()) {
-    window.open(apkUrl, "_blank", "noopener,noreferrer");
+    window.open(resolvedUrl.toString(), "_blank", "noopener,noreferrer");
     return;
   }
-  const installer = window.Capacitor?.Plugins?.ApkInstaller?.installApk;
-  if (!installer) throw new Error("The APK installer is unavailable. Update BonList from the Play Store or reinstall the latest APK.");
-  const result = await installer({ url: apkUrl });
-  if (result?.permissionRequired) throw new Error("Allow BonList to install apps in Android settings, then tap Install Update again.");
+  const handles: Array<{ remove: () => Promise<void> }> = [];
+  let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+  let nativeFinished = false;
+  const cleanup = () => {
+    if (cleanupTimer) clearTimeout(cleanupTimer);
+    void Promise.all(handles.map((handle) => handle.remove().catch(() => undefined)));
+  };
+  try {
+    handles.push(await ApkInstaller.addListener("apkInstallError", (event: ApkInstallEvent) => {
+      nativeFinished = true;
+      callbacks.onError(event.message || "Android could not install the APK update.");
+      callbacks.onProgress?.(null);
+      cleanup();
+    }));
+    handles.push(await ApkInstaller.addListener("apkDownloadProgress", (event: ApkInstallEvent) => {
+      if (typeof event.percent === "number") callbacks.onProgress?.(event.percent);
+    }));
+    handles.push(await ApkInstaller.addListener("apkDownloadComplete", () => {
+      nativeFinished = true;
+      callbacks.onProgress?.(100);
+      callbacks.onComplete?.("APK downloaded. Confirm the Android installation prompt.");
+      cleanup();
+    }));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const result = await Promise.race([
+      ApkInstaller.installApk({ url: resolvedUrl.toString() }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Android did not respond while starting the APK download. Please try again.")), 20_000);
+      }),
+    ]).finally(() => { if (timer) clearTimeout(timer); });
+    if (result.permissionRequired) {
+      throw new Error("Allow BonList to install apps in Android settings, then tap Install APK Update again.");
+    }
+    if (!result.started) throw new Error("Android did not start the APK download.");
+    if (!nativeFinished) {
+      callbacks.onComplete?.("APK download started. Android will open the installer when it is ready.");
+      cleanupTimer = setTimeout(cleanup, 9 * 60_000);
+    }
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
 }
 
 async function syncAndApplyOta(release: Release, onProgress?: (percent: number | null) => void) {
@@ -218,9 +260,21 @@ function UpdateAction({ release, installed, busy, onError, onBusy, onComplete, o
   const otaAvailable = hasOtaUpdate(release, installed);
   if (!apkRequired && !otaAvailable) return null;
   const apply = async () => {
-    onBusy(true); onError(""); onProgress?.(null);
+    onBusy(true); onError(""); onComplete?.(""); onProgress?.(null);
     try {
-      if (apkRequired) await installAndroidRelease(release.apkUrl);
+      if (apkRequired) {
+        let startupTimer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            installAndroidRelease(release.apkUrl, { onError, onComplete, onProgress }),
+            new Promise<never>((_, reject) => {
+              startupTimer = setTimeout(() => reject(new Error("The Android installer did not respond. Please try again.")), 25_000);
+            }),
+          ]);
+        } finally {
+          if (startupTimer) clearTimeout(startupTimer);
+        }
+      }
       else {
         const appliedImmediately = await syncAndApplyOta(release, onProgress);
         if (!appliedImmediately) onComplete?.("Bundle downloaded. It will apply the next time BonList reloads.");
@@ -260,7 +314,7 @@ export function UpdatesPage() {
 
   useEffect(() => { void checkForUpdates(); }, [checkForUpdates]);
   const [actionError, setActionError] = useState("");
-  const showActionError = (value: string) => { setActionError(value); setError(value); };
+  const showActionError = (value: string) => { setActionError(value); setError(value); if (value) setMessage(""); };
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
@@ -299,6 +353,7 @@ export function AppUpdatePrompt() {
   const [release, setRelease] = useState<Release | null>(null);
   const [installed, setInstalled] = useState<Installed | null>(null);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!isAndroidApk()) return;
@@ -321,9 +376,10 @@ export function AppUpdatePrompt() {
         <p className="mt-4 text-sm text-foreground">{apkUpdateRequired(release, installed) ? `A new APK (v${release.latestVersion}) is available.` : "A new BonList web bundle is ready to sync."}</p>
         <p className="mt-2 whitespace-pre-line text-xs text-muted-foreground">{release.releaseNotes}</p>
         {error && <p className="mt-3 text-sm text-destructive" role="alert">{error}</p>}
+        {message && <p className="mt-3 text-sm text-emerald-700" role="status">{message}</p>}
         <div className="mt-6 flex justify-end gap-2">
           <button type="button" onClick={close} className="min-h-[44px] rounded-xl border border-border px-4 py-2 text-sm font-semibold">Later</button>
-          <UpdateAction release={release} installed={installed} busy={busy} onBusy={setBusy} onError={setError} />
+          <UpdateAction release={release} installed={installed} busy={busy} onBusy={setBusy} onError={(value) => { setMessage(""); setError(value); }} onComplete={setMessage} />
         </div>
       </section>
     </div>

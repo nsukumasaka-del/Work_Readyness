@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,13 +34,16 @@ if (bundle.length < 4 || bundle[0] !== 0x50 || bundle[1] !== 0x4b || !zip.file("
   throw new Error("The OTA bundle is not a valid ZIP or is missing index.html; refusing to publish an unusable update.");
 }
 writeFileSync(resolve(otaDir, "latest.zip"), bundle);
+const otaChecksum = createHash("sha256").update(bundle).digest("hex");
 const manifest = {
   bundleVersion: meta.bundleVersion,
   builtAt: meta.builtAt,
   targetPlatform: meta.targetPlatform,
   requiresNewAPK: meta.requiresNewAPK,
   bundleUrl: `https://www.bonlist.site/ota/latest.zip?v=${encodeURIComponent(meta.bundleVersion)}`,
+  otaChecksum,
+  bundleSizeBytes: bundle.length,
   releaseNotes: meta.releaseNotes,
 };
 writeFileSync(resolve(otaDir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
-console.log(`[bonlist] OTA bundle packaged (${(bundle.length / 1024 / 1024).toFixed(2)} MB)`);
+console.log(`[bonlist] OTA bundle packaged (${(bundle.length / 1024 / 1024).toFixed(2)} MB, SHA-256 ${otaChecksum})`);

@@ -61,7 +61,8 @@ function apkUpdateRequired(release: Release, installed: Installed) {
 
 function hasOtaUpdate(release: Release, installed: Installed) {
   return isAndroidApk() && release.targetPlatform === "all" && !apkUpdateRequired(release, installed) &&
-    Boolean(release.bundleVersion && release.bundleUrl && release.bundleVersion !== installed.bundleVersion);
+    Boolean(release.bundleVersion && release.bundleUrl && release.otaChecksum &&
+      release.bundleVersion !== installed.bundleVersion);
 }
 
 async function installAndroidRelease(
@@ -135,6 +136,9 @@ async function syncAndApplyOta(release: Release, onProgress?: (percent: number |
   if (!isAndroidApk()) throw new Error("Over-the-air updates are available only in the BonList Android app.");
   if (release.targetPlatform !== "all") throw new Error("This release is not an OTA-compatible web bundle.");
   if (!release.bundleUrl || !release.bundleVersion) throw new Error("The update service has no web bundle for this release.");
+  if (!/^[a-f0-9]{64}$/i.test(release.otaChecksum)) {
+    throw new Error("The OTA bundle has no valid SHA-256 checksum. Install the latest BonList APK first.");
+  }
   const bundleUrl = new URL(release.bundleUrl);
   const trustedOtaHost = bundleUrl.hostname === "bonlist.site"
     || bundleUrl.hostname.endsWith(".bonlist.site")
@@ -153,6 +157,7 @@ async function syncAndApplyOta(release: Release, onProgress?: (percent: number |
   console.info("[CapacitorUpdater] Starting native OTA download without a browser preflight", {
     platform: Capacitor.getPlatform(),
     bundleVersion: release.bundleVersion,
+    checksum: release.otaChecksum,
     url: safeBundleUrl,
     responseTimeoutSeconds: 120,
   });
@@ -177,7 +182,11 @@ async function syncAndApplyOta(release: Release, onProgress?: (percent: number |
       // Listener registration is diagnostic only; still attempt the actual download.
       console.warn("[CapacitorUpdater] Could not attach all download diagnostics", listenerError);
     }
-    bundle = await CapacitorUpdater.download({ url: downloadUrl, version: release.bundleVersion });
+    bundle = await CapacitorUpdater.download({
+      url: downloadUrl,
+      version: release.bundleVersion,
+      checksum: release.otaChecksum,
+    });
     const bundleDetails = bundle as typeof bundle & { version?: string; status?: string };
     console.info("[CapacitorUpdater] Native download() resolved", {
       id: bundle.id,

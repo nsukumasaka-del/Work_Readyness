@@ -470,7 +470,16 @@ export default {
         const manifestResponse = await env.ASSETS.fetch(new Request(manifestUrl, { headers: { "cache-control": "no-cache" } }));
         const bundleUrl = new URL("/ota/latest.zip", url.origin);
         hasBundle = await hasValidOtaBundle(env, bundleUrl);
-        if (manifestResponse.ok && hasBundle) bundleManifest = await manifestResponse.json() as Record<string, unknown>;
+        if (manifestResponse.ok && hasBundle) {
+          const candidate = await manifestResponse.json() as Record<string, unknown>;
+          const otaChecksum = String(candidate.otaChecksum || "").toLowerCase();
+          const bundleSizeBytes = Number(candidate.bundleSizeBytes || 0);
+          if (/^[a-f0-9]{64}$/.test(otaChecksum) && Number.isSafeInteger(bundleSizeBytes) && bundleSizeBytes >= 1024) {
+            bundleManifest = candidate;
+          } else {
+            hasBundle = false;
+          }
+        }
       } catch (error) {
         console.warn("[app-version] OTA manifest unavailable; returning APK metadata only", error);
       }
@@ -484,6 +493,8 @@ export default {
         checksumSha256: apkRelease?.checksumSha256 || "",
         bundleVersion: hasBundle ? String(bundleManifest.bundleVersion || "") : "",
         bundleUrl: hasBundle ? String(bundleManifest.bundleUrl || "") : "",
+        otaChecksum: hasBundle ? String(bundleManifest.otaChecksum || "") : "",
+        bundleSizeBytes: hasBundle ? Number(bundleManifest.bundleSizeBytes || 0) : 0,
         targetPlatform: hasBundle ? String(bundleManifest.targetPlatform || "all") : apkRelease ? "native-apk-required" : "web-only",
         requiresNewAPK: hasBundle && Boolean(bundleManifest.requiresNewAPK),
         releaseNotes: String(bundleManifest.releaseNotes || env.ANDROID_RELEASE_NOTES || "Current stable BonList Android release."),

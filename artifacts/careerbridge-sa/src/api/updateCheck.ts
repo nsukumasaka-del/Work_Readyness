@@ -13,6 +13,8 @@ export interface AppUpdateMetadata {
   releaseNotes: string;
   bundleVersion: string;
   bundleUrl: string;
+  otaChecksum: string;
+  bundleSizeBytes: number;
   targetPlatform: TargetPlatform;
   requiresNewAPK: boolean;
 }
@@ -31,6 +33,10 @@ export async function fetchAppUpdateMetadata(): Promise<AppUpdateMetadata> {
   const fileSizeBytes = Number(value.fileSizeBytes || 0);
   const checksumSha256 = String(value.checksumSha256 || '');
   const apkUrl = String(value.apkUrl || '');
+  const bundleVersion = String(value.bundleVersion || '');
+  const bundleUrl = String(value.bundleUrl || '');
+  const otaChecksum = String(value.otaChecksum || '').toLowerCase();
+  const bundleSizeBytes = Number(value.bundleSizeBytes || 0);
   if (!Number.isSafeInteger(versionCode) || versionCode < 0 || typeof value.latestVersion !== 'string') {
     throw new Error('The update service returned invalid version information.');
   }
@@ -38,6 +44,11 @@ export async function fetchAppUpdateMetadata(): Promise<AppUpdateMetadata> {
       fileSizeBytes > 2_147_483_647 || !/^[a-f0-9]{64}$/i.test(checksumSha256) ||
       !apkUrl.startsWith('https://') || versionCode < 1)) {
     throw new Error('The update service returned incomplete APK integrity information.');
+  }
+  if ((bundleVersion || bundleUrl) && (!bundleVersion || !bundleUrl ||
+      !/^https:\/\//i.test(bundleUrl) || !/^[a-f0-9]{64}$/.test(otaChecksum) ||
+      !Number.isSafeInteger(bundleSizeBytes) || bundleSizeBytes < 1024)) {
+    throw new Error('The update service returned incomplete OTA integrity information.');
   }
   const targetPlatform: TargetPlatform = ['all', 'web-only', 'native-apk-required'].includes(String(value.targetPlatform))
     ? value.targetPlatform as TargetPlatform : 'all';
@@ -50,8 +61,10 @@ export async function fetchAppUpdateMetadata(): Promise<AppUpdateMetadata> {
     fileSizeBytes: apkAvailable ? fileSizeBytes : 0,
     checksumSha256: apkAvailable ? checksumSha256 : '',
     releaseNotes: String(value.releaseNotes || 'No release notes provided.'),
-    bundleVersion: String(value.bundleVersion || ''),
-    bundleUrl: String(value.bundleUrl || ''),
+    bundleVersion,
+    bundleUrl,
+    otaChecksum,
+    bundleSizeBytes,
     targetPlatform,
     requiresNewAPK: Boolean(value.requiresNewAPK),
   };

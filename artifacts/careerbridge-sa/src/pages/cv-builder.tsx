@@ -15,6 +15,7 @@ import { Link, useLocation } from "wouter";
 import {
   AlertCircle,
   AlignCenter,
+  AlignJustify,
   AlignLeft,
   AlignRight,
   ArrowRight,
@@ -60,6 +61,7 @@ import {
   Crown,
   Plus,
   RefreshCw,
+  Redo2,
   Save,
   Search,
   Settings2,
@@ -647,6 +649,15 @@ export interface GeneratedCvResponse {
   ai_feedback?: AiFeedbackData;
   message?: string;
 }
+
+type CanvasHistorySnapshot = {
+  document: GeneratedCvDocument;
+  inlineFormatting: InlineFormattingMap;
+  sectionOrder: CanvasSectionKey[];
+  sectionSpacing: number;
+  columnRatio: number;
+  sectionLabels: Record<string, string>;
+};
 
 function normalizeCvResponse(response: GeneratedCvResponse): GeneratedCvResponse {
   if (!response?.document) return response;
@@ -2299,8 +2310,6 @@ export default function CvBuilderPage() {
   const [inlineFormatting, setInlineFormatting] = useState<InlineFormattingMap>({});
   const [activeInlineField, setActiveInlineField] = useState<string | null>(null);
   const activeInlineElementRef = useRef<HTMLElement | null>(null);
-  const formatToolbarRef = useRef<HTMLDivElement>(null);
-  const [formatToolbarPosition, setFormatToolbarPosition] = useState({ top: 96, left: 320 });
   const [sectionOrder, setSectionOrder] = useState<CanvasSectionKey[]>(DEFAULT_CANVAS_SECTION_ORDER);
   const [sectionSpacing, setSectionSpacing] = useState(24);
   const [columnRatio, setColumnRatio] = useState(62);
@@ -2308,6 +2317,9 @@ export default function CvBuilderPage() {
   const [draggedCanvasSection, setDraggedCanvasSection] = useState<CanvasSectionKey | null>(null);
   const [draggedCanvasBullet, setDraggedCanvasBullet] = useState<{ experienceIndex: number; bulletIndex: number } | null>(null);
   const [draggedProjectBullet, setDraggedProjectBullet] = useState<{ projectIndex: number; bulletIndex: number } | null>(null);
+  const canvasUndoRef = useRef<CanvasHistorySnapshot[]>([]);
+  const canvasRedoRef = useRef<CanvasHistorySnapshot[]>([]);
+  const [canvasHistoryVersion, setCanvasHistoryVersion] = useState(0);
   const [zoomLevel, setZoomLevel] = useState<number>(() =>
     typeof window !== "undefined" && window.innerWidth < 768 ? 75 : 100,
   );
@@ -4055,9 +4067,88 @@ export default function CvBuilderPage() {
     }
   };
 
+  const cloneCanvasSnapshot = (): CanvasHistorySnapshot | null => {
+    if (!cv) return null;
+    return JSON.parse(JSON.stringify({
+      document: cv.document,
+      inlineFormatting,
+      sectionOrder,
+      sectionSpacing,
+      columnRatio,
+      sectionLabels,
+    })) as CanvasHistorySnapshot;
+  };
+
+  const recordCanvasHistory = () => {
+    if (!isEditMode) return;
+    const snapshot = cloneCanvasSnapshot();
+    if (!snapshot) return;
+    const history = canvasUndoRef.current;
+    const signature = JSON.stringify(snapshot);
+    if (history.length && JSON.stringify(history[history.length - 1]) === signature) return;
+    history.push(snapshot);
+    if (history.length > 100) history.shift();
+    canvasRedoRef.current = [];
+    setCanvasHistoryVersion((version) => version + 1);
+  };
+
+  const restoreCanvasSnapshot = (snapshot: CanvasHistorySnapshot) => {
+    if (!cv) return;
+    const restoredCv = { ...cv, document: snapshot.document };
+    currentCvRef.current = restoredCv;
+    setCv(restoredCv);
+    persistGeneratedCv(restoredCv);
+    setInlineFormatting(snapshot.inlineFormatting);
+    setSectionOrder(snapshot.sectionOrder);
+    setSectionSpacing(snapshot.sectionSpacing);
+    setColumnRatio(snapshot.columnRatio);
+    setSectionLabels(snapshot.sectionLabels);
+    setAutoSaveStatus("unsaved");
+  };
+
+  const undoCanvasChange = () => {
+    const previous = canvasUndoRef.current.pop();
+    const current = cloneCanvasSnapshot();
+    if (!previous || !current) return;
+    canvasRedoRef.current.push(current);
+    restoreCanvasSnapshot(previous);
+    setCanvasHistoryVersion((version) => version + 1);
+  };
+
+  const redoCanvasChange = () => {
+    const next = canvasRedoRef.current.pop();
+    const current = cloneCanvasSnapshot();
+    if (!next || !current) return;
+    canvasUndoRef.current.push(current);
+    restoreCanvasSnapshot(next);
+    setCanvasHistoryVersion((version) => version + 1);
+  };
+
+  useEffect(() => {
+    if (!isEditMode) return;
+    const handleHistoryShortcut = (event: KeyboardEvent) => {
+      const commandKey = event.ctrlKey || event.metaKey;
+      if (!commandKey || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "z" && event.shiftKey) {
+        event.preventDefault();
+        redoCanvasChange();
+      } else if (key === "z") {
+        event.preventDefault();
+        undoCanvasChange();
+      } else if (key === "y") {
+        event.preventDefault();
+        redoCanvasChange();
+      }
+    };
+    window.addEventListener("keydown", handleHistoryShortcut);
+    return () => window.removeEventListener("keydown", handleHistoryShortcut);
+  }, [isEditMode, cv, inlineFormatting, sectionOrder, sectionSpacing, columnRatio, sectionLabels]);
+
   // Inline Canvas Editing Helper
   const updateDocumentField = (key: keyof GeneratedCvDocument, value: unknown) => {
     if (!cv) return;
+    recordCanvasHistory();
     const updatedDoc = { ...cv.document, [key]: value };
     const updatedCv = { ...cv, document: updatedDoc };
     setCv(updatedCv);
@@ -4076,40 +4167,17 @@ export default function CvBuilderPage() {
     return index >= 0 ? `preview-field-${index}` : null;
   };
 
-  const positionInlineToolbar = (element: HTMLElement) => {
-    window.requestAnimationFrame(() => {
-      if (!document.contains(element)) return;
-      const elementRect = element.getBoundingClientRect();
-      const toolbarRect = formatToolbarRef.current?.getBoundingClientRect();
-      const toolbarWidth = toolbarRect?.width || 360;
-      const toolbarHeight = toolbarRect?.height || 38;
-      const viewportPadding = 8;
-      const verticalOffset = 12;
-      let top = elementRect.top - toolbarHeight - verticalOffset;
-      if (top < viewportPadding) top = elementRect.bottom + verticalOffset;
-      if (top + toolbarHeight > window.innerHeight - viewportPadding) {
-        top = Math.max(viewportPadding, window.innerHeight - toolbarHeight - viewportPadding);
-      }
-      const halfWidth = toolbarWidth / 2;
-      const left = Math.min(
-        window.innerWidth - halfWidth - viewportPadding,
-        Math.max(halfWidth + viewportPadding, elementRect.left + elementRect.width / 2),
-      );
-      setFormatToolbarPosition({ top, left });
-    });
-  };
-
   const handleInlineFieldFocus = (event: ReactFocusEvent<HTMLElement>) => {
     if (!isEditMode) return;
     const element = event.target;
     if (!(element instanceof HTMLElement) || !element.matches("input:not([type='hidden']), textarea, [data-inline-editable='true']")) return;
     activeInlineElementRef.current = element;
     setActiveInlineField(inlineFieldKey(element));
-    positionInlineToolbar(element);
   };
 
   const updateActiveInlineFormat = (patch: Partial<InlineTextFormat>) => {
     if (!activeInlineField) return;
+    recordCanvasHistory();
     setInlineFormatting((current) => ({
       ...current,
       [activeInlineField]: { ...current[activeInlineField], ...patch },
@@ -4159,23 +4227,9 @@ export default function CvBuilderPage() {
     }
   }, [isEditMode]);
 
-  useEffect(() => {
-    if (!isEditMode || !activeInlineField) return;
-    const repositionToolbar = () => {
-      const element = activeInlineElementRef.current;
-      if (!element || !document.contains(element)) return;
-      positionInlineToolbar(element);
-    };
-    window.addEventListener("resize", repositionToolbar);
-    window.addEventListener("scroll", repositionToolbar, true);
-    return () => {
-      window.removeEventListener("resize", repositionToolbar);
-      window.removeEventListener("scroll", repositionToolbar, true);
-    };
-  }, [isEditMode, activeInlineField, zoomLevel]);
-
   const reorderCanvasSection = (target: CanvasSectionKey) => {
     if (!draggedCanvasSection || draggedCanvasSection === target) return;
+    recordCanvasHistory();
     setSectionOrder((current) => {
       const next = current.filter((key) => key !== draggedCanvasSection);
       const targetIndex = next.indexOf(target);
@@ -6608,7 +6662,8 @@ export default function CvBuilderPage() {
           className={`cv-preview-scroll-container relative ${mobileWorkspaceView === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 w-full flex-1 flex-col overflow-auto scroll-pt-4 bg-slate-100/70 min-[1025px]:!flex min-[1025px]:w-auto`}
           style={{ touchAction: "pan-x pan-y pinch-zoom", WebkitOverflowScrolling: "touch" }}
         >
-          <header className="no-print sticky top-0 z-20 flex w-full shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950 sm:flex-nowrap sm:gap-3 sm:px-5 sm:py-4">
+          <div className="no-print sticky top-0 z-20 w-full shrink-0">
+          <header className="flex w-full flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950 sm:flex-nowrap sm:gap-3 sm:px-5 sm:py-4">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-y-1.5">
               <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-bold tracking-widest text-slate-400 uppercase sm:gap-2 sm:text-xs"><Eye size={14} /> PREVIEW</span>
               <span className="ml-2 max-w-32 truncate rounded-full bg-slate-200/80 px-2 py-1 text-[10px] font-semibold uppercase text-slate-700 sm:ml-3 sm:max-w-40 sm:px-3 sm:text-xs">{TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "ATS template"}</span>
@@ -6630,7 +6685,7 @@ export default function CvBuilderPage() {
               {isEditMode ? (
                 <label className="ml-2 inline-flex h-8 shrink-0 items-center gap-2 rounded-full border border-slate-300 bg-white px-3 text-[10px] font-semibold text-slate-600" title="Adjust spacing between CV sections">
                   Gap
-                  <input aria-label="Section gap" type="range" min="8" max="48" step="2" value={sectionSpacing} onChange={(event) => setSectionSpacing(Number(event.target.value))} className="w-16 accent-blue-500" />
+                  <input aria-label="Section gap" type="range" min="8" max="48" step="2" value={sectionSpacing} onPointerDown={recordCanvasHistory} onKeyDown={(event) => { if (event.key.startsWith("Arrow")) recordCanvasHistory(); }} onChange={(event) => setSectionSpacing(Number(event.target.value))} className="w-16 accent-blue-500" />
                 </label>
               ) : null}
             </div>
@@ -6643,36 +6698,29 @@ export default function CvBuilderPage() {
               </button>
             </div>
           </header>
-          {isEditMode && activeInlineField ? (
-            <div
-              ref={formatToolbarRef}
-              className="no-print pointer-events-auto fixed z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1 overflow-x-auto rounded-lg border border-slate-800 bg-slate-900 px-2 py-1 text-white shadow-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-              style={{ top: formatToolbarPosition.top, left: formatToolbarPosition.left, transform: "translateX(-50%)" }}
-              role="toolbar"
-              aria-label="Inline text formatting"
-            >
-              {([
-                ["left", AlignLeft, "Align left"],
-                ["center", AlignCenter, "Align center"],
-                ["right", AlignRight, "Align right"],
-              ] as const).map(([alignment, Icon, label]) => (
-                <button key={alignment} type="button" aria-label={label} aria-pressed={inlineFormatting[activeInlineField]?.alignment === alignment} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ alignment })} className={`rounded p-1 transition hover:bg-slate-800 ${inlineFormatting[activeInlineField]?.alignment === alignment ? "bg-slate-700 text-white" : "text-slate-300"}`}>
-                  <Icon size={16} />
-                </button>
+          {isEditMode ? (
+            <div className="flex w-full items-center gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 px-3 py-1.5 text-slate-700 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="toolbar" aria-label="CV text formatting">
+              <button type="button" aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" disabled={canvasUndoRef.current.length === 0} onMouseDown={(event) => event.preventDefault()} onClick={undoCanvasChange} className="shrink-0 rounded p-1.5 hover:bg-slate-100 disabled:opacity-30"><Undo2 size={16} /></button>
+              <button type="button" aria-label="Redo" title="Redo (Ctrl+Y or Cmd+Shift+Z)" disabled={canvasRedoRef.current.length === 0} onMouseDown={(event) => event.preventDefault()} onClick={redoCanvasChange} className="shrink-0 rounded p-1.5 hover:bg-slate-100 disabled:opacity-30"><Redo2 size={16} /></button>
+              <span className="mx-1 h-5 w-px shrink-0 bg-slate-300" />
+              <button type="button" aria-label="Decrease text size" disabled={!activeInlineField} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ fontScale: Math.max(0.75, (inlineFormatting[activeInlineField]?.fontScale || 1) - 0.1) })} className="shrink-0 rounded p-1.5 hover:bg-slate-100 disabled:opacity-30"><Minus size={16} /></button>
+              <span className="min-w-11 shrink-0 text-center text-[10px] font-semibold text-slate-600">{activeInlineField ? `${Math.round((inlineFormatting[activeInlineField]?.fontScale || 1) * 100)}%` : "Size"}</span>
+              <button type="button" aria-label="Increase text size" disabled={!activeInlineField} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ fontScale: Math.min(1.5, (inlineFormatting[activeInlineField]?.fontScale || 1) + 0.1) })} className="shrink-0 rounded p-1.5 hover:bg-slate-100 disabled:opacity-30"><Plus size={16} /></button>
+              <span className="mx-1 h-5 w-px shrink-0 bg-slate-300" />
+              <button type="button" aria-label="Bold" disabled={!activeInlineField} aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.bold) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ bold: !inlineFormatting[activeInlineField]?.bold })} className={`shrink-0 rounded p-1.5 hover:bg-slate-100 disabled:opacity-30 ${activeInlineField && inlineFormatting[activeInlineField]?.bold ? "bg-slate-200" : ""}`}><Bold size={16} /></button>
+              <button type="button" aria-label="Italic" disabled={!activeInlineField} aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.italic) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ italic: !inlineFormatting[activeInlineField]?.italic })} className={`shrink-0 rounded p-1.5 hover:bg-slate-100 disabled:opacity-30 ${activeInlineField && inlineFormatting[activeInlineField]?.italic ? "bg-slate-200" : ""}`}><Italic size={16} /></button>
+              <button type="button" aria-label="Underline" disabled={!activeInlineField} aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.underline) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ underline: !inlineFormatting[activeInlineField]?.underline })} className={`shrink-0 rounded p-1.5 hover:bg-slate-100 disabled:opacity-30 ${activeInlineField && inlineFormatting[activeInlineField]?.underline ? "bg-slate-200" : ""}`}><Underline size={16} /></button>
+              <span className="mx-1 h-5 w-px shrink-0 bg-slate-300" />
+              {([["left", AlignLeft, "Align left"], ["center", AlignCenter, "Align center"], ["right", AlignRight, "Align right"], ["justify", AlignJustify, "Justify"]] as const).map(([alignment, Icon, label]) => (
+                <button key={alignment} type="button" aria-label={label} disabled={!activeInlineField} aria-pressed={activeInlineField ? inlineFormatting[activeInlineField]?.alignment === alignment : false} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ alignment })} className={`shrink-0 rounded p-1.5 hover:bg-slate-100 disabled:opacity-30 ${activeInlineField && inlineFormatting[activeInlineField]?.alignment === alignment ? "bg-slate-200" : ""}`}><Icon size={16} /></button>
               ))}
-              <span className="mx-1 h-5 w-px shrink-0 bg-slate-700" />
-              <button type="button" aria-label="Bold" aria-pressed={Boolean(inlineFormatting[activeInlineField]?.bold)} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ bold: !inlineFormatting[activeInlineField]?.bold })} className={`rounded p-1 transition hover:bg-slate-800 ${inlineFormatting[activeInlineField]?.bold ? "bg-slate-700 text-white" : "text-slate-300"}`}><Bold size={16} /></button>
-              <button type="button" aria-label="Italic" aria-pressed={Boolean(inlineFormatting[activeInlineField]?.italic)} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ italic: !inlineFormatting[activeInlineField]?.italic })} className={`rounded p-1 transition hover:bg-slate-800 ${inlineFormatting[activeInlineField]?.italic ? "bg-slate-700 text-white" : "text-slate-300"}`}><Italic size={16} /></button>
-              <button type="button" aria-label="Underline" aria-pressed={Boolean(inlineFormatting[activeInlineField]?.underline)} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ underline: !inlineFormatting[activeInlineField]?.underline })} className={`rounded p-1 transition hover:bg-slate-800 ${inlineFormatting[activeInlineField]?.underline ? "bg-slate-700 text-white" : "text-slate-300"}`}><Underline size={16} /></button>
-              <span className="mx-1 h-5 w-px shrink-0 bg-slate-700" />
-              <button type="button" aria-label="Decrease text size" onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ fontScale: Math.max(0.75, (inlineFormatting[activeInlineField]?.fontScale || 1) - 0.1) })} className="rounded p-1 text-slate-300 transition hover:bg-slate-800"><Minus size={16} /></button>
-              <Type size={16} className="shrink-0 text-slate-300" aria-hidden />
-              <button type="button" aria-label="Increase text size" onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ fontScale: Math.min(1.5, (inlineFormatting[activeInlineField]?.fontScale || 1) + 0.1) })} className="rounded p-1 text-slate-300 transition hover:bg-slate-800"><Plus size={16} /></button>
-              <span className="mx-1 h-5 w-px shrink-0 bg-slate-700" />
-              <button type="button" aria-label="Toggle bullet list" aria-pressed={Boolean(inlineFormatting[activeInlineField]?.bullet)} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ bullet: !inlineFormatting[activeInlineField]?.bullet })} className={`rounded p-1 transition hover:bg-slate-800 ${inlineFormatting[activeInlineField]?.bullet ? "bg-slate-700 text-white" : "text-slate-300"}`}><List size={16} /></button>
-              <button type="button" aria-label="Delete text" onMouseDown={(event) => event.preventDefault()} onClick={deleteActiveInlineText} className="rounded p-1 text-slate-300 transition hover:bg-rose-600 hover:text-white"><Trash2 size={16} /></button>
+              <span className="mx-1 h-5 w-px shrink-0 bg-slate-300" />
+              <button type="button" aria-label="Toggle bullet list" disabled={!activeInlineField} aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.bullet) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ bullet: !inlineFormatting[activeInlineField]?.bullet })} className={`shrink-0 rounded p-1.5 hover:bg-slate-100 disabled:opacity-30 ${activeInlineField && inlineFormatting[activeInlineField]?.bullet ? "bg-slate-200" : ""}`}><List size={16} /></button>
+              <button type="button" aria-label="Delete text" disabled={!activeInlineField} onMouseDown={(event) => event.preventDefault()} onClick={deleteActiveInlineText} className="shrink-0 rounded p-1.5 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30"><Trash2 size={16} /></button>
+              <span className="sr-only" aria-live="polite">History state {canvasHistoryVersion}</span>
             </div>
           ) : null}
+          </div>
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
             <div className="flex min-h-max w-full shrink-0 flex-1 justify-center bg-slate-100/70 px-2 pt-6 pb-32 sm:px-6 min-[1025px]:pb-6">
@@ -6740,7 +6788,10 @@ export default function CvBuilderPage() {
                     suppressContentEditableWarning: true,
                     onBlur: (event: ReactFocusEvent<HTMLHeadingElement>) => {
                       const value = event.currentTarget.textContent?.trim();
-                      if (value) setSectionLabels((current) => ({ ...current, [title]: value }));
+                      if (value) {
+                        recordCanvasHistory();
+                        setSectionLabels((current) => ({ ...current, [title]: value }));
+                      }
                     },
                   };
                   if (isSerifClassic) {
@@ -7997,7 +8048,7 @@ export default function CvBuilderPage() {
                           <div
                             className="no-print canvas-control absolute inset-y-0 z-20 w-3 -translate-x-1/2 cursor-col-resize"
                             style={{ left: `calc(${columnRatio}% + ${(isCompact ? 20 : 32) * (columnRatio / 100 - 0.5)}px)` }}
-                            onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)}
+                            onPointerDown={(event) => { recordCanvasHistory(); event.currentTarget.setPointerCapture(event.pointerId); }}
                             onPointerMove={(event) => {
                               if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
                               const rect = event.currentTarget.parentElement?.getBoundingClientRect();

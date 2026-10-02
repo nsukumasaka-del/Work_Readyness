@@ -7,7 +7,7 @@ export function JobListingCard({ job, onViewDetails, locked = false }: {
   locked?: boolean;
 }) {
   return (
-    <article className="box-border w-full max-w-full overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md sm:p-6">
+    <article className="box-border w-full min-w-0 max-w-full overflow-hidden [overflow-wrap:anywhere] rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md sm:p-6">
       <div className="flex min-w-0 gap-3 sm:gap-4">
         <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-950 text-lg font-bold text-white sm:h-14 sm:w-14 sm:rounded-2xl">
           {job.logoUrl ? <img src={job.logoUrl} alt="" className="h-full w-full object-contain" /> : <span aria-hidden="true" className="text-sm font-black tracking-tight">{job.sourceBoard.split(/\s+/).length > 1 ? job.sourceBoard.split(/\s+/).map((part) => part[0]).join('').slice(0, 3).toUpperCase() : job.sourceBoard.slice(0, 3).toUpperCase()}</span>}
@@ -25,7 +25,7 @@ export function JobListingCard({ job, onViewDetails, locked = false }: {
                 {job.postedDate && job.postedDate !== 'Date unavailable' ? <span className="text-slate-400">{job.postedDate}</span> : null}
               </p>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
               {!locked && job.sourceBoard ? <span className="rounded-md bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-700">{job.sourceBoard}</span> : null}
               {typeof job.matchScore === 'number' ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800">{job.matchScore}% match</span> : null}
             </div>
@@ -47,7 +47,7 @@ export function JobListingCard({ job, onViewDetails, locked = false }: {
 export function JobListingDetails({ job, loading = false }: { job: JobListing; loading?: boolean }) {
   const list = (title: string, items: string[]) => items.length ? <section className="mt-5"><h4 className="text-xs font-bold uppercase tracking-wide text-slate-800">{title}</h4><ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-6 text-slate-600">{items.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></section> : null;
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 max-w-full space-y-5 [overflow-wrap:anywhere]">
       <div>
         <p className="text-[11px] font-bold uppercase tracking-wide text-blue-700">{job.sourceBoard}</p>
         <h3 className="mt-1 text-xl font-bold text-slate-950">{job.title}</h3>

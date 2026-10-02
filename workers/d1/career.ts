@@ -21,6 +21,7 @@ import {
   type GeneratedCvDocument,
 } from "../../artifacts/api-server/src/lib/cv-builder";
 import { handleCvParseUpload } from "../cv-parse";
+import { searchManualJobs, searchWithLocationFallback } from "../../artifacts/api-server/src/lib/job-search-service";
 
 type CareerProfileRow = {
   id: number;
@@ -740,19 +741,17 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
   const input = await body(request);
   const fileName = clean(input.fileName);
   if (!fileName) return error(400, "fileName is required.");
-  const text = clean(input.text) || extractSimplePdfText(clean(input.fileData));
-  const data = text.length >= 10 ? parseCvText(text, fileName) : null;
+  const parsed = await handleCvParseUpload(new Request(request.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }));
+  if (!parsed.ok) return parsed;
+  const data = await parsed.json() as ExtractedCv;
   const role = clean(input.role) || clean(input.targetRole);
   const location = clean(input.location);
-  const inserted = await env.DB.prepare(
-    "INSERT INTO cv_reports (user_id, report_json, created_at) VALUES (?, ?, datetime('now'))",
-  )
-    .bind(user.id, "{}")
-    .run();
-  const id = Number(inserted.meta.last_row_id || 0);
-  const jobSearch = await searchTrustedJobBoards({
-    role: role || data?.personal.professionalTitle || "Professional",
-    location,
+  const searchRole = role || data.personal.professionalTitle || data.experiences[0]?.role || 'Professional';
+  const searchLocation = location || data.personal.location || 'South Africa';
+  const id = 0;
+  const jobSearch = await searchWithLocationFallback({
+    role: searchRole,
+    location: searchLocation,
     limit: 6,
     experienceRoles: data?.experiences.map((entry) => entry.role).filter(Boolean) || [],
     expertise: [
@@ -764,6 +763,7 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
       ...(data?.education || []).flatMap((entry) => [entry.degree, entry.details || ""]),
     ].filter(Boolean),
     yearsExperience: estimateCareerYears(data?.experiences),
+    languages: data.languages,
     adzunaAppId: env.ADZUNA_APP_ID,
     adzunaAppKey: env.ADZUNA_APP_KEY,
   });
@@ -774,7 +774,7 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
     ? (await enrichCareerAdvisoryWithGemini(baseAdvisory, env.GEMINI_API_KEY, env.GEMINI_MODEL)) || baseAdvisory
     : undefined;
   const candidateProfile = {
-    targetRole: role || data?.personal.professionalTitle || "Professional",
+    targetRole: searchRole,
     summary: data?.summary || "",
     experienceRoles: data?.experiences.map((entry) => entry.role).filter(Boolean) || [],
     skills: data?.skills || [],
@@ -832,94 +832,24 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
       boardSearchLinks: jobSearch.boardSearchLinks,
     },
   };
-  await env.DB.prepare("UPDATE cv_reports SET report_json = ? WHERE id = ? AND user_id = ?")
-    .bind(JSON.stringify(report), id, user.id)
-    .run();
+  const inserted = await env.DB.prepare("INSERT INTO cv_reports (user_id, report_json, created_at) VALUES (?, ?, datetime('now'))")
+    .bind(user.id, JSON.stringify(report)).run();
+  report.id = Number(inserted.meta.last_row_id || 0);
+  await env.DB.prepare('UPDATE cv_reports SET report_json = ? WHERE id = ? AND user_id = ?')
+    .bind(JSON.stringify(report), report.id, user.id).run();
   return json(report, 201);
 }
 
 async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Promise<Response> {
   const input = await body(request);
-  const keywords = clean(input.keywords).slice(0, 120);
-  const requestedLocation = clean(input.location).slice(0, 100);
-  const industryPreference = clean(input.industry).slice(0, 80);
-  const postedRangePreference = clean(input.postedRange).slice(0, 30);
-  const row = await env.DB.prepare(
-    "SELECT report_json FROM cv_reports WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
-  ).bind(user.id).first<{ report_json: string }>();
-  if (!row) return error(409, "Complete a CV review before searching job openings.");
-
-  let report: Record<string, unknown>;
+  const row = await env.DB.prepare("SELECT report_json FROM cv_reports WHERE user_id = ? AND report_json != '{}' ORDER BY created_at DESC, id DESC LIMIT 1").bind(user.id).first<{ report_json: string }>();
+  let report: unknown;
+  try { report = row ? JSON.parse(row.report_json) : undefined; } catch { /* Manual search does not require a saved review. */ }
   try {
-    report = JSON.parse(row.report_json) as Record<string, unknown>;
-  } catch {
-    return error(500, "Your saved CV review could not be read.");
-  }
-  const profile = (report.candidateProfile && typeof report.candidateProfile === "object"
-    ? report.candidateProfile
-    : {}) as {
-      targetRole?: string;
-      summary?: string;
-      experienceRoles?: string[];
-      skills?: string[];
-      systems?: string[];
-      credentials?: string[];
-      yearsExperience?: number;
-      location?: string;
-    };
-  const role = keywords || clean(profile.targetRole) || clean(report.targetRole) || "Professional";
-  const location = requestedLocation || clean(profile.location) || "South Africa";
-  const expertise = [...new Set([...(profile.skills || []), ...(profile.systems || []), ...keywords.split(/[,\s]+/).filter((term) => term.length > 3)])].slice(0, 50);
-  const search = (searchLocation: string) => searchTrustedJobBoards({
-    role,
-    location: searchLocation,
-    limit: 18,
-    // Search the primary boards first; the search helper fans out to secondary
-    // boards only when the primary results are too sparse.
-    includeAllBoards: false,
-    experienceRoles: profile.experienceRoles || [],
-    expertise,
-    credentials: profile.credentials || [],
-    yearsExperience: profile.yearsExperience,
-    adzunaAppId: env.ADZUNA_APP_ID,
-    adzunaAppKey: env.ADZUNA_APP_KEY,
-  });
-  let results = await search(location);
-  let fallbackApplied = false;
-  let effectiveLocation = location;
-  if (!results.jobs.length) {
-    fallbackApplied = true;
-    const broadLocation = /johannesburg|pretoria|centurion|sandton|midrand|gauteng/i.test(location)
-      ? "Gauteng"
-      : "South Africa";
-    effectiveLocation = broadLocation;
-    results = await search(broadLocation);
-  }
-  const candidate = {
-    targetRole: clean(profile.targetRole) || clean(report.targetRole) || role,
-    summary: clean(profile.summary).slice(0, 1800),
-    experienceRoles: (profile.experienceRoles || []).slice(0, 12),
-    skills: (profile.skills || []).slice(0, 30),
-    systems: (profile.systems || []).slice(0, 20),
-    credentials: (profile.credentials || []).slice(0, 20),
-    yearsExperience: profile.yearsExperience,
-  };
-  const scoredJobs = await scoreJobListingsWithGemini({
-    apiKey: env.GEMINI_API_KEY,
-    model: env.GEMINI_MODEL,
-    candidateProfile: candidate,
-    jobs: results.jobs,
-    searchPreferences: { industry: industryPreference, postedRange: postedRangePreference },
-  });
-  const calibratedJobs = calibrateJobListingScores(candidate, scoredJobs || results.jobs)
-    .filter((job) => job.match >= 60);
-  return json({
-    ...results,
-    jobs: calibratedJobs,
-    scoring: scoredJobs ? "gemini" : "evidence-based-fallback",
-    fallbackApplied,
-    ...(fallbackApplied ? { searchNotice: `No listings were found for the exact search area; results were broadened to ${effectiveLocation}.` } : {}),
-  });
+    return json(await searchManualJobs({ keywords: clean(input.keywords), location: clean(input.location), report,
+      industry: clean(input.industry), postedRange: clean(input.postedRange), apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL,
+      adzunaAppId: env.ADZUNA_APP_ID, adzunaAppKey: env.ADZUNA_APP_KEY }));
+  } catch (err) { return error(400, err instanceof Error ? err.message : 'Job search could not be completed.'); }
 }
 
 async function handleJobDetails(request: Request): Promise<Response> {
@@ -933,7 +863,7 @@ async function handleJobDetails(request: Request): Promise<Response> {
 
 async function handleLatest(request: Request, env: D1Env, user: UserRow): Promise<Response> {
   const row = await env.DB.prepare(
-    "SELECT id, report_json FROM cv_reports WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+    "SELECT id, report_json FROM cv_reports WHERE user_id = ? AND report_json != '{}' ORDER BY created_at DESC, id DESC LIMIT 1",
   )
     .bind(user.id)
     .first<{ id: number; report_json: string }>();

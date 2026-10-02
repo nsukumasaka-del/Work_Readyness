@@ -21,7 +21,7 @@ function buildSpec(parts: Array<string | undefined>): string {
     .join(" ");
 }
 
-type SearchInput = {
+export type SearchInput = {
   role: string;
   location?: string;
   limit?: number;
@@ -34,6 +34,7 @@ type SearchInput = {
   adzunaAppKey?: string;
   /** Query all trusted sources instead of using fallback boards only when sparse. */
   includeAllBoards?: boolean;
+  mode?: "recommendations" | "search";
 };
 
 const BROWSER_UA =
@@ -275,7 +276,7 @@ function scoreListing(role: string, location: string | undefined, title: string,
   return Math.min(99, score);
 }
 
-async function fetchHtml(url: string, timeoutMs = 12000, restrictRedirects = false): Promise<string | null> {
+async function fetchHtml(url: string, timeoutMs = 8000, restrictRedirects = false): Promise<string | null> {
   try {
     const response = await fetch(url, {
       headers: {
@@ -565,7 +566,8 @@ async function searchLinkedIn(role: string, location?: string): Promise<LiveJobL
     ? linkedInLocation[location.toLowerCase()] || location
     : "South Africa";
   const variant = role.replace(/\bimports\b/i, "import").replace(/\bexports\b/i, "export");
-  const searches = [...new Set([role, variant])].flatMap((keyword) => [0, 25].map((start) => ({ keyword, start })));
+  // Leave subrequest headroom for a second location search, auth, D1 and AI.
+  const searches = [...new Set([role, variant])].map((keyword) => ({ keyword, start: 0 }));
   const pages = await Promise.all(searches.map(({ keyword, start }) => {
     const params = new URLSearchParams({
       keywords: keyword,
@@ -605,8 +607,10 @@ async function searchLinkedIn(role: string, location?: string): Promise<LiveJobL
     const coverage = (title: string) => targetTerms.filter((term) => jobTerms(title).includes(term)).length;
     return coverage(b.title) - coverage(a.title);
   }).slice(0, 20);
-  return Promise.all(relevant.map(async (job) => {
-    const html = await fetchHtml(job.url, 8000);
+  return Promise.all(relevant.map(async (job, index) => {
+    // Bound enrichment to avoid rate limits and the Worker's subrequest limit.
+    if (index >= 2) return job;
+    const html = await fetchHtml(job.url, 4000);
     const description = html?.match(/show-more-less-html__markup[^>]*>([\s\S]*?)<\/div>/i)?.[1];
     const details = description ? stripHtml(description).slice(0, 2400) : "";
     return details.length >= 60
@@ -780,6 +784,12 @@ export function optimizeJobSearchQuery(role: string): string {
   if (!matched) return normalized;
   const unique = [...new Set([normalized, ...matched.titles])].slice(0, 4);
   return unique.map((title) => `"${title}"`).join(" OR ");
+}
+
+export function normalizeJobSearchRole(role: string): string {
+  // A CV headline can contain several pipe-separated professions. Board search
+  // forms accept a plain role, not a search-engine Boolean expression.
+  return role.split(/[|;\n]/)[0].replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120) || 'Professional';
 }
 
 function boardSearchLinks(role: string, location?: string) {
@@ -956,24 +966,33 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   liveResults: boolean;
   query: string;
   boardSearchLinks: Array<{ board: string; url: string }>;
+  fetchedCount: number;
 }> {
-  const role = input.role.trim() || "Professional";
+  const role = normalizeJobSearchRole(input.role);
   const location = input.location?.trim();
   const limit = input.limit ?? 6;
   const optimizedRoleQuery = optimizeJobSearchQuery(role);
   const query = [optimizedRoleQuery, location || "South Africa"].filter(Boolean).join(" · ");
   const queriedBoards = ["PNet", "LinkedIn", "Indeed SA", "Job Placements"];
+  if (input.adzunaAppId && input.adzunaAppKey) queriedBoards.push('Adzuna');
   const expertise = [...new Set((input.expertise ?? [])
     .map((term) => term.trim())
     .filter((term) => term.length >= 4))].slice(0, 20);
   const deduped = new Map<string, LiveJobListing>();
+  const fetchedUrls = new Set<string>();
   const addMatches = (jobs: LiveJobListing[]) => {
     for (const job of jobs) {
+      fetchedUrls.add(job.url);
       const fit = candidateMatch(job, role, input.experienceRoles ?? [], expertise, location, input.languages, input.yearsExperience, input.credentials ?? []);
       const match = fit.score;
       // Best-fit recommendations must satisfy at least 60% of the evidence-based
       // role, skill, seniority, credential, and location criteria.
-      if (match < 60) continue;
+      if (input.mode !== "search" && match < 60) continue;
+      if (input.mode === "search") {
+        const terms = jobTerms(role);
+        const listingTerms = new Set(jobTerms(`${job.title} ${job.description}`));
+        if (terms.length && !terms.some((term) => listingTerms.has(term))) continue;
+      }
       const key = job.company !== "Hiring company"
         ? `${job.title.toLowerCase()}|${job.company.toLowerCase()}|${job.location.toLowerCase()}`
         : job.url.toLowerCase();
@@ -985,9 +1004,10 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
 
   // A blocked or changed board must not discard results from every other board.
   const settled = await Promise.allSettled([
-    searchPNet(optimizedRoleQuery, location),
-    searchLinkedIn(optimizedRoleQuery, location),
-    searchIndeed(optimizedRoleQuery, location),
+    searchPNet(role, location),
+    searchLinkedIn(role, location),
+    searchIndeed(role, location),
+    searchViaAdzuna(role, location, { appId: input.adzunaAppId, appKey: input.adzunaAppKey }),
     searchBoardViaDuckDuckGo(JOB_PLACEMENTS_BOARD, optimizedRoleQuery, location),
   ]);
   for (const result of settled) {
@@ -1003,9 +1023,8 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
       !["Indeed SA", "PNet", "LinkedIn", "Job Placements"].includes(board.label));
     queriedBoards.push(...[...new Set(fallbackBoards.map((board) => board.label))]);
     const fallback = await Promise.allSettled([
-      searchCareerJunction(optimizedRoleQuery, location),
-      searchJobMail(optimizedRoleQuery, location),
-      searchViaAdzuna(optimizedRoleQuery, location, { appId: input.adzunaAppId, appKey: input.adzunaAppKey }),
+      searchCareerJunction(role, location),
+      searchJobMail(role, location),
       ...fallbackBoards.map((board) => searchBoardViaDuckDuckGo(board, optimizedRoleQuery, location)),
     ]);
     for (const result of fallback) {
@@ -1024,6 +1043,7 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
     liveResults: ranked.length > 0,
     query,
     boardSearchLinks: boardSearchLinks(role, location),
+    fetchedCount: fetchedUrls.size,
   };
 }
 

@@ -83,7 +83,7 @@ import { CareerAdviceCategoryPage, CareerAdviceIndexPage, CareerArticlePage } fr
 import { PublicJobCategoryPage, PublicJobsIndexPage } from '@/pages/PublicJobs';
 import { TrustPage } from '@/pages/TrustPages';
 import { findPublicJobCategory } from '@/content/public-jobs';
-import { directApplicationUrl, toJobListing, type JobDetailsPayload, type JobListingSource } from '@/types/job';
+import { directApplicationUrl, normalizeJobResults, toJobListing, type JobDetailsPayload, type JobListingSource } from '@/types/job';
 
 const CvBuilderPage = lazy(() => import('@/pages/cv-builder'));
 const AdminRoute = lazy(() => import('@/pages/admin/AdminDashboard').then((module) => ({ default: module.AdminRoute })));
@@ -2882,7 +2882,8 @@ function postedWithin(postedValue: string, range: string): boolean {
   return Number.isFinite(timestamp) && Date.now() - timestamp <= days * 24 * 60 * 60 * 1000;
 }
 
-function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: JobOpeningsSearchProps) {
+function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJob }: JobOpeningsSearchProps) {
+  const jobs = normalizeJobResults(rawJobs);
   const [view, setView] = useState<'ai' | 'search'>('ai');
   const [keywordsDraft, setKeywordsDraft] = useState('');
   const [keywords, setKeywords] = useState('');
@@ -2905,8 +2906,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
   const searchResultsRef = useRef<HTMLDivElement>(null);
   const [savedJobs, setSavedJobs] = useState<JobMatch[]>(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem('bonlist-saved-jobs') || '[]') as unknown[];
-      return stored.filter((job): job is JobMatch => Boolean(job && typeof job === 'object' && 'id' in job));
+      return normalizeJobResults(JSON.parse(localStorage.getItem('bonlist-saved-jobs') || '[]'));
     } catch { return []; }
   });
 
@@ -2936,8 +2936,10 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
   const baseFilteredJobs = searchSourceJobs.filter((job) => {
     const extra = job as JobMatch & { employmentType?: string; jobType?: string; remoteOption?: string; description?: string };
     const searchable = [job.title, job.company, job.location, job.sector, job.source, job.description, ...(job.tags || [])].join(' ').toLowerCase();
-    const locationMatch = locationMatches(job.location);
-    const keywordMatch = keywordMatches(searchable);
+    // Live results are already role/location filtered by the server, including
+    // synonyms and explicitly announced geographic fallbacks.
+    const locationMatch = hasSearched || locationMatches(job.location);
+    const keywordMatch = hasSearched || keywordMatches(searchable);
     const explicitType = (extra.employmentType || extra.jobType || '').trim().toLowerCase();
     const listingText = `${explicitType} ${searchable}`.toLowerCase();
     // Board listings often omit employment type. Keep those eligible for
@@ -3034,7 +3036,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
       });
       const payload = await readApiJson(response);
       if (!response.ok) throw new Error(payload.error || 'Job search could not be completed.');
-      const results = Array.isArray(payload.jobs) ? payload.jobs as JobMatch[] : [];
+      const results = normalizeJobResults(payload.jobs);
       setSearchResults(results);
       setHasSearched(true);
       setSearchedBoardLabels(Array.isArray(payload.queriedBoards) ? payload.queriedBoards as string[] : []);
@@ -3055,7 +3057,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
   };
 
   const clearFiltersAndSearchCustomerService = async () => {
-    const broadRole = 'customer service';
+    const broadRole = keywordsDraft.trim() || report.targetRole || 'customer service';
     setKeywordsDraft(broadRole);
     setIndustry('');
     setPostedRange('any');
@@ -3162,7 +3164,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
               {filteredJobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} onViewDetails={() => setActiveJobId(String(job.id))} />)}
             </div> : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center">
                 <p className="text-sm font-semibold text-slate-800">No openings found matching all strict filters.</p>
-                <p className="mt-1 text-xs text-slate-500">Try a broader customer service search. We only show listings found on job boards, not generated examples.</p>
+                <p className="mt-1 text-xs text-slate-500">Try a broader role or location. We only show real job-board listings, not generated examples.</p>
                 <button type="button" onClick={() => void clearFiltersAndSearchCustomerService()} disabled={searchLoading} className="mt-4 min-h-10 rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">{searchLoading ? 'Searching…' : 'Clear Filters & Search All Customer Service Roles'}</button>
               </div>}
           </div>
@@ -3225,15 +3227,19 @@ function JobsPage() {
       return;
     }
     const stored = sessionStorage.getItem(REPORT_KEY);
-    if (!stored) {
-      setLocation('/#cv-check');
-      return;
+    let cancelled = false;
+    if (stored) {
+      try { setReport(reportForCurrentViewer(JSON.parse(stored) as DiagnosticReport)); return; } catch { /* Recover from the server below. */ }
     }
-    try {
-      setReport(reportForCurrentViewer(JSON.parse(stored) as DiagnosticReport));
-    } catch {
-      setLocation('/#cv-check');
-    }
+    void authFetch('/api/career/diagnostic/latest').then(async response => {
+      if (!response.ok) return;
+      const saved = await readApiJson(response) as unknown as DiagnosticReport;
+      if (!cancelled) {
+        setReport(reportForCurrentViewer(saved));
+        try { sessionStorage.setItem(REPORT_KEY, JSON.stringify(saved)); } catch { /* Storage can be unavailable in WebViews. */ }
+      }
+    }).catch(() => { /* Keep the upload action available if offline. */ });
+    return () => { cancelled = true; };
   }, [setLocation]);
 
   if (!report) {
@@ -3251,7 +3257,7 @@ function JobsPage() {
     );
   }
 
-  const matches = (report.relatedJobs ?? []).slice(0, 6);
+  const matches = normalizeJobResults(report.relatedJobs).slice(0, 6);
   const premiumUnlocked = isAdminUser();
 
   return (

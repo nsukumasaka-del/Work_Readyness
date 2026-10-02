@@ -1,6 +1,7 @@
 import type { JobMatch } from '@workspace/api-client-react';
 
 export type JobListingSource = JobMatch & {
+  fitAvailable?: boolean;
   shortSnippet?: string;
   fullDescription?: string;
   requirements?: string[];
@@ -61,6 +62,22 @@ export function toJobListing(source: JobMatch): JobListing {
     requirements: job.requirements || [],
     responsibilities: job.responsibilities || [],
     skills: job.skills?.length ? job.skills : (job.tags || []).filter((tag) => !/trusted board|jobmail|pnet|linkedin|indeed/i.test(tag)),
-    matchScore: job.match,
+    matchScore: job.fitAvailable === false ? undefined : job.match,
   };
+}
+
+export function normalizeJobResults(value: unknown): JobListingSource[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object' || typeof item.title !== 'string' || !item.title.trim()) return [];
+    const string = (key: string, fallback = '') => typeof item[key] === 'string' ? item[key] : fallback;
+    const strings = (key: string) => Array.isArray(item[key]) ? item[key].filter((v: unknown) => typeof v === 'string') : [];
+    return [{ ...item, id: Number.isFinite(Number(item.id)) ? Number(item.id) : 0,
+      title: item.title, company: string('company', 'Employer not specified'), location: string('location'),
+      sector: string('sector'), salary: string('salary'), posted: string('posted'), source: string('source', 'Job board'),
+      url: string('url'), description: string('description'), fullDescription: string('fullDescription'), shortSnippet: string('shortSnippet'),
+      match: typeof item.match === 'number' && Number.isFinite(item.match) ? Math.max(0, Math.min(100, item.match)) : 0,
+      tags: strings('tags'), skills: strings('skills'), requirements: strings('requirements'), responsibilities: strings('responsibilities'),
+    } as JobListingSource];
+  });
 }

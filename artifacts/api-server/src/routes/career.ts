@@ -14,7 +14,8 @@ import {
 } from "@workspace/api-zod";
 import { db, adminUsersTable, applicationOutcomesTable, coachingApplicationsTable, diagnosticReportsTable, generatedCvsTable, jobsTable, profilesTable, programmesTable } from "@workspace/db";
 import { and, count, desc, eq, ne } from "drizzle-orm";
-import { searchTrustedJobBoards, getTrustedBoardLabels } from "../lib/job-board-search";
+import { fetchTrustedJobDetails, getTrustedBoardLabels } from "../lib/job-board-search";
+import { searchManualJobs, searchWithLocationFallback } from "../lib/job-search-service";
 import { buildCareerAlignmentReport, estimateCareerYears, type CareerAlignmentReport } from "../lib/career-alignment";
 import { enrichCareerAdvisoryWithGemini, generateCvAssistantJson, generateSmokeyReply, reviewDiagnosticRoleFitWithGemini, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
 import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
@@ -976,6 +977,28 @@ router.patch("/career/profile", async (req, res) => {
   res.json(toProfileResponse(updated, profileCount));
 });
 
+router.post('/career/jobs/search', requireUser, async (req: AuthedUserRequest, res) => {
+  try {
+    const [row] = await db.select().from(diagnosticReportsTable).where(eq(diagnosticReportsTable.profileId, req.userProfile!.id)).orderBy(desc(diagnosticReportsTable.createdAt)).limit(1);
+    let report: unknown;
+    try { report = row?.reportJson ? JSON.parse(row.reportJson) : undefined; } catch { /* Search remains available without a readable review. */ }
+    const string = (value: unknown) => typeof value === 'string' ? value : '';
+    res.json(await searchManualJobs({ keywords: string(req.body?.keywords), location: string(req.body?.location), report,
+      industry: string(req.body?.industry), postedRange: string(req.body?.postedRange), apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL,
+      adzunaAppId: process.env.ADZUNA_APP_ID, adzunaAppKey: process.env.ADZUNA_APP_KEY }));
+  } catch { res.status(400).json({ error: 'Job search could not be completed. Enter a job title and try again.' }); }
+});
+
+router.post('/career/jobs/details', requireUser, async (req, res) => {
+  const url = typeof req.body?.url === 'string' ? req.body.url : '';
+  if (!url || url.length > 2048) { res.status(400).json({ error: 'A direct job listing URL is required.' }); return; }
+  try {
+    const details = await fetchTrustedJobDetails(url);
+    if (!details) { res.status(404).json({ error: 'Additional listing details are unavailable.' }); return; }
+    res.json(details);
+  } catch { res.status(502).json({ error: 'The job board is temporarily unavailable.' }); }
+});
+
 router.get("/career/jobs", async (req, res) => {
   await ensureJobs();
   const query = ListJobsQueryParams.parse(req.query);
@@ -1060,7 +1083,7 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
     }
 
     const MATCH_LIMIT = 6;
-    const liveSearch = await searchTrustedJobBoards({
+    const liveSearch = await searchWithLocationFallback({
       role: targetRole,
       location: locationLabel,
       limit: MATCH_LIMIT,
@@ -1075,6 +1098,8 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       ].filter(Boolean),
       yearsExperience: estimateCareerYears(extractedCandidate?.experiences),
       languages: extractedCandidate?.languages ?? [],
+      adzunaAppId: process.env.ADZUNA_APP_ID,
+      adzunaAppKey: process.env.ADZUNA_APP_KEY,
     });
 
     const relatedJobs = liveSearch.jobs;
@@ -1159,7 +1184,13 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       })
       .returning();
 
-    const data = CreateDiagnosticResponse.parse({ ...draftPayload, id: report.id, fileName: report.fileName });
+    const data = { ...CreateDiagnosticResponse.parse({ ...draftPayload, id: report.id, fileName: report.fileName }), candidateProfile: {
+      targetRole, location: locationLabel, summary: extractedCandidate?.summary || '',
+      experienceRoles: extractedCandidate?.experiences.map(item => item.role) || [],
+      skills: extractedCandidate?.skills || [], systems: extractedCandidate?.toolsAndSoftware || [],
+      credentials: [...(extractedCandidate?.education || []).map(item => item.degree), ...(extractedCandidate?.certifications || []).map(item => item.name)],
+      yearsExperience: estimateCareerYears(extractedCandidate?.experiences),
+    } };
 
     await db
       .update(diagnosticReportsTable)

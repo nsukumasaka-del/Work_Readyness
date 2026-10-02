@@ -8,6 +8,27 @@ const listing = (title: string, description: string, location = "Johannesburg"):
   description,
 });
 
+test('LinkedIn enrichment stays bounded and blocked boards do not discard listings', async () => {
+  const originalFetch = globalThis.fetch;
+  let details = 0;
+  let searches = 0;
+  globalThis.fetch = async input => {
+    const url = String(input);
+    if (url.includes('linkedin.com/jobs-guest')) {
+      searches++;
+      return new Response(Array.from({ length: 10 }, (_, index) => `<div class="base-card test"><a class="base-card__full-link" href="https://www.linkedin.com/jobs/view/customer-service-${index}"></a><h3 class="base-search-card__title">Customer Service Agent</h3><h4 class="base-search-card__subtitle">Employer ${index}</h4><span class="job-search-card__location">Gauteng</span></div>`).join(''));
+    }
+    if (url.includes('linkedin.com/jobs/view/')) { details++; return new Response('', { status: 429 }); }
+    return new Response('', { status: 403 });
+  };
+  try {
+    const result = await searchTrustedJobBoards({ role: 'Customer Service', location: 'Gauteng', limit: 1, mode: 'search' });
+    assert.equal(result.jobs.length, 1);
+    assert.equal(searches, 1);
+    assert.equal(details, 2);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("fills six location-matched listings from recognized boards after priority boards", async () => {
   const originalFetch = globalThis.fetch;
   const dates = Array.from({ length: 7 }, (_, index) =>

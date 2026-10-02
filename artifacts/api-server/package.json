@@ -7,7 +7,7 @@
     "dev": "tsx watch ./src/index.ts",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
-    "test": "tsx --test src/lib/cv-builder.test.ts",
+    "test": "tsx --test src/lib/cv-builder.test.ts src/lib/job-board-search.test.ts src/lib/career-alignment.test.ts src/lib/job-search-service.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

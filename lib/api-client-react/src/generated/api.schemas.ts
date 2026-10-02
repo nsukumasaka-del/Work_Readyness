@@ -101,6 +101,11 @@ export interface DiagnosticReport {
   overallScore: number;
   authenticityScore: number;
   atsScore: number;
+  structureFormattingScore?: number;
+  isRoleMatch?: boolean;
+  healthCheckMessage?: string;
+  missingMandatoryRequirements?: string[];
+  recommendation?: string;
   scores: DiagnosticScoreBreakdown;
   strengths: DiagnosticFinding[];
   improvements: DiagnosticFinding[];

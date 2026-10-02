@@ -2608,7 +2608,7 @@ function DiagnosticPage() {
   };
 
   const scoreCard = [
-    { name: 'Structure & Formatting', score: scores.structure ?? sectionScore(/structure|format/i, 70) },
+    { name: 'Structure & Formatting', score: report.structureFormattingScore ?? scores.structure ?? sectionScore(/structure|format/i, 70) },
     { name: 'Keyword Fit', score: scores.keywordFit ?? sectionScore(/keyword/i, 65) },
     { name: 'Professional Summary', score: sectionScore(/summary|profile/i, scores.clarity ?? 70) },
     { name: 'Experience & Impact Bullets', score: sectionScore(/experience|impact|bullet/i, scores.impact ?? 60) },
@@ -2626,6 +2626,7 @@ function DiagnosticPage() {
   const premiumUnlocked = isAdminUser();
 
   const healthSummary =
+    report.healthCheckMessage?.trim() ||
     report.summary?.trim() ||
     `${overall >= 75 ? 'Solid authenticity and structure' : 'Promising foundation'}, but ${
       (scores.impact ?? 60) < 70 ? 'experience bullets need stronger action verbs and quantified impact' : 'a few targeted edits will lift ATS fit'
@@ -2671,6 +2672,13 @@ function DiagnosticPage() {
           <span className="font-semibold">Health check: </span>
           {healthSummary}
         </p>
+        {report.isRoleMatch === false ? (
+          <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="alert">
+            <p className="font-semibold">The target role does not currently align with the qualifications evidenced in this CV.</p>
+            {report.missingMandatoryRequirements?.length ? <><p className="mt-3 text-xs font-bold uppercase tracking-wide">Missing mandatory requirements</p><ul className="mt-2 list-disc space-y-1 pl-5">{report.missingMandatoryRequirements.map((requirement) => <li key={requirement}>{requirement}</li>)}</ul></> : null}
+            {report.recommendation ? <p className="mt-3 leading-6"><span className="font-semibold">Recommendation:</span> {report.recommendation}</p> : null}
+          </div>
+        ) : null}
       </section>
 
       {/* 2. SCORE CARD */}

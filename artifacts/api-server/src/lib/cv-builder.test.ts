@@ -242,4 +242,42 @@ describe("strict ATS role alignment", () => {
     );
     assert.ok(job.match < 40);
   });
+
+  it("caps an unqualified psychologist target at the regulated-role threshold", () => {
+    const report = evaluateAts(logisticsCv, "Psychologist");
+    assert.ok(report.overallScore <= 20);
+    assert.equal(report.roleMatch?.isRoleMatch, false);
+    assert.equal(report.roleMatch?.mismatchType, "regulated");
+    assert.ok(report.roleMatch?.missingMandatoryRequirements.some((item) => /psychology qualification/i.test(item)));
+    assert.ok(report.roleMatch?.missingMandatoryRequirements.some((item) => /HPCSA|board/i.test(item)));
+  });
+
+  it("allows qualification evidence to pass the psychologist regulatory gate", () => {
+    const psychologistCv: GeneratedCvDocument = {
+      ...logisticsCv,
+      headline: "Registered Psychologist",
+      summary: "Registered psychologist providing psychological assessment and clinical mental-health support.",
+      experiences: [{ id: "psy-1", role: "Psychologist", company: "Community Clinic", startDate: "2022", endDate: "Present", bullets: ["Provided psychological assessment and counselling under clinical protocols."] }],
+      education: [{ id: "edu-1", degree: "Master of Arts in Psychology", institution: "South African University", graduationYear: "2021" }],
+      certifications: [{ id: "cert-1", name: "HPCSA Registered Psychologist", issuer: "HPCSA" }],
+      skills: ["Psychological assessment", "Counselling", "Mental health", "Clinical practice"],
+    };
+    const report = evaluateAts(psychologistCv, "Psychologist");
+    assert.notEqual(report.roleMatch?.mismatchType, "regulated");
+    assert.equal(report.roleMatch?.missingMandatoryRequirements.length, 0);
+    assert.ok(report.overallScore >= 60);
+  });
+
+  it("treats administration to operations as an adjacent transferable move", () => {
+    const adminCv: GeneratedCvDocument = {
+      ...logisticsCv,
+      headline: "Administrative Coordinator",
+      summary: "Administrative coordinator supporting office operations, scheduling, records and document control.",
+      experiences: [{ id: "admin-1", role: "Administrative Coordinator", company: "Employer", startDate: "2021", endDate: "Present", bullets: ["Coordinated office schedules, records and operational requests."] }],
+      skills: ["Administration", "Scheduling", "Document control", "Records management", "Coordination"],
+    };
+    const report = evaluateAts(adminCv, "Operations Coordinator");
+    assert.equal(report.roleMatch?.mismatchType, "none");
+    assert.ok(report.overallScore >= 60 && report.overallScore <= 80);
+  });
 });

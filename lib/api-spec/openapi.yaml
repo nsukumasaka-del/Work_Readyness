@@ -352,6 +352,18 @@ components:
           type: integer
         atsScore:
           type: integer
+        structureFormattingScore:
+          type: integer
+        isRoleMatch:
+          type: boolean
+        healthCheckMessage:
+          type: string
+        missingMandatoryRequirements:
+          type: array
+          items:
+            type: string
+        recommendation:
+          type: string
         scores:
           $ref: "#/components/schemas/DiagnosticScoreBreakdown"
         strengths:

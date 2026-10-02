@@ -96,6 +96,11 @@ export const CreateDiagnosticResponse = zod.object({
   overallScore: zod.number().int(),
   authenticityScore: zod.number().int(),
   atsScore: zod.number().int(),
+  structureFormattingScore: zod.number().int().optional(),
+  isRoleMatch: zod.boolean().optional(),
+  healthCheckMessage: zod.string().optional(),
+  missingMandatoryRequirements: zod.array(zod.string()).optional(),
+  recommendation: zod.string().optional(),
   scores: zod.object({
     clarity: zod.number().int(),
     impact: zod.number().int(),

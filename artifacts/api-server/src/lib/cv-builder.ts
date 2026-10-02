@@ -238,6 +238,14 @@ export interface AtsReport {
   weakBullets: Array<{ bullet: string; reason: string; suggestedImprovement: string }>;
   strongBullets: string[];
   recommendedFixes: string[];
+  roleMatch?: {
+    isRoleMatch: boolean;
+    mismatchType: "none" | "general" | "regulated";
+    healthCheckMessage: string;
+    missingMandatoryRequirements: string[];
+    recommendation: string;
+    overallScoreCap: number;
+  };
 }
 
 export interface QualityPillarScore {
@@ -1027,16 +1035,23 @@ export interface ImproveCvReport {
 
 const METRIC_REGEX = /(\d+[%kKmMbB]?|\$\d+|\bR\d+|\b\d+\s*(?:percent|hours|days|weeks|months|people|members|clients|projects|teams|queries|tickets|accounts))/i;
 
-const ROLE_DOMAINS = [
-  { pattern: /\b(?:solar|photovoltaic|renewable energy|electrical|mechanical|engineering|engineer|technical manager|technician)\b/i, hardSkills: ["solar", "photovoltaic", "electrical", "mechanical", "engineering", "renewable", "installation", "commissioning"] },
-  { pattern: /\b(?:software|developer|programmer|information technology|\bit\b|cloud|devops|cybersecurity|network engineer|data engineer)\b/i, hardSkills: ["software", "programming", "cloud", "devops", "cybersecurity", "network", "database", "api"] },
-  { pattern: /\b(?:accounting|accountant|finance|financial|bookkeep|audit|credit control|accounts payable|accounts receivable)\b/i, hardSkills: ["accounting", "bookkeeping", "audit", "reconciliation", "ledger", "tax", "payroll", "credit control"] },
-  { pattern: /\b(?:logistics|freight|transport|warehouse|supply chain|import|export|customs|shipping|dispatch)\b/i, hardSkills: ["logistics", "freight", "warehouse", "supply chain", "import", "export", "customs", "shipping", "dispatch"] },
-  { pattern: /\b(?:customer service|customer support|client service|call centre|contact centre|customer care)\b/i, hardSkills: ["customer service", "customer support", "call centre", "crm", "complaint", "ticketing", "service level"] },
-  { pattern: /\b(?:construction|civil|site manager|site agent|foreman|quantity survey|built environment)\b/i, hardSkills: ["construction", "civil", "site", "quantity surveying", "health and safety", "contractor", "project scheduling"] },
-  { pattern: /\b(?:nurse|nursing|medical|clinical|healthcare|pharmacy|pharmacist|patient care)\b/i, hardSkills: ["nursing", "clinical", "medical", "patient", "pharmacy", "healthcare", "hpcsa", "sanc"] },
-  { pattern: /\b(?:sales|marketing|business development|account executive|digital marketing|seo|campaign)\b/i, hardSkills: ["sales", "marketing", "pipeline", "crm", "campaign", "seo", "lead generation", "business development"] },
-] as const;
+type RoleDomainGate = { name: string; pattern: RegExp; hardSkills: readonly string[]; mandatory?: ReadonlyArray<{ label: string; pattern: RegExp }> };
+
+const ROLE_DOMAINS: readonly RoleDomainGate[] = [
+  { name: "psychology and mental health", pattern: /\b(?:psychologist|psychology|clinical psychology|counselling psychologist)\b/i, hardSkills: ["psychology", "psychological assessment", "clinical", "counselling", "mental health", "therapy", "hpcsa"], mandatory: [{ label: "recognised psychology qualification or clinical training", pattern: /\b(?:degree|bachelor|master|honours|doctorate|phd|ma|msc).{0,45}psycholog|psycholog.{0,45}(?:degree|bachelor|master|honours|doctorate|phd|ma|msc)|clinical training/i }, { label: "HPCSA or applicable professional-board registration", pattern: /\b(?:hpcsa|health professions council|board registration|registered psychologist)\b/i }] },
+  { name: "medical practice", pattern: /\b(?:medical doctor|physician|general practitioner|surgeon|doctor of medicine)\b/i, hardSkills: ["medicine", "clinical", "patient care", "diagnosis", "treatment", "hpcsa"], mandatory: [{ label: "recognised medical degree", pattern: /\b(?:mbchb|mbbs|doctor of medicine|medical degree)\b/i }, { label: "HPCSA or applicable medical-board registration", pattern: /\b(?:hpcsa|medical board registration|registered medical practitioner)\b/i }] },
+  { name: "legal practice", pattern: /\b(?:attorney|advocate|lawyer|legal practitioner)\b/i, hardSkills: ["law", "legal research", "litigation", "contracts", "admitted attorney", "legal practice council"], mandatory: [{ label: "recognised law degree", pattern: /\b(?:llb|bachelor of laws|law degree)\b/i }, { label: "professional admission or applicable legal registration", pattern: /\b(?:admitted attorney|admitted advocate|legal practice council|lpc registration)\b/i }] },
+  { name: "regulated civil engineering", pattern: /\b(?:civil engineer|structural engineer|professional engineer)\b/i, hardSkills: ["civil engineering", "structural", "engineering design", "autocad", "project engineering", "ecsa"], mandatory: [{ label: "recognised civil or structural engineering qualification", pattern: /\b(?:degree|beng|bsc|btech).{0,45}(?:civil|structural) engineering|(?:civil|structural) engineering.{0,45}(?:degree|beng|bsc|btech)/i }] },
+  { name: "engineering", pattern: /\b(?:solar|photovoltaic|renewable energy|electrical|mechanical|engineering|engineer|technical manager|technician)\b/i, hardSkills: ["solar", "photovoltaic", "electrical", "mechanical", "engineering", "renewable", "installation", "commissioning"] },
+  { name: "software and IT", pattern: /\b(?:software|developer|programmer|information technology|\bit\b|cloud|devops|cybersecurity|network engineer|data engineer)\b/i, hardSkills: ["software", "programming", "cloud", "devops", "cybersecurity", "network", "database", "api"] },
+  { name: "finance", pattern: /\b(?:accounting|accountant|finance|financial|bookkeep|audit|credit control|accounts payable|accounts receivable)\b/i, hardSkills: ["accounting", "bookkeeping", "audit", "reconciliation", "ledger", "tax", "payroll", "credit control"] },
+  { name: "logistics", pattern: /\b(?:logistics|freight|transport|warehouse|supply chain|import|export|customs|shipping|dispatch)\b/i, hardSkills: ["logistics", "freight", "warehouse", "supply chain", "import", "export", "customs", "shipping", "dispatch"] },
+  { name: "customer service", pattern: /\b(?:customer service|customer support|client service|call centre|contact centre|customer care)\b/i, hardSkills: ["customer service", "customer support", "call centre", "crm", "complaint", "ticketing", "service level"] },
+  { name: "administration and operations", pattern: /\b(?:administration|administrator|administrative|office management|operations|operations coordinator|office coordinator)\b/i, hardSkills: ["administration", "operations", "office management", "document control", "scheduling", "records", "coordination"] },
+  { name: "construction", pattern: /\b(?:construction|civil|site manager|site agent|foreman|quantity survey|built environment)\b/i, hardSkills: ["construction", "civil", "site", "quantity surveying", "health and safety", "contractor", "project scheduling"] },
+  { name: "healthcare", pattern: /\b(?:nurse|nursing|medical|clinical|healthcare|pharmacy|pharmacist|patient care)\b/i, hardSkills: ["nursing", "clinical", "medical", "patient", "pharmacy", "healthcare", "hpcsa", "sanc"] },
+  { name: "sales and marketing", pattern: /\b(?:sales|marketing|business development|account executive|digital marketing|seo|campaign)\b/i, hardSkills: ["sales", "marketing", "pipeline", "crm", "campaign", "seo", "lead generation", "business development"] },
+];
 
 const ROLE_TOKEN_STOPWORDS = new Set([
   "and", "the", "for", "with", "from", "job", "role", "position", "required", "requirements", "description",
@@ -1081,10 +1096,30 @@ function strictRoleFit(cv: GeneratedCvDocument, target: string) {
     ...hardSkillPool.filter((skill) => !matchedHardSkills.includes(skill)),
     ...(!exactTitle && titleOverlap < 0.5 ? [`direct ${targetTitle || "target-role"} title experience`] : []),
   ];
+  const missingMandatoryRequirements = (targetDomain?.mandatory || []).filter((requirement) => !requirement.pattern.test(candidateEvidence)).map((requirement) => requirement.label);
+  gaps.unshift(...missingMandatoryRequirements);
   let score = Math.round(roleAlignment * 0.4 + titleRelevance * 0.35 + hardSkillScore * 0.25);
-  const hardMismatch = Boolean(targetDomain && !hasTargetDomainEvidence && titleOverlap < 0.5);
-  if (hardMismatch) score = Math.min(score, 35);
-  return { score, roleAlignment, titleRelevance, hardSkillScore, hardMismatch, matchedTitleTokens, matchedHardSkills, gaps };
+  const regulatedMismatch = missingMandatoryRequirements.length > 0;
+  const generalMismatch = targetDomain
+    ? !hasTargetDomainEvidence && titleOverlap < 0.5
+    : targetTitleTokens.length > 0 && experienceTitles.length > 0 && titleOverlap === 0;
+  const hardMismatch = regulatedMismatch || generalMismatch;
+  if (regulatedMismatch) score = Math.min(score, hasTargetDomainEvidence ? 25 : 20);
+  else if (hardMismatch) score = Math.min(score, 35);
+  const targetLabel = targetTitle || "the target role";
+  const mismatchType: "none" | "general" | "regulated" = regulatedMismatch ? "regulated" : hardMismatch ? "general" : "none";
+  const overallScoreCap = regulatedMismatch ? (hasTargetDomainEvidence ? 30 : 25) : hardMismatch ? 40 : 100;
+  const healthCheckMessage = regulatedMismatch
+    ? `Your CV is currently not qualified for ${targetLabel} roles. This position requires specialised qualifications, registration, or domain background that are not reflected in your CV.`
+    : hardMismatch
+      ? `Your documented experience does not currently align with the core professional domain for ${targetLabel} roles.`
+      : `Your CV shows ${exactTitle ? "direct" : "related"} evidence for ${targetLabel}; verify every mandatory requirement in the vacancy.`;
+  const recommendation = regulatedMismatch
+    ? `Do not present yourself as qualified until the required credentials are genuinely held. Re-target roles aligned with your documented background or pursue the formal qualification pathway.`
+    : hardMismatch
+      ? `Prioritise roles in your documented field or build verifiable domain experience before targeting ${targetLabel}.`
+      : `Tailor documented hard skills and outcomes to the vacancy without adding unsupported claims.`;
+  return { score, roleAlignment, titleRelevance, hardSkillScore, hardMismatch, regulatedMismatch, mismatchType, overallScoreCap, healthCheckMessage, recommendation, missingMandatoryRequirements, matchedTitleTokens, matchedHardSkills, gaps, isRoleMatch: !hardMismatch && score >= 60 };
 }
 
 // ---------------------------------------------------------------------------
@@ -1097,7 +1132,7 @@ export function evaluateAts(
 ): AtsReport {
   const checks: AtsCheckItem[] = [];
   const target = jobDescription?.trim() || "";
-  const fit = target ? strictRoleFit(cv, target) : null;
+  const fit = target && !/^(?:professional|general|any role)$/i.test(target) ? strictRoleFit(cv, target) : null;
   const allBullets = cv.experiences.flatMap((e) => e.bullets);
 
   const totalWords = (
@@ -1351,6 +1386,14 @@ export function evaluateAts(
     weakBullets,
     strongBullets,
     recommendedFixes,
+    ...(fit ? { roleMatch: {
+      isRoleMatch: fit.isRoleMatch,
+      mismatchType: fit.mismatchType,
+      healthCheckMessage: fit.healthCheckMessage,
+      missingMandatoryRequirements: fit.missingMandatoryRequirements,
+      recommendation: fit.recommendation,
+      overallScoreCap: fit.overallScoreCap,
+    } } : {}),
   };
 }
 

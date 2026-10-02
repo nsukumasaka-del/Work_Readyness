@@ -16,7 +16,7 @@ import { db, adminUsersTable, applicationOutcomesTable, coachingApplicationsTabl
 import { and, count, desc, eq, ne } from "drizzle-orm";
 import { searchTrustedJobBoards, getTrustedBoardLabels } from "../lib/job-board-search";
 import { buildCareerAlignmentReport, estimateCareerYears, type CareerAlignmentReport } from "../lib/career-alignment";
-import { enrichCareerAdvisoryWithGemini, generateCvAssistantJson, generateSmokeyReply, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
+import { enrichCareerAdvisoryWithGemini, generateCvAssistantJson, generateSmokeyReply, reviewDiagnosticRoleFitWithGemini, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
 import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
 import { ensurePrimaryAdmin } from "../lib/admin-auth";
 import { createAdminNotification } from "../lib/admin-ops";
@@ -358,6 +358,11 @@ function buildDiagnosticPayload(input: {
     authenticityScore: number;
     atsScore: number;
     overallScore: number;
+    structureFormattingScore?: number;
+    isRoleMatch?: boolean;
+    healthCheckMessage?: string;
+    missingMandatoryRequirements?: string[];
+    recommendation?: string;
     scores: {
       clarity: number;
       impact: number;
@@ -405,6 +410,11 @@ function buildDiagnosticPayload(input: {
     overallScore,
     authenticityScore: input.analysis?.authenticityScore ?? scores.authenticity,
     atsScore: input.analysis?.atsScore ?? scores.ats,
+    structureFormattingScore: input.analysis?.structureFormattingScore ?? scores.structure,
+    isRoleMatch: input.analysis?.isRoleMatch ?? true,
+    healthCheckMessage: input.analysis?.healthCheckMessage || defaultSummary,
+    missingMandatoryRequirements: input.analysis?.missingMandatoryRequirements ?? [],
+    recommendation: input.analysis?.recommendation || "Tailor only documented experience and skills to each vacancy.",
     scores,
     strengths: input.analysis?.strengths ?? [
       {
@@ -654,9 +664,15 @@ function analyzeUploadedCv(params: {
   return {
     authenticityScore: authenticity.score,
     atsScore: ats.overallScore,
-    overallScore: Math.round(
-      (scores.clarity + scores.impact + scores.structure + scores.keywordFit + scores.authenticity + scores.ats) / 6,
+    overallScore: Math.min(
+      Math.round((scores.clarity + scores.impact + scores.structure + scores.keywordFit + scores.authenticity + scores.ats) / 6),
+      ats.roleMatch?.overallScoreCap ?? 100,
     ),
+    isRoleMatch: ats.roleMatch?.isRoleMatch ?? true,
+    healthCheckMessage: ats.roleMatch?.healthCheckMessage,
+    missingMandatoryRequirements: ats.roleMatch?.missingMandatoryRequirements ?? [],
+    recommendation: ats.roleMatch?.recommendation,
+    structureFormattingScore: scores.structure,
     scores,
     strengths,
     improvements,
@@ -681,7 +697,7 @@ function analyzeUploadedCv(params: {
         "Replace one general claim with a single real example a hiring manager can verify.",
       `Which keyword from recent ${targetRole} listings can you prove in one sentence?`,
     ],
-    summary: `We analysed your uploaded CV for ${targetRole}. Overall readiness sits at a composite view of authenticity (${authenticity.score}) and ATS fit (${ats.overallScore}). Focus next on stronger proof language and role-aligned keywords for ${locationLabel}.`,
+    summary: ats.roleMatch?.healthCheckMessage || `We analysed your uploaded CV for ${targetRole}. Overall readiness sits at a composite view of authenticity (${authenticity.score}) and ATS fit (${ats.overallScore}). Focus next on stronger proof language and role-aligned keywords for ${locationLabel}.`,
   };
 }
 
@@ -1079,7 +1095,7 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       )) || careerAdvisory;
     }
 
-    const draftPayload = buildDiagnosticPayload({
+    let draftPayload = buildDiagnosticPayload({
       fileName,
       role: targetRole,
       location: locationLabel,
@@ -1089,6 +1105,42 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       careerAdvisory,
       analysis,
     });
+    const geminiRoleReview = extractedCandidate ? await reviewDiagnosticRoleFitWithGemini({
+      apiKey: process.env.GEMINI_API_KEY,
+      model: process.env.GEMINI_MODEL,
+      targetRole,
+      targetLocation: locationLabel,
+      candidateEvidence: {
+        summary: extractedCandidate.summary,
+        experience: extractedCandidate.experiences,
+        education: extractedCandidate.education,
+        skills: extractedCandidate.skills,
+        systems: extractedCandidate.toolsAndSoftware,
+        certifications: extractedCandidate.certifications,
+      },
+      deterministicAtsCap: draftPayload.atsScore,
+      deterministicOverallCap: draftPayload.overallScore,
+    }) : null;
+    if (geminiRoleReview) {
+      draftPayload = {
+        ...draftPayload,
+        overallScore: Math.min(draftPayload.overallScore, geminiRoleReview.overallScore),
+        atsScore: Math.min(draftPayload.atsScore, geminiRoleReview.atsFitScore),
+        authenticityScore: geminiRoleReview.authenticityScore,
+        structureFormattingScore: geminiRoleReview.structureFormattingScore,
+        isRoleMatch: draftPayload.isRoleMatch && geminiRoleReview.isRoleMatch,
+        healthCheckMessage: geminiRoleReview.healthCheckMessage,
+        summary: geminiRoleReview.healthCheckMessage,
+        missingMandatoryRequirements: [...new Set([...draftPayload.missingMandatoryRequirements, ...geminiRoleReview.missingMandatoryRequirements])],
+        recommendation: geminiRoleReview.recommendation,
+        scores: {
+          ...draftPayload.scores,
+          ats: Math.min(draftPayload.atsScore, geminiRoleReview.atsFitScore),
+          structure: geminiRoleReview.structureFormattingScore,
+          authenticity: geminiRoleReview.authenticityScore,
+        },
+      };
+    }
 
     const [report] = await db
       .insert(diagnosticReportsTable)
@@ -1107,18 +1159,7 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       })
       .returning();
 
-    const data = CreateDiagnosticResponse.parse(
-      buildDiagnosticPayload({
-        fileName: report.fileName,
-        role: targetRole,
-        location: locationLabel,
-        reportId: report.id,
-        relatedJobs: relatedJobs.slice(0, MATCH_LIMIT),
-        jobSearch,
-        careerAdvisory,
-        analysis,
-      }),
-    );
+    const data = CreateDiagnosticResponse.parse({ ...draftPayload, id: report.id, fileName: report.fileName });
 
     await db
       .update(diagnosticReportsTable)

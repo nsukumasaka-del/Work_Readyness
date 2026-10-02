@@ -12,11 +12,13 @@ import {
 } from "./auth";
 import { fetchTrustedJobDetails, searchTrustedJobBoards } from "../../artifacts/api-server/src/lib/job-board-search";
 import { buildCareerAlignmentReport, estimateCareerYears } from "../../artifacts/api-server/src/lib/career-alignment";
-import { calibrateJobListingScores, enrichCareerAdvisoryWithGemini, scoreJobListingsWithGemini } from "../../artifacts/api-server/src/lib/ai/gemini-client";
+import { calibrateJobListingScores, enrichCareerAdvisoryWithGemini, reviewDiagnosticRoleFitWithGemini, scoreJobListingsWithGemini } from "../../artifacts/api-server/src/lib/ai/gemini-client";
 import {
   buildGeneratedCv,
+  evaluateAts,
   normalizeStructure,
   type CvStructure,
+  type GeneratedCvDocument,
 } from "../../artifacts/api-server/src/lib/cv-builder";
 import { handleCvParseUpload } from "../cv-parse";
 
@@ -624,19 +626,34 @@ function buildReport(fileName: string, role: string, location: string, data: Ext
   const hasExperience = Boolean(data?.experiences.length);
   const hasEducation = Boolean(data?.education.length);
   const hasSkills = Boolean(data?.skills.length);
-  const ats = Math.min(96, 50 + (hasText ? 15 : 0) + (hasExperience ? 12 : 0) + (hasEducation ? 8 : 0) + (hasSkills ? 10 : 0));
+  const targetRole = role || data?.personal.professionalTitle || "Professional";
+  const reviewDocument: GeneratedCvDocument | null = data ? {
+    structure: "classic", structureLabel: "Classic", structureDescription: "Diagnostic", templateType: "single_column",
+    fullName: data.personal.fullName || "Candidate", headline: data.personal.professionalTitle || "Professional", contactLine: data.personal.email || "",
+    email: data.personal.email || "", phone: data.personal.phone, location: data.personal.location,
+    summary: data.summary || "", experiences: data.experiences, education: data.education,
+    skillGroups: [], skills: data.skills, toolsAndSoftware: data.toolsAndSoftware, certifications: data.certifications,
+    languages: data.languages, projects: data.projects, references: data.references, keywords: [], sections: [], footerNote: "", authenticityScore: 88,
+  } : null;
+  const atsReview = reviewDocument ? evaluateAts(reviewDocument, targetRole) : null;
+  const ats = atsReview?.overallScore ?? Math.min(96, 50 + (hasText ? 15 : 0) + (hasExperience ? 12 : 0) + (hasEducation ? 8 : 0) + (hasSkills ? 10 : 0));
   const authenticity = hasText ? 88 : 72;
-  const overall = Math.round((ats + authenticity) / 2);
+  const overall = Math.min(Math.round((ats + authenticity) / 2), atsReview?.roleMatch?.overallScoreCap ?? 100);
   return {
     id,
     fileName,
-    targetRole: role || data?.personal.professionalTitle || "Professional",
-    summary: hasText
+    targetRole,
+    summary: atsReview?.roleMatch?.healthCheckMessage || (hasText
       ? `Your CV has a readable structure for ${role || data?.personal.professionalTitle || "professional"} roles in ${location || "South Africa"}. Strengthen the evidence and keywords below before applying.`
-      : "Your profile was saved. Add CV text to receive section-level feedback.",
+      : "Your profile was saved. Add CV text to receive section-level feedback."),
     overallScore: overall,
     authenticityScore: authenticity,
     atsScore: ats,
+    structureFormattingScore: hasText ? 82 : 55,
+    isRoleMatch: atsReview?.roleMatch?.isRoleMatch ?? true,
+    healthCheckMessage: atsReview?.roleMatch?.healthCheckMessage,
+    missingMandatoryRequirements: atsReview?.roleMatch?.missingMandatoryRequirements ?? [],
+    recommendation: atsReview?.roleMatch?.recommendation,
     scores: { clarity: overall, impact: hasExperience ? 72 : 52, structure: hasText ? 82 : 55, keywordFit: hasSkills ? 74 : 54, authenticity, ats },
     strengths: [
       ...(hasText ? [{ title: "Document is readable", detail: "The CV text was extracted successfully and can be reviewed." }] : []),
@@ -654,7 +671,7 @@ function buildReport(fileName: string, role: string, location: string, data: Ext
       { section: "Skills & Keywords", score: hasSkills ? 74 : 54, status: hasSkills ? "Solid" : "Needs improvement", findings: [hasSkills ? "Skills were detected." : "Add a skills section matched to the target role."] },
     ],
     flaggedPhrases: [],
-    missingKeywords: [],
+    missingKeywords: atsReview?.missingKeywords.slice(0, 12) ?? [],
     rewriteExamples: [],
     prompts: ["Which achievement can you quantify for your target role?"],
     relatedJobs: [],
@@ -761,8 +778,42 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
     yearsExperience: estimateCareerYears(data?.experiences),
     location: location || data?.personal.location || "South Africa",
   };
+  const deterministicReport = buildReport(fileName, role, location, data, id);
+  const geminiRoleReview = data ? await reviewDiagnosticRoleFitWithGemini({
+    apiKey: env.GEMINI_API_KEY,
+    model: env.GEMINI_MODEL,
+    targetRole: candidateProfile.targetRole,
+    targetLocation: candidateProfile.location,
+    candidateEvidence: {
+      summary: data.summary,
+      experience: data.experiences,
+      education: data.education,
+      skills: data.skills,
+      systems: data.toolsAndSoftware,
+      certifications: data.certifications,
+    },
+    deterministicAtsCap: deterministicReport.atsScore,
+    deterministicOverallCap: deterministicReport.overallScore,
+  }) : null;
   const report = {
-    ...buildReport(fileName, role, location, data, id),
+    ...deterministicReport,
+    ...(geminiRoleReview ? {
+      overallScore: Math.min(deterministicReport.overallScore, geminiRoleReview.overallScore),
+      atsScore: Math.min(deterministicReport.atsScore, geminiRoleReview.atsFitScore),
+      authenticityScore: geminiRoleReview.authenticityScore,
+      structureFormattingScore: geminiRoleReview.structureFormattingScore,
+      isRoleMatch: deterministicReport.isRoleMatch && geminiRoleReview.isRoleMatch,
+      healthCheckMessage: geminiRoleReview.healthCheckMessage,
+      summary: geminiRoleReview.healthCheckMessage,
+      missingMandatoryRequirements: [...new Set([...deterministicReport.missingMandatoryRequirements, ...geminiRoleReview.missingMandatoryRequirements])],
+      recommendation: geminiRoleReview.recommendation,
+      scores: {
+        ...deterministicReport.scores,
+        ats: Math.min(deterministicReport.atsScore, geminiRoleReview.atsFitScore),
+        structure: geminiRoleReview.structureFormattingScore,
+        authenticity: geminiRoleReview.authenticityScore,
+      },
+    } : {}),
     relatedJobs: jobSearch.jobs,
     candidateProfile,
     ...(careerAdvisory ? { careerAdvisory } : {}),

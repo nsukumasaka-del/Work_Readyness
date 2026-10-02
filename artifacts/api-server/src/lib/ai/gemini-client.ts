@@ -125,6 +125,70 @@ export async function generateCvAssistantJson<T>(input: {
   });
 }
 
+export type DiagnosticRoleReview = {
+  overallScore: number;
+  atsFitScore: number;
+  authenticityScore: number;
+  structureFormattingScore: number;
+  isRoleMatch: boolean;
+  healthCheckMessage: string;
+  missingMandatoryRequirements: string[];
+  recommendation: string;
+};
+
+export async function reviewDiagnosticRoleFitWithGemini(input: {
+  apiKey?: string;
+  model?: string;
+  targetRole: string;
+  targetLocation: string;
+  candidateEvidence: unknown;
+  deterministicAtsCap: number;
+  deterministicOverallCap: number;
+}): Promise<DiagnosticRoleReview | null> {
+  if (!input.apiKey?.trim()) return null;
+  try {
+    const result = await generateGeminiJson<DiagnosticRoleReview>({
+      apiKey: input.apiKey,
+      model: input.model,
+      instruction: `You are an expert AI technical recruiter and strict ATS auditor. Evaluate the supplied CV against the target job title and target location.
+
+MANDATORY FIRST STEP — DOMAIN AND REGULATORY GATE:
+- Identify the target profession before evaluating writing or formatting.
+- Verify direct industry experience, required professional degrees, clinical/domain training, licences, and board registration using explicit CV evidence only.
+- For regulated or highly specialised roles such as Psychologist, Doctor, Lawyer, Civil Engineer, or similar professions, absent mandatory education/registration means the candidate is not qualified. Psychology requires relevant psychology education/clinical training and applicable HPCSA or board-registration evidence.
+
+CAPS:
+- Regulatory/high-domain mismatch: atsFitScore 15-25 maximum; overallScore 20-30 maximum; isRoleMatch false.
+- General unrelated career mismatch: atsFitScore 20-35 maximum; overallScore 25-40 maximum.
+- Adjacent transferable alignment: 60-75.
+- Direct title plus hard-skill alignment: 80-95.
+- Formatting, grammar, communication, teamwork, location, or generic administration must never override a failed domain gate.
+
+The application has independently calculated hard maximums of ${input.deterministicAtsCap} ATS and ${input.deterministicOverallCap} overall. Never exceed them.
+
+Return only JSON: {"overallScore":number,"atsFitScore":number,"authenticityScore":number,"structureFormattingScore":number,"isRoleMatch":boolean,"healthCheckMessage":string,"missingMandatoryRequirements":string[],"recommendation":string}.`,
+      evidence: { targetJobTitle: input.targetRole, targetLocation: input.targetLocation, cv: input.candidateEvidence },
+      maxOutputTokens: 900,
+    });
+    const number = (value: unknown) => Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+    const atsFitScore = Math.min(number(result.atsFitScore), input.deterministicAtsCap);
+    const overallScore = Math.min(number(result.overallScore), input.deterministicOverallCap);
+    return {
+      overallScore,
+      atsFitScore,
+      authenticityScore: number(result.authenticityScore),
+      structureFormattingScore: number(result.structureFormattingScore),
+      isRoleMatch: Boolean(result.isRoleMatch) && input.deterministicAtsCap > 40,
+      healthCheckMessage: String(result.healthCheckMessage || "The CV does not yet demonstrate sufficient evidence for the target role.").slice(0, 700),
+      missingMandatoryRequirements: Array.isArray(result.missingMandatoryRequirements) ? result.missingMandatoryRequirements.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim()).slice(0, 10) : [],
+      recommendation: String(result.recommendation || "Target roles aligned with documented qualifications and experience.").slice(0, 700),
+    };
+  } catch (error) {
+    console.error("Gemini diagnostic role review failed; using deterministic role gate.", error);
+    return null;
+  }
+}
+
 const LISTING_ROLE_DOMAINS = [
   /\b(?:solar|photovoltaic|renewable energy|electrical|mechanical|engineering|engineer|technical manager|technician)\b/i,
   /\b(?:software|developer|programmer|information technology|\bit\b|cloud|devops|cybersecurity|network engineer|data engineer)\b/i,

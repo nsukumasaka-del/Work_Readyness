@@ -1,4 +1,4 @@
-import { type ReactNode, type FormEvent, useState, useEffect, useRef } from 'react';
+import { lazy, Suspense, type ReactNode, type FormEvent, useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Capacitor } from '@capacitor/core';
@@ -48,10 +48,9 @@ import type {
   UserProfile,
 } from '@workspace/api-client-react';
 import NotFound from '@/pages/not-found';
-import { AdminRoute, trackPageVisit } from '@/pages/admin';
+import { trackPageVisit } from '@/pages/admin/tracking';
 import PricingPage from '@/pages/pricing';
 import ProgrammePage from '@/pages/programme';
-import CvBuilderPage, { generateCv, persistGeneratedCv } from '@/pages/cv-builder';
 import CvDashboardPage from '@/pages/CvDashboard';
 import OfflineWorkstationPage from '@/pages/OfflineWorkstation';
 import { AppUpdatePrompt, UpdatesPage } from '@/pages/UpdatesPage';
@@ -77,12 +76,17 @@ import {
 } from '@/lib/job-match-notifications';
 import { JobListingCard, JobListingDetails } from '@/components/jobs/JobListingCard';
 import { SeoManager } from '@/components/SeoManager';
+import { isKnownAppPath } from '@/lib/seo-policy';
 import { CookieConsent } from '@/components/CookieConsent';
+import { AdProvider } from '@/components/AdProvider';
 import { CareerAdviceCategoryPage, CareerAdviceIndexPage, CareerArticlePage } from '@/pages/CareerAdvice';
 import { PublicJobCategoryPage, PublicJobsIndexPage } from '@/pages/PublicJobs';
 import { TrustPage } from '@/pages/TrustPages';
 import { findPublicJobCategory } from '@/content/public-jobs';
 import { directApplicationUrl, toJobListing, type JobDetailsPayload, type JobListingSource } from '@/types/job';
+
+const CvBuilderPage = lazy(() => import('@/pages/cv-builder'));
+const AdminRoute = lazy(() => import('@/pages/admin/AdminDashboard').then((module) => ({ default: module.AdminRoute })));
 
 import { isNativeApp } from '@/lib/platform';
 import { describeApiMisconfiguration } from '@/lib/api-base';
@@ -418,7 +422,7 @@ const GUIDE_TOPICS: Record<string, GuideTopicContent> = {
         description: 'Aligning with South African labor and corporate recruitment practices.',
         points: [
           { label: 'Privacy First', text: 'Protect sensitive personal data: do not include South African ID numbers, marital status, or full street addresses on public submissions.' },
-          { label: 'Authentic Verification', text: 'Back every listed achievement with verifiable records. BonLists authenticity layer ensures 100% factual fidelity.' }
+          { label: 'Authentic Verification', text: 'Review every listed achievement against your real experience and supporting records before using it.' }
         ]
       }
     ]
@@ -4153,6 +4157,9 @@ function Router() {
       </RoutedErrorBoundary>
     );
   }
+  if (!isKnownAppPath(pathname)) {
+    return <RoutedErrorBoundary><AppShell><NotFound /></AppShell></RoutedErrorBoundary>;
+  }
   return <ProtectedApp />;
 }
 
@@ -4213,8 +4220,12 @@ function App() {
         <AppUpdatePrompt />
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
           <SeoManager />
-          <Router />
-          <CookieConsent />
+          <AdProvider>
+            <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground" role="status">Loading BonList…</div>}>
+              <Router />
+            </Suspense>
+            <CookieConsent />
+          </AdProvider>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

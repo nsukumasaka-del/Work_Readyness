@@ -20,6 +20,7 @@ import {
   type CvAssistantTask,
   type GeminiChatTurn,
 } from "../artifacts/api-server/src/lib/ai/gemini-client";
+import { renderRouteHtml } from "./public-html";
 
 export interface Env extends D1Env {
   ASSETS: Fetcher;
@@ -28,6 +29,7 @@ export interface Env extends D1Env {
   ANDROID_VERSION_CODE?: string;
   ANDROID_APK_URL?: string;
   ANDROID_RELEASE_NOTES?: string;
+  ADSENSE_SITE_VERIFICATION_CLIENT?: string;
 }
 
 async function handleCvPdfExport(request: Request, env: Env): Promise<Response> {
@@ -326,17 +328,6 @@ function withNativeCors(request: Request, response: Response): Response {
   });
 }
 
-const PUBLIC_JOB_GUIDES = new Set(["explore", "administration", "customer-service", "logistics", "sales", "finance", "it"]);
-
-function shouldNoIndex(pathname: string): boolean {
-  if (pathname === "/jobs") return true;
-  if (pathname.startsWith("/jobs/")) return !PUBLIC_JOB_GUIDES.has(pathname.split("/")[2] || "");
-  return [
-    "/admin", "/dashboard", "/my-resumes", "/cv-builder", "/diagnostic", "/profile", "/account",
-    "/settings", "/security", "/login", "/signup", "/forgot-password", "/reset-password",
-    "/auth/callback", "/checkout", "/payment", "/interview", "/coaching", "/programme", "/offline-workstation", "/job-matches",
-  ].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-}
 
 async function serveOtaAsset(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -482,6 +473,12 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    if ((url.hostname === "bonlist.site" || url.hostname === "www.bonlist.site") && (url.protocol !== "https:" || url.hostname === "bonlist.site")) {
+      url.protocol = "https:";
+      url.hostname = "www.bonlist.site";
+      return Response.redirect(url.toString(), 308);
+    }
+
     if (url.pathname.startsWith("/ota/")) {
       return serveOtaAsset(request, env);
     }
@@ -595,21 +592,27 @@ export default {
     const assetResponse = await env.ASSETS.fetch(request);
     const headers = new Headers(assetResponse.headers);
     const contentType = (assetResponse.headers.get("Content-Type") || "").toLowerCase();
-    const isHtmlOrScript =
-      contentType.includes("text/html") ||
-      request.url.includes(".html") ||
-      request.url.includes(".js") ||
-      request.url.includes(".css") ||
-      request.url.includes(".mjs");
+    headers.set("X-Content-Type-Options", "nosniff");
+    headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
 
-    if (isHtmlOrScript) {
+    if (contentType.includes("text/html")) {
+      headers.delete("Content-Length");
+      headers.delete("Content-Encoding");
+      headers.delete("ETag");
       headers.set("Cache-Control", "no-store, max-age=0");
       headers.set("Pragma", "no-cache");
       headers.set("Expires", "0");
+      const rendered = renderRouteHtml(await assetResponse.text(), url.pathname, env.ADSENSE_SITE_VERIFICATION_CLIENT);
+      if (rendered.noIndex) headers.set("X-Robots-Tag", `${rendered.robots}, noarchive`);
+      else headers.delete("X-Robots-Tag");
+      return new Response(request.method === "HEAD" ? null : rendered.html, {
+        status: rendered.status,
+        headers,
+      });
     }
 
-    if (contentType.includes("text/html") && shouldNoIndex(url.pathname)) {
-      headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+    if (url.pathname.startsWith("/assets/") && /-[a-z0-9_-]{8,}\.(?:m?js|css|woff2?|png|jpe?g|webp|svg)$/i.test(url.pathname)) {
+      headers.set("Cache-Control", "public, max-age=31536000, immutable");
     }
 
     return new Response(assetResponse.body, {

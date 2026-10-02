@@ -9,6 +9,7 @@
     "dev": "node ./scripts/dev.mjs",
     "build": "pnpm --config.manage-package-manager-versions=false run typecheck && pnpm --config.manage-package-manager-versions=false -r --if-present run build",
     "test": "npm --prefix artifacts/api-server run test",
+    "test:adsense": "node artifacts/api-server/node_modules/tsx/dist/cli.mjs --test scripts/adsense-readiness.test.ts",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm --config.manage-package-manager-versions=false run typecheck:libs && pnpm --config.manage-package-manager-versions=false -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "mobile:sync": "node ./mobile/bonlist-android/scripts/sync-web.mjs --build --cap-sync",

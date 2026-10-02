@@ -16,13 +16,17 @@ export function trackPageVisit(path: string) {
   if (!readConsentPreferences()?.analytics) return;
   const visitorId = ensureVisitorId();
   const pathname = path.split(/[?#]/, 1)[0] || '/';
+  let referrerOrigin: string | null = null;
+  try {
+    if (document.referrer) referrerOrigin = new URL(document.referrer).origin;
+  } catch { /* malformed referrers are omitted */ }
   void fetch("/api/analytics/visit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       path: pathname,
       visitorId,
-      referrer: document.referrer || null,
+      referrer: referrerOrigin,
     }),
     keepalive: true,
   }).catch(() => undefined);

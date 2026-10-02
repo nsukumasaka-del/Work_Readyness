@@ -59,6 +59,7 @@ import {
   Palette,
   Pencil,
   Crown,
+  Copy,
   Plus,
   RefreshCw,
   Redo2,
@@ -126,6 +127,7 @@ type InlineTextFormat = {
 
 type InlineFormattingMap = Record<string, InlineTextFormat>;
 type CanvasPositionMap = Record<string, { x: number; y: number }>;
+type ManagedCvPage = { id: string; kind: "blank" | "duplicate"; sourcePageIndex?: number };
 type CanvasSectionKey = "summary" | "experience" | "projects" | "education" | "skills" | "certifications" | "languages" | "references" | "custom";
 
 const DEFAULT_CANVAS_SECTION_ORDER: CanvasSectionKey[] = [
@@ -645,6 +647,7 @@ export interface GeneratedCvResponse {
     columnRatio?: number;
     sectionLabels?: Record<string, string>;
     elementPositions?: CanvasPositionMap;
+    managedPages?: ManagedCvPage[];
   };
   document: GeneratedCvDocument;
   cv_content?: CvContentData;
@@ -660,6 +663,7 @@ type CanvasHistorySnapshot = {
   columnRatio: number;
   sectionLabels: Record<string, string>;
   elementPositions: CanvasPositionMap;
+  managedPages: ManagedCvPage[];
 };
 
 function normalizeCvResponse(response: GeneratedCvResponse): GeneratedCvResponse {
@@ -2259,6 +2263,8 @@ export default function CvBuilderPage() {
   const canvasRef = useRef<HTMLElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [a4PageCount, setA4PageCount] = useState(1);
+  const [naturalA4PageCount, setNaturalA4PageCount] = useState(1);
+  const [managedPageLeadPx, setManagedPageLeadPx] = useState(0);
   const [a4StackHeightPx, setA4StackHeightPx] = useState(0);
   const [a4Spacers, setA4Spacers] = useState<Record<string, number>>({});
   const [canvasPageWidthPx, setCanvasPageWidthPx] = useState(794);
@@ -2317,6 +2323,7 @@ export default function CvBuilderPage() {
   const [columnRatio, setColumnRatio] = useState(62);
   const [sectionLabels, setSectionLabels] = useState<Record<string, string>>({});
   const [elementPositions, setElementPositions] = useState<CanvasPositionMap>({});
+  const [managedPages, setManagedPages] = useState<ManagedCvPage[]>([]);
   const [selectedCanvasPositionKey, setSelectedCanvasPositionKey] = useState<string | null>(null);
   const [canvasSelectionBox, setCanvasSelectionBox] = useState({ left: 0, top: 0, width: 0, height: 0 });
   const canvasPositionDragRef = useRef<{
@@ -3634,6 +3641,7 @@ export default function CvBuilderPage() {
           setColumnRatio(preferences?.columnRatio ?? 62);
           setSectionLabels(preferences?.sectionLabels || {});
           setElementPositions(preferences?.elementPositions || {});
+          setManagedPages(preferences?.managedPages || []);
           hasGeneratedRef.current = true;
           if (searchParams?.get("print") === "1") {
             window.setTimeout(() => handleDirectDownload("print"), 900);
@@ -3700,6 +3708,7 @@ export default function CvBuilderPage() {
       setColumnRatio(existing.preferences?.columnRatio ?? 62);
       setSectionLabels(existing.preferences?.sectionLabels || {});
       setElementPositions(existing.preferences?.elementPositions || {});
+      setManagedPages(existing.preferences?.managedPages || []);
       void runQualityEvaluation(condensed.document);
       return;
     }
@@ -3743,6 +3752,7 @@ export default function CvBuilderPage() {
           setColumnRatio(preferences?.columnRatio ?? 62);
           setSectionLabels(preferences?.sectionLabels || {});
           setElementPositions(preferences?.elementPositions || {});
+          setManagedPages(preferences?.managedPages || []);
           hasGeneratedRef.current = true;
         })
         .catch((loadError) => {
@@ -4027,6 +4037,7 @@ export default function CvBuilderPage() {
       columnRatio,
       sectionLabels,
       elementPositions,
+      managedPages,
     },
   });
 
@@ -4096,6 +4107,7 @@ export default function CvBuilderPage() {
       columnRatio,
       sectionLabels,
       elementPositions,
+      managedPages,
     })) as CanvasHistorySnapshot;
   };
 
@@ -4124,6 +4136,7 @@ export default function CvBuilderPage() {
     setColumnRatio(snapshot.columnRatio);
     setSectionLabels(snapshot.sectionLabels);
     setElementPositions(snapshot.elementPositions);
+    setManagedPages(snapshot.managedPages);
     setAutoSaveStatus("unsaved");
   };
 
@@ -4164,7 +4177,7 @@ export default function CvBuilderPage() {
     };
     window.addEventListener("keydown", handleHistoryShortcut);
     return () => window.removeEventListener("keydown", handleHistoryShortcut);
-  }, [isEditMode, cv, inlineFormatting, sectionOrder, sectionSpacing, columnRatio, sectionLabels, elementPositions]);
+  }, [isEditMode, cv, inlineFormatting, sectionOrder, sectionSpacing, columnRatio, sectionLabels, elementPositions, managedPages]);
 
   // Inline Canvas Editing Helper
   const updateDocumentField = (key: keyof GeneratedCvDocument, value: unknown) => {
@@ -4356,7 +4369,7 @@ export default function CvBuilderPage() {
         void saveNativeCv({ ...cv, title }, true, { title, preferences: payload.preferences });
       }
     }
-  }, [cv, documentTitle, selectedTemplate, selectedColor.id, selectedFont.id, fontSize, lineSpacing, marginSize, inlineFormatting, sectionOrder, sectionSpacing, columnRatio, sectionLabels, elementPositions, isIntakeModalOpen]);
+  }, [cv, documentTitle, selectedTemplate, selectedColor.id, selectedFont.id, fontSize, lineSpacing, marginSize, inlineFormatting, sectionOrder, sectionSpacing, columnRatio, sectionLabels, elementPositions, managedPages, isIntakeModalOpen]);
 
   useEffect(() => {
     if (!isAndroidApp()) return;
@@ -5509,6 +5522,49 @@ export default function CvBuilderPage() {
     return parts.join("\n");
   };
 
+  const addManagedPage = (kind: ManagedCvPage["kind"], sourcePageIndex?: number, insertAfterManagedIndex?: number) => {
+    recordCanvasHistory();
+    setManagedPages((current) => {
+      const page = { id: `page-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, kind, sourcePageIndex };
+      if (insertAfterManagedIndex === undefined) return [...current, page];
+      const next = [...current];
+      next.splice(Math.min(current.length, insertAfterManagedIndex + 1), 0, page);
+      return next;
+    });
+  };
+
+  const deleteManagedPage = (managedIndex: number) => {
+    if (a4PageCount <= 1) return;
+    const page = managedPages[managedIndex];
+    if (!page) return;
+    if (!window.confirm(page.kind === "duplicate" ? "Delete this duplicated page?" : "Delete this blank page?")) return;
+    recordCanvasHistory();
+    setManagedPages((current) => current.filter((_, index) => index !== managedIndex));
+  };
+
+  useLayoutEffect(() => {
+    const root = printRef.current;
+    if (!root) return;
+    const pageHeight = root.offsetWidth * 297 / 210;
+    root.querySelectorAll<HTMLElement>("[data-managed-duplicate-page]").forEach((host) => {
+      const sourceIndex = Number(host.dataset.managedDuplicatePage || 0);
+      const clone = root.cloneNode(true) as HTMLElement;
+      clone.removeAttribute("id");
+      clone.querySelectorAll("[data-managed-page], .no-print, [data-preview-only='true']").forEach((element) => element.remove());
+      clone.querySelectorAll("[data-a4-id], [data-a4-spacer]").forEach((element) => {
+        element.removeAttribute("data-a4-id");
+        element.removeAttribute("data-a4-spacer");
+      });
+      clone.style.position = "absolute";
+      clone.style.left = "0";
+      clone.style.top = `${-sourceIndex * pageHeight}px`;
+      clone.style.width = "100%";
+      clone.style.maxWidth = "none";
+      clone.style.boxShadow = "none";
+      host.replaceChildren(clone);
+    });
+  }, [managedPages, cv, selectedTemplate, selectedColor.id, selectedFont.id, fontSize, lineSpacing, marginSize, inlineFormatting, elementPositions, sectionOrder, sectionSpacing, columnRatio, sectionLabels]);
+
   // Live A4 page count + React spacers that keep sections whole across page breaks
   useLayoutEffect(() => {
     const el = printRef.current;
@@ -5531,7 +5587,13 @@ export default function CvBuilderPage() {
       const mm = el.offsetWidth / 210 || 96 / 25.4;
       const pagePx = Math.max(1, 297 * mm);
       const height = Math.max(el.scrollHeight, el.offsetHeight);
-      const pages = Math.max(1, Math.ceil(height / pagePx - 0.02));
+      const managedHeight = el.querySelector<HTMLElement>("[data-managed-pages-container]")?.offsetHeight || 0;
+      const naturalHeight = Math.max(pagePx, height - managedHeight);
+      const naturalPages = Math.max(1, Math.ceil(naturalHeight / pagePx - 0.02));
+      const lead = managedPages.length ? Math.max(0, naturalPages * pagePx - naturalHeight) : 0;
+      const pages = naturalPages + managedPages.length;
+      setNaturalA4PageCount((prev) => (prev === naturalPages ? prev : naturalPages));
+      setManagedPageLeadPx((prev) => (Math.abs(prev - lead) < 4 ? prev : Math.round(lead)));
       setA4PageCount((prev) => (prev === pages ? prev : pages));
       setA4StackHeightPx((prev) => (Math.abs(prev - height) < 8 ? prev : height));
     };
@@ -5603,6 +5665,7 @@ export default function CvBuilderPage() {
     cv?.document.certifications,
     cv?.document.references,
     cv?.document.projects,
+    managedPages,
   ]);
 
   // Keep the A4 preview inside the available canvas on phones and narrow
@@ -6851,6 +6914,22 @@ export default function CvBuilderPage() {
                         </div>
                       ))}
                     </div>
+                    {isEditMode ? (
+                      <div className="no-print canvas-control absolute inset-0 z-40 pointer-events-none" aria-label="CV page controls">
+                        {Array.from({ length: a4PageCount }).map((_, pageIndex) => {
+                          const managedIndex = pageIndex - naturalA4PageCount;
+                          const isManagedPage = managedIndex >= 0;
+                          return (
+                            <div key={pageIndex} className="pointer-events-auto absolute right-2 flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 px-2 py-1 text-[10px] font-semibold text-slate-600 shadow-sm backdrop-blur" style={{ top: `calc(${pageIndex * 297}mm + 6px)` }}>
+                              <span className="mr-1 whitespace-nowrap">Page {pageIndex + 1} of {a4PageCount}</span>
+                              <button type="button" onClick={() => addManagedPage("blank", undefined, isManagedPage ? managedIndex : undefined)} className="inline-flex items-center gap-1 rounded px-1.5 py-1 hover:bg-slate-100" title="Add a blank page below"><Plus size={12} /> Add Page</button>
+                              <button type="button" onClick={() => addManagedPage(isManagedPage && managedPages[managedIndex]?.kind === "blank" ? "blank" : "duplicate", isManagedPage ? managedPages[managedIndex]?.sourcePageIndex : pageIndex, isManagedPage ? managedIndex : undefined)} className="rounded p-1 hover:bg-slate-100" title="Duplicate this page"><Copy size={12} /></button>
+                              <button type="button" disabled={!isManagedPage || a4PageCount <= 1} onClick={() => isManagedPage && deleteManagedPage(managedIndex)} className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30" title={isManagedPage ? "Delete this page" : "Content pages are removed by deleting or moving their content"}><Trash2 size={12} /></button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
               {(() => {
                 const isTimeline = meta.templateType === "timeline" || selectedTemplate === "timeline";
                 const isDouble = meta.columns === "double";
@@ -8102,9 +8181,33 @@ export default function CvBuilderPage() {
                         {cv.document.footerNote}
                       </footer>
                     ) : null}
+
+                    {managedPages.length ? (
+                      <div data-managed-pages-container style={{ paddingTop: managedPageLeadPx }}>
+                        {managedPages.map((page, managedIndex) => (
+                          <section
+                            key={page.id}
+                            data-managed-page={page.id}
+                            className="relative h-[297mm] w-[210mm] overflow-hidden border-t border-slate-200 bg-white [break-after:page] [page-break-after:always]"
+                            style={{ marginLeft: "calc(-1 * var(--cv-a4-pad-x))" }}
+                          >
+                            {page.kind === "duplicate" ? (
+                              <div data-managed-duplicate-page={page.sourcePageIndex ?? Math.max(0, naturalA4PageCount - 1)} className="absolute inset-0 overflow-hidden" />
+                            ) : (
+                              <div className="absolute inset-0" aria-label={`Blank CV page ${naturalA4PageCount + managedIndex + 1}`} />
+                            )}
+                          </section>
+                        ))}
+                      </div>
+                    ) : null}
                   </article>
                 );
               })()}
+                    {isEditMode ? (
+                      <button type="button" onClick={() => addManagedPage("blank")} className="no-print mx-auto mt-5 flex items-center gap-2 rounded-xl border border-dashed border-blue-300 bg-white px-5 py-3 text-sm font-semibold text-blue-700 shadow-sm transition hover:border-blue-500 hover:bg-blue-50">
+                        <Plus size={16} /> Add New Page
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </div>

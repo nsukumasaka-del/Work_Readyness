@@ -821,7 +821,7 @@
 #bonlist-cv-document.cv-inline-edit-mode input:hover,
 #bonlist-cv-document.cv-inline-edit-mode textarea:hover,
 #bonlist-cv-document.cv-inline-edit-mode [data-inline-editable="true"]:hover {
-  outline: 1px dashed #cbd5e1 !important;
+  outline: 1px dashed #00c4cc !important;
   background-color: transparent;
   box-shadow: none !important;
 }
@@ -836,6 +836,16 @@
 
 #bonlist-cv-document .no-print:not(.canvas-control) {
   display: none !important;
+}
+
+#bonlist-cv-document.cv-inline-edit-mode .cv-positionable-block {
+  outline: 1px dashed transparent;
+  outline-offset: 2px;
+  transition: outline-color 120ms ease;
+}
+
+#bonlist-cv-document.cv-inline-edit-mode .cv-positionable-block:hover {
+  outline-color: #00c4cc;
 }
 
 #bonlist-cv-document .cv-inline-bullet {

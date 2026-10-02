@@ -125,6 +125,7 @@ type InlineTextFormat = {
 };
 
 type InlineFormattingMap = Record<string, InlineTextFormat>;
+type CanvasPositionMap = Record<string, { x: number; y: number }>;
 type CanvasSectionKey = "summary" | "experience" | "projects" | "education" | "skills" | "certifications" | "languages" | "references" | "custom";
 
 const DEFAULT_CANVAS_SECTION_ORDER: CanvasSectionKey[] = [
@@ -643,6 +644,7 @@ export interface GeneratedCvResponse {
     sectionSpacing?: number;
     columnRatio?: number;
     sectionLabels?: Record<string, string>;
+    elementPositions?: CanvasPositionMap;
   };
   document: GeneratedCvDocument;
   cv_content?: CvContentData;
@@ -657,6 +659,7 @@ type CanvasHistorySnapshot = {
   sectionSpacing: number;
   columnRatio: number;
   sectionLabels: Record<string, string>;
+  elementPositions: CanvasPositionMap;
 };
 
 function normalizeCvResponse(response: GeneratedCvResponse): GeneratedCvResponse {
@@ -2261,8 +2264,6 @@ export default function CvBuilderPage() {
   const [canvasPageWidthPx, setCanvasPageWidthPx] = useState(794);
   const [draggedCustomSection, setDraggedCustomSection] = useState<number | null>(null);
   const [draggedExperienceIndex, setDraggedExperienceIndex] = useState<number | null>(null);
-  const [draggedEducationIndex, setDraggedEducationIndex] = useState<number | null>(null);
-  const [draggedProjectIndex, setDraggedProjectIndex] = useState<number | null>(null);
   const [draggedSkillIndex, setDraggedSkillIndex] = useState<number | null>(null);
 
   const [cv, setCv] = useState<GeneratedCvResponse | null>(() => createBlankCvDraft());
@@ -2310,13 +2311,27 @@ export default function CvBuilderPage() {
   const [inlineFormatting, setInlineFormatting] = useState<InlineFormattingMap>({});
   const [activeInlineField, setActiveInlineField] = useState<string | null>(null);
   const activeInlineElementRef = useRef<HTMLElement | null>(null);
+  const selectedCanvasElementRef = useRef<HTMLElement | null>(null);
   const [sectionOrder, setSectionOrder] = useState<CanvasSectionKey[]>(DEFAULT_CANVAS_SECTION_ORDER);
   const [sectionSpacing, setSectionSpacing] = useState(24);
   const [columnRatio, setColumnRatio] = useState(62);
   const [sectionLabels, setSectionLabels] = useState<Record<string, string>>({});
-  const [draggedCanvasSection, setDraggedCanvasSection] = useState<CanvasSectionKey | null>(null);
-  const [draggedCanvasBullet, setDraggedCanvasBullet] = useState<{ experienceIndex: number; bulletIndex: number } | null>(null);
-  const [draggedProjectBullet, setDraggedProjectBullet] = useState<{ projectIndex: number; bulletIndex: number } | null>(null);
+  const [elementPositions, setElementPositions] = useState<CanvasPositionMap>({});
+  const [selectedCanvasPositionKey, setSelectedCanvasPositionKey] = useState<string | null>(null);
+  const [canvasSelectionBox, setCanvasSelectionBox] = useState({ left: 0, top: 0, width: 0, height: 0 });
+  const canvasPositionDragRef = useRef<{
+    key: string;
+    element: HTMLElement;
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startX: number;
+    startY: number;
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+  } | null>(null);
   const canvasUndoRef = useRef<CanvasHistorySnapshot[]>([]);
   const canvasRedoRef = useRef<CanvasHistorySnapshot[]>([]);
   const [canvasHistoryVersion, setCanvasHistoryVersion] = useState(0);
@@ -3618,6 +3633,7 @@ export default function CvBuilderPage() {
           setSectionSpacing(preferences?.sectionSpacing ?? 24);
           setColumnRatio(preferences?.columnRatio ?? 62);
           setSectionLabels(preferences?.sectionLabels || {});
+          setElementPositions(preferences?.elementPositions || {});
           hasGeneratedRef.current = true;
           if (searchParams?.get("print") === "1") {
             window.setTimeout(() => handleDirectDownload("print"), 900);
@@ -3683,6 +3699,7 @@ export default function CvBuilderPage() {
       setSectionSpacing(existing.preferences?.sectionSpacing ?? 24);
       setColumnRatio(existing.preferences?.columnRatio ?? 62);
       setSectionLabels(existing.preferences?.sectionLabels || {});
+      setElementPositions(existing.preferences?.elementPositions || {});
       void runQualityEvaluation(condensed.document);
       return;
     }
@@ -3725,6 +3742,7 @@ export default function CvBuilderPage() {
           setSectionSpacing(preferences?.sectionSpacing ?? 24);
           setColumnRatio(preferences?.columnRatio ?? 62);
           setSectionLabels(preferences?.sectionLabels || {});
+          setElementPositions(preferences?.elementPositions || {});
           hasGeneratedRef.current = true;
         })
         .catch((loadError) => {
@@ -4008,6 +4026,7 @@ export default function CvBuilderPage() {
       sectionSpacing,
       columnRatio,
       sectionLabels,
+      elementPositions,
     },
   });
 
@@ -4076,6 +4095,7 @@ export default function CvBuilderPage() {
       sectionSpacing,
       columnRatio,
       sectionLabels,
+      elementPositions,
     })) as CanvasHistorySnapshot;
   };
 
@@ -4103,6 +4123,7 @@ export default function CvBuilderPage() {
     setSectionSpacing(snapshot.sectionSpacing);
     setColumnRatio(snapshot.columnRatio);
     setSectionLabels(snapshot.sectionLabels);
+    setElementPositions(snapshot.elementPositions);
     setAutoSaveStatus("unsaved");
   };
 
@@ -4143,7 +4164,7 @@ export default function CvBuilderPage() {
     };
     window.addEventListener("keydown", handleHistoryShortcut);
     return () => window.removeEventListener("keydown", handleHistoryShortcut);
-  }, [isEditMode, cv, inlineFormatting, sectionOrder, sectionSpacing, columnRatio, sectionLabels]);
+  }, [isEditMode, cv, inlineFormatting, sectionOrder, sectionSpacing, columnRatio, sectionLabels, elementPositions]);
 
   // Inline Canvas Editing Helper
   const updateDocumentField = (key: keyof GeneratedCvDocument, value: unknown) => {
@@ -4172,7 +4193,10 @@ export default function CvBuilderPage() {
     const element = event.target;
     if (!(element instanceof HTMLElement) || !element.matches("input:not([type='hidden']), textarea, [data-inline-editable='true']")) return;
     activeInlineElementRef.current = element;
-    setActiveInlineField(inlineFieldKey(element));
+    selectedCanvasElementRef.current = element.closest<HTMLElement>("[data-canvas-position-target='true']") || element;
+    const key = inlineFieldKey(element);
+    setActiveInlineField(key);
+    setSelectedCanvasPositionKey(key);
   };
 
   const updateActiveInlineFormat = (patch: Partial<InlineTextFormat>) => {
@@ -4217,26 +4241,89 @@ export default function CvBuilderPage() {
       element.style.backgroundColor = format.highlightColor || element.dataset.inlineBaseBackground;
       element.style.paddingInlineStart = format.indent ? `${format.indent}px` : "";
       element.classList.toggle("cv-inline-bullet", Boolean(format.bullet));
+      const positionElement = element.closest<HTMLElement>("[data-canvas-position-target='true']") || element;
+      const position = elementPositions[`preview-field-${index}`] || { x: 0, y: 0 };
+      positionElement.style.transform = `translate(${position.x}px, ${position.y}px)`;
+      positionElement.classList.toggle("cv-positionable-block", isEditMode);
     });
-  }, [cv, selectedTemplate, inlineFormatting]);
+  }, [cv, selectedTemplate, inlineFormatting, elementPositions, isEditMode]);
 
   useEffect(() => {
     if (!isEditMode) {
       setActiveInlineField(null);
       activeInlineElementRef.current = null;
+      selectedCanvasElementRef.current = null;
+      setSelectedCanvasPositionKey(null);
     }
   }, [isEditMode]);
 
-  const reorderCanvasSection = (target: CanvasSectionKey) => {
-    if (!draggedCanvasSection || draggedCanvasSection === target) return;
-    recordCanvasHistory();
-    setSectionOrder((current) => {
-      const next = current.filter((key) => key !== draggedCanvasSection);
-      const targetIndex = next.indexOf(target);
-      next.splice(targetIndex < 0 ? next.length : targetIndex, 0, draggedCanvasSection);
-      return next;
+  const updateCanvasSelectionBox = () => {
+    const element = selectedCanvasElementRef.current;
+    const canvas = printRef.current;
+    if (!isEditMode || !element || !canvas || !document.contains(element)) return;
+    const scale = zoomLevel / 100;
+    const elementRect = element.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    setCanvasSelectionBox({
+      left: (elementRect.left - canvasRect.left) / scale,
+      top: (elementRect.top - canvasRect.top) / scale,
+      width: elementRect.width / scale,
+      height: elementRect.height / scale,
     });
-    setDraggedCanvasSection(null);
+  };
+
+  useLayoutEffect(() => {
+    updateCanvasSelectionBox();
+  }, [selectedCanvasPositionKey, elementPositions, zoomLevel, cv, isEditMode]);
+
+  const startCanvasPositionDrag = (event: ReactPointerEvent<HTMLElement>, key: string, element: HTMLElement) => {
+    if (!isEditMode) return;
+    event.preventDefault();
+    event.stopPropagation();
+    recordCanvasHistory();
+    const canvas = printRef.current;
+    if (!canvas) return;
+    const scale = zoomLevel / 100;
+    const canvasRect = canvas.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    const current = elementPositions[key] || { x: 0, y: 0 };
+    const baseLeft = (elementRect.left - canvasRect.left) / scale - current.x;
+    const baseTop = (elementRect.top - canvasRect.top) / scale - current.y;
+    const elementWidth = elementRect.width / scale;
+    const elementHeight = elementRect.height / scale;
+    canvasPositionDragRef.current = {
+      key,
+      element,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: current.x,
+      startY: current.y,
+      minX: -baseLeft,
+      maxX: Math.max(-baseLeft, canvas.offsetWidth - baseLeft - elementWidth),
+      minY: -baseTop,
+      maxY: Math.max(-baseTop, canvas.offsetHeight - baseTop - elementHeight),
+    };
+    selectedCanvasElementRef.current = element;
+    setSelectedCanvasPositionKey(key);
+    if (key.startsWith("section-")) setActiveInlineField(null);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveCanvasPositionDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = canvasPositionDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const scale = zoomLevel / 100;
+    const x = Math.min(drag.maxX, Math.max(drag.minX, drag.startX + (event.clientX - drag.startClientX) / scale));
+    const y = Math.min(drag.maxY, Math.max(drag.minY, drag.startY + (event.clientY - drag.startClientY) / scale));
+    setElementPositions((current) => ({ ...current, [drag.key]: { x: Math.round(x), y: Math.round(y) } }));
+  };
+
+  const endCanvasPositionDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = canvasPositionDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    canvasPositionDragRef.current = null;
   };
 
   const moveCustomSection = (from: number, to: number) => {
@@ -4269,7 +4356,7 @@ export default function CvBuilderPage() {
         void saveNativeCv({ ...cv, title }, true, { title, preferences: payload.preferences });
       }
     }
-  }, [cv, documentTitle, selectedTemplate, selectedColor.id, selectedFont.id, fontSize, lineSpacing, marginSize, inlineFormatting, sectionOrder, sectionSpacing, columnRatio, sectionLabels, isIntakeModalOpen]);
+  }, [cv, documentTitle, selectedTemplate, selectedColor.id, selectedFont.id, fontSize, lineSpacing, marginSize, inlineFormatting, sectionOrder, sectionSpacing, columnRatio, sectionLabels, elementPositions, isIntakeModalOpen]);
 
   useEffect(() => {
     if (!isAndroidApp()) return;
@@ -6717,6 +6804,8 @@ export default function CvBuilderPage() {
               <span className="mx-1 h-5 w-px shrink-0 bg-slate-300" />
               <button type="button" aria-label="Toggle bullet list" disabled={!activeInlineField} aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.bullet) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ bullet: !inlineFormatting[activeInlineField]?.bullet })} className={`shrink-0 rounded p-1.5 hover:bg-slate-100 disabled:opacity-30 ${activeInlineField && inlineFormatting[activeInlineField]?.bullet ? "bg-slate-200" : ""}`}><List size={16} /></button>
               <button type="button" aria-label="Delete text" disabled={!activeInlineField} onMouseDown={(event) => event.preventDefault()} onClick={deleteActiveInlineText} className="shrink-0 rounded p-1.5 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30"><Trash2 size={16} /></button>
+              <span className="mx-1 h-5 w-px shrink-0 bg-slate-300" />
+              <button type="button" disabled={Object.keys(elementPositions).length === 0} onMouseDown={(event) => event.preventDefault()} onClick={() => { recordCanvasHistory(); setElementPositions({}); }} className="shrink-0 rounded px-2 py-1.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-30" title="Return all moved blocks to their template positions">Reset Layout</button>
               <span className="sr-only" aria-live="polite">History state {canvasHistoryVersion}</span>
             </div>
           ) : null}
@@ -6976,20 +7065,7 @@ export default function CvBuilderPage() {
                         <A4PageSpacer id={`exp-${expIdx}-header`} height={a4Spacers[`exp-${expIdx}-header`] || 0} />
                         <div
                           className="group/role relative space-y-1.5"
-                          draggable={isEditMode}
-                          onDragStart={(event) => { event.stopPropagation(); setDraggedExperienceIndex(expIdx); }}
-                          onDragOver={(event) => event.preventDefault()}
-                          onDrop={(event) => {
-                            event.stopPropagation();
-                            if (draggedExperienceIndex === null || draggedExperienceIndex === expIdx) return;
-                            const experiences = [...cv.document.experiences];
-                            const [moved] = experiences.splice(draggedExperienceIndex, 1);
-                            if (moved) experiences.splice(expIdx, 0, moved);
-                            updateDocumentField("experiences", experiences);
-                            setDraggedExperienceIndex(null);
-                          }}
                         >
-                        {isEditMode ? <GripVertical size={13} className="no-print canvas-control absolute -left-5 top-1 cursor-grab text-slate-300 opacity-0 transition group-hover/role:opacity-100" aria-hidden /> : null}
                         <div data-a4-id={`exp-${expIdx}-header`} className="experience-item cv-a4-keep relative space-y-1.5">
                           {expIdx === 0 && renderSectionHeading(
                             isSerifClassic
@@ -7077,26 +7153,9 @@ export default function CvBuilderPage() {
                               <div
                                 role="listitem"
                                 data-a4-id={`exp-${expIdx}-bullet-${bIdx}`}
-                                draggable={isEditMode}
-                                onDragStart={(event) => {
-                                  event.stopPropagation();
-                                  setDraggedCanvasBullet({ experienceIndex: expIdx, bulletIndex: bIdx });
-                                }}
-                                onDragOver={(event) => event.preventDefault()}
-                                onDrop={(event) => {
-                                  event.stopPropagation();
-                                  if (!draggedCanvasBullet || draggedCanvasBullet.experienceIndex !== expIdx || draggedCanvasBullet.bulletIndex === bIdx) return;
-                                  const experiences = [...cv.document.experiences];
-                                  const bullets = [...exp.bullets];
-                                  const [moved] = bullets.splice(draggedCanvasBullet.bulletIndex, 1);
-                                  if (moved !== undefined) bullets.splice(bIdx, 0, moved);
-                                  experiences[expIdx] = { ...exp, bullets };
-                                  updateDocumentField("experiences", experiences);
-                                  setDraggedCanvasBullet(null);
-                                }}
+                                data-canvas-position-target="true"
                                 className="group/bullet relative flex min-w-0 items-start gap-2 text-xs leading-snug text-slate-700"
                               >
-                                {isEditMode ? <GripVertical size={12} className="no-print canvas-control mt-0.5 shrink-0 cursor-grab text-slate-300 opacity-0 transition group-hover/bullet:opacity-100" aria-hidden /> : null}
                                 <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
                                 <AutoGrowTextarea
                                   value={b}
@@ -7225,18 +7284,6 @@ export default function CvBuilderPage() {
                                 skills[sIdx] = sanitizeSkillBadge(event.currentTarget.textContent || "");
                                 updateDocumentField("skills", skills);
                               }}
-                              draggable={isEditMode}
-                              onDragStart={(event) => { event.stopPropagation(); setDraggedSkillIndex(sIdx); }}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={(event) => {
-                                event.stopPropagation();
-                                if (draggedSkillIndex === null || draggedSkillIndex === sIdx) return;
-                                const skills = [...cv.document.skills];
-                                const [moved] = skills.splice(draggedSkillIndex, 1);
-                                if (moved !== undefined) skills.splice(sIdx, 0, moved);
-                                updateDocumentField("skills", skills);
-                                setDraggedSkillIndex(null);
-                              }}
                               className="cv-skill-chip rounded-lg border px-2.5 py-0.5 text-[11px] font-medium transition"
                               style={{
                                 backgroundColor: selectedColor.secondary,
@@ -7290,20 +7337,7 @@ export default function CvBuilderPage() {
                           <div
                             key={edu.id || eduIdx}
                             className="education-item cv-a4-keep text-xs overflow-visible group/edu relative"
-                            draggable={isEditMode}
-                            onDragStart={(event) => { event.stopPropagation(); setDraggedEducationIndex(eduIdx); }}
-                            onDragOver={(event) => event.preventDefault()}
-                            onDrop={(event) => {
-                              event.stopPropagation();
-                              if (draggedEducationIndex === null || draggedEducationIndex === eduIdx) return;
-                              const education = [...cv.document.education];
-                              const [moved] = education.splice(draggedEducationIndex, 1);
-                              if (moved) education.splice(eduIdx, 0, moved);
-                              updateDocumentField("education", education);
-                              setDraggedEducationIndex(null);
-                            }}
                           >
-                            {isEditMode ? <GripVertical size={13} className="no-print canvas-control absolute -left-5 top-1 cursor-grab text-slate-300 opacity-0 transition group-hover/edu:opacity-100" aria-hidden /> : null}
                             {isTimeline && (
                               <span
                                 className="absolute -left-[31px] top-1.5 h-3.5 w-3.5 rounded-full border-2 bg-white shadow-xs"
@@ -7389,21 +7423,8 @@ export default function CvBuilderPage() {
                         {(cv.document.projects || []).map((proj, pIdx) => (
                           <div
                             key={proj.id || pIdx}
-                            draggable={isEditMode}
-                            onDragStart={(event) => { event.stopPropagation(); setDraggedProjectIndex(pIdx); }}
-                            onDragOver={(event) => event.preventDefault()}
-                            onDrop={(event) => {
-                              event.stopPropagation();
-                              if (draggedProjectIndex === null || draggedProjectIndex === pIdx) return;
-                              const projects = [...(cv.document.projects || [])];
-                              const [moved] = projects.splice(draggedProjectIndex, 1);
-                              if (moved) projects.splice(pIdx, 0, moved);
-                              updateDocumentField("projects", projects);
-                              setDraggedProjectIndex(null);
-                            }}
                             className="group/project relative space-y-1 text-xs"
                           >
-                            {isEditMode ? <GripVertical size={13} className="no-print canvas-control absolute -left-5 top-1 cursor-grab text-slate-300 opacity-0 transition group-hover/project:opacity-100" aria-hidden /> : null}
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <input
                                 type="text"
@@ -7442,23 +7463,9 @@ export default function CvBuilderPage() {
                               {(proj.bullets || []).map((bullet, bIdx) => (
                                 <div
                                   key={bIdx}
-                                  draggable={isEditMode}
-                                  onDragStart={(event) => { event.stopPropagation(); setDraggedProjectBullet({ projectIndex: pIdx, bulletIndex: bIdx }); }}
-                                  onDragOver={(event) => event.preventDefault()}
-                                  onDrop={(event) => {
-                                    event.stopPropagation();
-                                    if (!draggedProjectBullet || draggedProjectBullet.projectIndex !== pIdx || draggedProjectBullet.bulletIndex === bIdx) return;
-                                    const projects = [...(cv.document.projects || [])];
-                                    const bullets = [...(proj.bullets || [])];
-                                    const [moved] = bullets.splice(draggedProjectBullet.bulletIndex, 1);
-                                    if (moved !== undefined) bullets.splice(bIdx, 0, moved);
-                                    projects[pIdx] = { ...proj, bullets };
-                                    updateDocumentField("projects", projects);
-                                    setDraggedProjectBullet(null);
-                                  }}
+                                  data-canvas-position-target="true"
                                   className="group/project-bullet flex items-start gap-1.5 text-[11px] text-slate-700"
                                 >
-                                  {isEditMode ? <GripVertical size={11} className="no-print canvas-control mt-0.5 cursor-grab text-slate-300 opacity-0 transition group-hover/project-bullet:opacity-100" aria-hidden /> : null}
                                   <span className="text-primary mt-1 text-[8px]">●</span>
                                   <AutoGrowTextarea
                                     value={bullet}
@@ -7608,13 +7615,8 @@ export default function CvBuilderPage() {
                 const customSectionsSection = (cv.document.sections || []).map((section, sectionIndex) => (
                   <section
                     key={`${section.heading}-${sectionIndex}`}
-                    draggable={isEditMode}
-                    onDragStart={(event) => { event.stopPropagation(); setDraggedCustomSection(sectionIndex); }}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => { event.stopPropagation(); if (draggedCustomSection !== null) moveCustomSection(draggedCustomSection, sectionIndex); }}
                     className="group/custom relative space-y-2 rounded-xl p-1 transition hover:bg-slate-50/50"
                   >
-                    {isEditMode ? <GripVertical size={13} className="no-print canvas-control absolute -left-5 top-1 cursor-grab text-slate-300 opacity-0 transition group-hover/custom:opacity-100" aria-hidden /> : null}
                     <div className="flex items-center gap-2">
                       <input type="text" value={section.heading} onChange={(event) => {
                         const sections = [...(cv.document.sections || [])];
@@ -7654,19 +7656,17 @@ export default function CvBuilderPage() {
                 const renderCanvasSection = (key: CanvasSectionKey) => {
                   const content = canvasSections[key];
                   if (!content) return null;
-                  if (!isEditMode) return <Fragment key={key}>{content}</Fragment>;
+                  const positionKey = `section-${key}`;
+                  const position = elementPositions[positionKey] || { x: 0, y: 0 };
                   return (
                     <div
                       key={key}
-                      draggable
-                      onDragStart={() => setDraggedCanvasSection(key)}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={() => reorderCanvasSection(key)}
-                      className="group/canvas-section relative rounded-md outline outline-1 outline-transparent transition hover:outline-slate-200"
+                      style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
+                      className={`group/canvas-section relative rounded-md ${isEditMode ? "cv-positionable-block" : ""}`}
                     >
-                      <button type="button" className="no-print canvas-control absolute -left-7 top-0 z-20 grid h-6 w-6 cursor-grab place-items-center rounded-md border border-slate-200 bg-white text-slate-400 opacity-0 shadow-sm transition group-hover/canvas-section:opacity-100 active:cursor-grabbing" title={`Move ${key} section`} aria-label={`Move ${key} section`}>
+                      {isEditMode ? <button type="button" onPointerDown={(event) => startCanvasPositionDrag(event, positionKey, event.currentTarget.parentElement!)} onPointerMove={moveCanvasPositionDrag} onPointerUp={endCanvasPositionDrag} onPointerCancel={endCanvasPositionDrag} className="no-print canvas-control absolute -left-7 top-0 z-20 grid h-6 w-6 cursor-grab touch-none place-items-center rounded-md border border-slate-200 bg-white text-slate-400 opacity-0 shadow-sm transition group-hover/canvas-section:opacity-100 active:cursor-grabbing" title={`Move ${key} section freely`} aria-label={`Move ${key} section freely`}>
                         <GripVertical size={14} />
-                      </button>
+                      </button> : null}
                       {content}
                     </div>
                   );
@@ -8071,6 +8071,30 @@ export default function CvBuilderPage() {
                         {sectionOrder.map(renderCanvasSection)}
                       </div>
                     )}
+
+                    {isEditMode && selectedCanvasPositionKey && selectedCanvasElementRef.current ? (
+                      <div
+                        className="no-print canvas-control pointer-events-none absolute z-30 border-[1.5px] border-[#00c4cc]"
+                        style={{ left: canvasSelectionBox.left, top: canvasSelectionBox.top, width: canvasSelectionBox.width, height: canvasSelectionBox.height }}
+                        aria-hidden
+                      >
+                        {[["-1.5px", "-1.5px"], ["calc(100% - 4.5px)", "-1.5px"], ["-1.5px", "calc(100% - 4.5px)"], ["calc(100% - 4.5px)", "calc(100% - 4.5px)"]].map(([left, top], index) => (
+                          <span key={index} className="absolute h-1.5 w-1.5 rounded-[1px] border border-white bg-[#00c4cc]" style={{ left, top }} />
+                        ))}
+                        <button
+                          type="button"
+                          className="pointer-events-auto absolute -left-7 -top-1 grid h-6 w-6 touch-none cursor-grab place-items-center rounded-md border border-[#00c4cc] bg-white text-[#009ca3] shadow-sm active:cursor-grabbing"
+                          onPointerDown={(event) => selectedCanvasElementRef.current && startCanvasPositionDrag(event, selectedCanvasPositionKey, selectedCanvasElementRef.current)}
+                          onPointerMove={moveCanvasPositionDrag}
+                          onPointerUp={endCanvasPositionDrag}
+                          onPointerCancel={endCanvasPositionDrag}
+                          aria-label="Move selected block"
+                          title="Drag to move selected block"
+                        >
+                          <GripVertical size={14} />
+                        </button>
+                      </div>
+                    ) : null}
 
                     {/* Footer Note with POPIA Notice — never print marketing footer */}
                     {showPopiaNotice && cv.document.footerNote ? (

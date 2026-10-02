@@ -5930,13 +5930,13 @@ export default function CvBuilderPage() {
       void processIntakeCvFile(file);
     };
     return (
-      <div className="min-h-[calc(100dvh-4rem-var(--safe-top))] bg-slate-100 px-4 py-7 text-slate-900 dark:bg-slate-950 dark:text-slate-100 sm:px-7">
-        <div className="mx-auto max-w-5xl">
-          {showingImportConfirmation ? <section className="mb-7 flex flex-col gap-4 rounded-2xl border border-slate-200 border-l-4 border-l-slate-950 bg-white p-5 shadow-md dark:border-slate-800 dark:border-l-indigo-500 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"><Briefcase size={19} /></span><div><span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Suggested next step</span><h2 className="mt-1 text-lg font-bold">Your CV is ready — find matching roles</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Browse curated job listings and save roles that fit your profile.</p></div></div><Link href="/jobs" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white dark:bg-indigo-600">Browse jobs <ArrowRight size={16} /></Link></section> : null}
+      <div className="min-h-[calc(100dvh-4rem-var(--safe-top))] w-full max-w-full overflow-x-hidden bg-slate-100 px-4 py-6 text-slate-900 dark:bg-slate-950 dark:text-slate-100 sm:px-7 sm:py-7">
+        <div className="mx-auto w-full max-w-5xl min-w-0">
+          {showingImportConfirmation ? <section className="mb-7 flex w-full max-w-full flex-col gap-4 rounded-2xl border border-slate-200 border-l-4 border-l-slate-950 bg-white p-4 shadow-md dark:border-slate-800 dark:border-l-indigo-500 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between sm:p-5"><div className="flex min-w-0 items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"><Briefcase size={19} /></span><div className="min-w-0"><span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Suggested next step</span><h2 className="mt-1 break-words text-lg font-bold">Your CV is ready — find matching roles</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Browse curated job listings and save roles that fit your profile.</p></div></div><Link href="/jobs" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white dark:bg-indigo-600">Browse jobs <ArrowRight size={16} /></Link></section> : null}
           <Link href="/cv-builder/templates" className="inline-flex items-center gap-1 text-sm font-medium text-slate-500 transition hover:text-indigo-600"><ChevronLeft size={16} /> Back to CV Builder</Link>
-          <h1 className="mt-5 text-3xl font-bold tracking-tight sm:text-4xl">Upload Resume</h1>
+          <h1 className="mt-5 text-2xl font-bold tracking-tight sm:text-4xl">Upload Resume</h1>
           <p className="mt-2 border-b border-slate-200 pb-5 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-400">Upload your existing CV or paste the text — we'll extract your details and pre-fill the builder.</p>
-          <div className="mx-auto mt-7 max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
+          <div className="mx-auto mt-7 w-full max-w-3xl min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
             {showingImportConfirmation ? <div className="space-y-5 p-5 sm:p-8">
               <div className="flex items-start gap-3 rounded-xl border border-emerald-300/70 bg-emerald-50/80 p-4 dark:border-emerald-900 dark:bg-emerald-950/40"><CheckCircle2 size={23} className="mt-0.5 shrink-0 text-emerald-700 dark:text-emerald-300" /><div><h2 className="font-bold text-emerald-950 dark:text-emerald-100">Resume parsed successfully!</h2><p className="mt-1 text-sm text-emerald-800 dark:text-emerald-200">Found: {candidateName}</p></div></div>
               <div className="flex flex-wrap gap-2 text-[11px]">{[`${content?.experiences?.length || 0} work roles`, `${content?.education?.length || 0} qualifications`, `${content?.skills?.length || 0} skills`].map((item) => <span key={item} className="rounded-full bg-slate-100 px-3 py-1.5 font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{item}</span>)}</div>
@@ -5949,11 +5949,11 @@ export default function CvBuilderPage() {
                 {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">{error}</p> : null}
                 {selectedFileLost ? <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">The selected file is no longer in memory. Please re-select your file.</p> : null}
                 {intakeTab === "upload" ? <>
-                  <div onDragOver={(event) => { event.preventDefault(); setIsUploadDropActive(true); }} onDragLeave={() => setIsUploadDropActive(false)} onDrop={handleIntakeFileDrop} onClick={() => { if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = ""; intakeUploadInputRef.current?.click(); }} className={`flex min-h-[235px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-5 text-center transition ${isUploadDropActive ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30" : "border-slate-300 bg-slate-50/70 hover:border-slate-500 dark:border-slate-700 dark:bg-slate-950/50"}`}>
+                  <div onDragOver={(event) => { event.preventDefault(); setIsUploadDropActive(true); }} onDragLeave={() => setIsUploadDropActive(false)} onDrop={handleIntakeFileDrop} onClick={() => { if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = ""; intakeUploadInputRef.current?.click(); }} className={`flex min-h-[235px] w-full max-w-full min-w-0 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed px-4 text-center transition sm:px-5 ${isUploadDropActive ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30" : "border-slate-300 bg-slate-50/70 hover:border-slate-500 dark:border-slate-700 dark:bg-slate-950/50"}`}>
                     <input ref={intakeUploadInputRef} type="file" accept=".pdf,.docx,.doc,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/plain" className="sr-only" onChange={handleIntakeFileSelectionEvent} aria-label="Choose resume file" />
-                    <span className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-100"><Upload size={27} /></span><strong className="text-base">{selectedUploadMeta?.name || "Drop your resume here"}</strong><span className="mt-2 text-sm text-slate-600 dark:text-slate-400">{selectedUploadMeta ? `${(selectedUploadMeta.size / 1024 / 1024).toFixed(2)} MB · click to change` : "or click to browse"}</span><span className="mt-4 text-xs text-slate-400">PDF, DOCX, or TXT · Max 10MB</span>
+                    <span className="mb-4 grid h-16 w-16 shrink-0 place-items-center rounded-full bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-100"><Upload size={27} /></span><strong className="block w-full max-w-full truncate px-1 text-base" title={selectedUploadMeta?.name}>{selectedUploadMeta?.name || "Drop your resume here"}</strong><span className="mt-2 max-w-full break-words text-sm text-slate-600 dark:text-slate-400">{selectedUploadMeta ? `${(selectedUploadMeta.size / 1024 / 1024).toFixed(2)} MB · click to change` : "or click to browse"}</span><span className="mt-4 text-xs text-slate-400">PDF, DOCX, or TXT · Max 10MB</span>
                   </div>
-                  {uploadReadStatus ? <p className="text-center text-xs text-slate-500 dark:text-slate-400">{uploadReadStatus}</p> : null}
+                  {uploadReadStatus ? <p className="break-all text-center text-xs text-slate-500 dark:text-slate-400 sm:break-words">{uploadReadStatus}</p> : null}
                   <button type="button" disabled={!selectedFile || extracting} onClick={handleImportFileParse} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-600 dark:hover:bg-indigo-500">{extracting ? <><RefreshCw className="animate-spin" size={16} /> Reading resume…</> : <><Upload size={16} /> Parse &amp; Upload</>}</button>
                 </> : <>
                   <label className="block text-sm font-semibold">Paste resume text<textarea value={intakePasteText} onChange={(event) => setIntakePasteText(event.target.value)} rows={10} className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" placeholder="Paste the text from your resume here…" /></label>
@@ -5969,7 +5969,7 @@ export default function CvBuilderPage() {
   }
 
   return (
-    <div className="cv-builder relative flex h-[calc(100dvh-3.5rem-var(--safe-top))] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+    <div className="cv-builder relative flex h-[calc(100dvh-3.5rem-var(--safe-top))] w-full max-w-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
       {/* Notifications / Toast */}
       {message ? (
         <div role="status" aria-live="polite" className={`cv-toast-auto-dismiss no-print absolute left-4 right-4 top-2 z-50 mx-auto flex max-w-sm items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-800 shadow-md transition-opacity duration-300 min-[768px]:left-auto min-[768px]:mx-0 ${messageDismissing ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"}`}>
@@ -5981,7 +5981,7 @@ export default function CvBuilderPage() {
         </div>
       ) : null}
       {error ? (
-        <div className="no-print pointer-events-none absolute right-4 top-2 z-50 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs font-medium text-red-700 shadow-md">
+        <div className="no-print pointer-events-none absolute left-4 right-4 top-2 z-50 mx-auto max-w-sm break-words rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs font-medium text-red-700 shadow-md">
           ⚠ {error}
         </div>
       ) : null}
@@ -6014,7 +6014,7 @@ export default function CvBuilderPage() {
                 </button>
               ))}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-6">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
               <label className="mb-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 dark:border-slate-700 dark:bg-slate-950">
                 <Search size={16} className="shrink-0 text-slate-400" />
                 <input value={templateSearch} onChange={(event) => setTemplateSearch(event.target.value)} className="min-h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Search templates" aria-label="Search templates" />
@@ -9358,7 +9358,7 @@ export default function CvBuilderPage() {
                         <div className="flex min-w-0 items-center gap-2">
                           <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
                           <span className="truncate font-medium text-foreground" title={selectedUploadMeta.name}>{selectedUploadMeta.name}</span>
-                          <span className="shrink-0 text-muted-foreground">
+                          <span className="hidden shrink-0 text-muted-foreground sm:inline">
                             ({selectedUploadMeta.size < 1024 * 1024
                               ? `${Math.max(1, Math.round(selectedUploadMeta.size / 1024))} KB`
                               : `${(selectedUploadMeta.size / (1024 * 1024)).toFixed(1)} MB`})

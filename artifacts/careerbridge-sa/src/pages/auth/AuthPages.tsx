@@ -35,22 +35,22 @@ function AuthShell({
   footer?: ReactNode;
 }) {
   return (
-    <div className="relative min-h-[calc(100dvh-4rem)] overflow-hidden px-5 py-10 sm:py-16">
+    <div className="relative min-h-[calc(100dvh-4rem)] w-full max-w-full overflow-x-hidden px-4 py-8 sm:px-5 sm:py-16">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_rgba(15,118,110,0.12),_transparent_55%),linear-gradient(180deg,#f8fafc_0%,#eef6f4_100%)]"
       />
-      <div className="mx-auto w-full max-w-[420px]">
+      <div className="mx-auto w-full max-w-[420px] min-w-0">
         <div className="mb-8 text-center">
           <Link href="/" className="display text-3xl font-semibold tracking-tight text-foreground">
             BonList
           </Link>
-          <h1 className="mt-5 text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
+          <h1 className="mt-5 break-words text-xl font-semibold tracking-tight text-foreground sm:text-2xl">{title}</h1>
           {description ? (
             <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p>
           ) : null}
         </div>
-        <div className="rounded-2xl border border-border/80 bg-white/90 p-6 shadow-[0_20px_50px_-28px_rgba(15,23,42,0.35)] backdrop-blur sm:p-7">
+        <div className="box-border w-full max-w-full rounded-2xl border border-border/80 bg-white/90 p-4 shadow-[0_20px_50px_-28px_rgba(15,23,42,0.35)] backdrop-blur sm:p-7">
           {children}
         </div>
         {footer ? <div className="mt-5 text-center text-sm text-muted-foreground">{footer}</div> : null}

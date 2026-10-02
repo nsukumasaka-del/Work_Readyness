@@ -185,9 +185,9 @@ export function SmokeyAgent() {
   if (isCvBuilder) return null;
 
   return (
-    <div className="fixed bottom-[calc(1rem+var(--safe-bottom))] right-[calc(1rem+var(--safe-right))] z-[60] flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3">
+    <div className="fixed bottom-[calc(1rem+var(--safe-bottom))] right-[calc(1rem+var(--safe-right))] z-[60] flex max-w-[calc(100vw-2rem-var(--safe-left)-var(--safe-right))] flex-col items-end gap-3">
       {open && (
-        <div className="flex h-[min(560px,72vh)] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-xl">
+        <div className="flex h-[min(560px,72vh)] w-[min(380px,calc(100vw-2rem-var(--safe-left)-var(--safe-right)))] max-w-full flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-xl">
           <div className="flex items-center justify-between bg-primary px-4 py-3 text-primary-foreground">
             <div className="flex items-center gap-3">
               <span className="grid h-10 w-10 place-items-center rounded-2xl bg-primary-foreground/15">
@@ -215,7 +215,7 @@ export function SmokeyAgent() {
                 className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-5 ${
+                  className={`max-w-[85%] break-words rounded-2xl px-3.5 py-2.5 text-sm leading-5 ${
                     message.role === 'user'
                       ? 'bg-primary text-primary-foreground'
                       : 'border border-border bg-card text-foreground'
@@ -245,12 +245,12 @@ export function SmokeyAgent() {
                 </button>
               ))}
             </div>
-            <form onSubmit={onSubmit} className="flex items-center gap-2">
+            <form onSubmit={onSubmit} className="flex min-w-0 items-center gap-2">
               <input
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="Ask Smokey anything…"
-                className="field-input flex-1 py-2.5"
+                className="field-input min-w-0 flex-1 py-2.5"
                 data-testid="input-smokey-message"
               />
               <button

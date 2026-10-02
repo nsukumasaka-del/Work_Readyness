@@ -130,12 +130,12 @@ export default function CvDashboardPage() {
   };
 
   return (
-    <main className="min-h-[calc(100dvh-4rem)] bg-slate-50 px-4 py-8 text-slate-900 sm:px-8">
-      <div className="mx-auto max-w-7xl">
+    <main className="min-h-[calc(100dvh-4rem)] w-full max-w-full overflow-x-hidden bg-slate-50 px-4 py-6 text-slate-900 sm:px-8 sm:py-8">
+      <div className="mx-auto w-full max-w-7xl min-w-0">
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">CV workspace</p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight">My CVs</h1>
+            <h1 className="mt-1 break-words text-2xl font-bold tracking-tight sm:text-3xl">My CVs</h1>
             <p className="mt-2 text-sm text-slate-600">Your saved career documents stay editable and ready whenever you need them.</p>
           </div>
           <Link href="/cv-builder?intake=1" className="inline-flex items-center gap-2 rounded-xl bg-[#00A884] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#008f70]">

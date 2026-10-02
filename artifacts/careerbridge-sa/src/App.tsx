@@ -350,12 +350,21 @@ function LogoMark({ compact = false }: { compact?: boolean }) {
           height={36}
         />
       ) : (
-        <img
-          src="/brand/bonlist-logo.png"
-          alt="BonList - Your Shortcut to Getting Hired."
-          className="h-9 w-auto max-w-[min(240px,56vw)] object-contain object-left sm:h-10"
-          height={40}
-        />
+        <>
+          <img
+            src="/brand/bonlist-mark.png"
+            alt="BonList"
+            className="h-8 w-8 object-contain sm:hidden"
+            width={32}
+            height={32}
+          />
+          <img
+            src="/brand/bonlist-logo.png"
+            alt="BonList - Your Shortcut to Getting Hired."
+            className="hidden h-10 w-auto max-w-[min(240px,56vw)] object-contain object-left sm:block"
+            height={40}
+          />
+        </>
       )}
     </Link>
   );
@@ -858,7 +867,7 @@ function AppShell({ children }: { children: ReactNode }) {
   const inNativeApp = isNativeApp();
 
   return (
-    <div className={`min-h-[100dvh] bg-background text-foreground ${isCvBuilder ? 'flex h-[100dvh] min-h-0 flex-col overflow-hidden' : ''}`}>
+    <div className={`min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-background text-foreground ${isCvBuilder ? 'flex h-[100dvh] min-h-0 flex-col overflow-hidden' : ''}`}>
       {logoutError ? <p role="alert" className="bg-destructive px-5 py-2 text-center text-sm text-destructive-foreground">{logoutError}</p> : null}
       {showNudge ? (
         <SecurityNudgeBanner
@@ -876,7 +885,7 @@ function AppShell({ children }: { children: ReactNode }) {
         />
       ) : null}
       <header className="app-safe-header sticky top-0 z-40 border-b border-border/70 bg-background/90 backdrop-blur-xl">
-          <div className="mx-auto flex min-h-14 w-full max-w-7xl items-center justify-between gap-2 px-3 sm:min-h-16 sm:gap-4 sm:px-5 md:px-8">
+          <div className="mx-auto flex min-h-14 w-full max-w-7xl items-center justify-between gap-1.5 px-2.5 min-[390px]:gap-2 min-[390px]:px-3 sm:min-h-16 sm:gap-4 sm:px-5 md:px-8">
           <div className="min-w-0 shrink-0">
             <LogoMark />
           </div>
@@ -1457,8 +1466,8 @@ function AppShell({ children }: { children: ReactNode }) {
         onSelectTopic={(id) => setGuideModalTopic(id)}
       />
 
-      <div className={`min-w-0 overflow-x-hidden ${isCvBuilder ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
-      <main className={`min-w-0 ${location === '/' ? '' : 'page-enter'} ${isCvBuilder ? 'flex-1 flex flex-col' : ''}`}>{children}</main>
+      <div className={`w-full max-w-full min-w-0 overflow-x-hidden ${isCvBuilder ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
+      <main className={`w-full max-w-full min-w-0 overflow-x-hidden ${location === '/' ? '' : 'page-enter'} ${isCvBuilder ? 'flex-1 flex flex-col' : ''}`}>{children}</main>
 
       {!isCvBuilder && (
         <footer className="mt-16 border-t border-border bg-card">
@@ -1512,10 +1521,10 @@ function PageHeading({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-10 flex flex-col justify-between gap-5 md:flex-row md:items-end">
-      <div>
+    <div className="mb-8 flex w-full max-w-full min-w-0 flex-col justify-between gap-5 md:mb-10 md:flex-row md:items-end">
+      <div className="min-w-0">
         <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-primary">{eyebrow}</p>
-        <h1 className="display max-w-3xl text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+        <h1 className="display max-w-3xl break-words text-2xl font-semibold tracking-tight text-foreground sm:text-3xl md:text-4xl">
           {title}
         </h1>
         <p className="mt-3 max-w-xl text-[15px] leading-6 text-muted-foreground">{description}</p>
@@ -1798,13 +1807,13 @@ function Home() {
     ] as const;
 
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-[#090D16] dark:text-slate-100">
+      <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 text-slate-900 dark:bg-[#090D16] dark:text-slate-100">
         <section className="border-b border-border bg-white dark:bg-slate-950/90">
-          <div className="mx-auto max-w-7xl px-5 py-7 md:px-8 md:py-9">
+          <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-7 md:px-8 md:py-9">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Your career workspace</p>
-                <h1 className="display mt-2 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">Welcome back, {firstName}</h1>
+                <h1 className="display mt-2 break-words text-2xl font-semibold tracking-tight text-foreground sm:text-3xl md:text-4xl">Welcome back, {firstName}</h1>
               </div>
               <div className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${paidPlanActive ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}>
                 <span className={`h-2 w-2 rounded-full ${paidPlanActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
@@ -1820,28 +1829,28 @@ function Home() {
           </div>
         </section>
 
-        <main className="mx-auto max-w-7xl px-5 py-6 pb-[calc(2rem+var(--safe-bottom))] md:px-8 md:py-8 md:pb-[calc(2rem+var(--safe-bottom))]">
+        <main className="mx-auto w-full max-w-7xl overflow-x-hidden px-4 py-6 pb-[calc(2rem+var(--safe-bottom))] sm:px-5 md:px-8 md:py-8 md:pb-[calc(2rem+var(--safe-bottom))]">
           <section aria-label="Quick actions" className="grid gap-4 md:grid-cols-3">
             {actionCards.map((card) => (
-              <Link key={card.title} href={card.href} onClick={card.title === 'CV Review' ? openDiagnosticUpload : undefined} className="group flex min-h-48 flex-col rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900/85 dark:hover:border-indigo-800" data-testid={`dashboard-action-${card.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`}>
+              <Link key={card.title} href={card.href} onClick={card.title === 'CV Review' ? openDiagnosticUpload : undefined} className="group flex min-h-48 w-full max-w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md sm:p-5 dark:border-slate-800 dark:bg-slate-900/85 dark:hover:border-indigo-800" data-testid={`dashboard-action-${card.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`}>
                 <div className="flex items-start justify-between gap-3">
                   <span className={`grid h-11 w-11 place-items-center rounded-xl ${card.tone}`}><card.icon size={20} /></span>
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">{card.badge}</span>
                 </div>
-                <span className="mt-4 text-base font-semibold text-foreground group-hover:text-primary">{card.title}</span>
-                <span className="mt-1 flex-1 text-xs leading-5 text-muted-foreground">{card.copy}</span>
-                <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary">{card.action} <ArrowRight size={15} /></span>
+                <span className="mt-4 break-words text-base font-semibold text-foreground group-hover:text-primary">{card.title}</span>
+                <span className="mt-1 flex-1 break-words text-xs leading-5 text-muted-foreground">{card.copy}</span>
+                <span className="mt-4 inline-flex max-w-full items-center gap-1 text-sm font-semibold text-primary">{card.action} <ArrowRight size={15} className="shrink-0" /></span>
               </Link>
             ))}
           </section>
 
           <section id="cv-check" className="mt-7 grid items-start gap-5 xl:grid-cols-[1.15fr_0.85fr]">
             <div className="space-y-5">
-              <article className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:shadow-md sm:p-6 dark:border-slate-800 dark:bg-slate-900/85">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
+              <article className="box-border w-full max-w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm backdrop-blur-md transition-all hover:shadow-md sm:p-6 dark:border-slate-800 dark:bg-slate-900/85">
+                <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+                  <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Next best action</p>
-                    <h2 className="mt-1 text-lg font-semibold text-foreground">Profile completeness</h2>
+                    <h2 className="mt-1 break-words text-base font-bold text-foreground sm:text-lg">Profile completeness</h2>
                   </div>
                   <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">{profileCompletion}% complete</span>
                 </div>
@@ -1849,14 +1858,14 @@ function Home() {
                   <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${profileCompletion}%` }} />
                 </div>
                 <p className="mt-4 text-sm leading-6 text-muted-foreground">Upload an updated CV to refresh your profile review and job matches.</p>
-                <button type="button" onClick={scrollToDiagnosticUpload} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:text-primary/80">Update your CV <ArrowRight size={15} /></button>
+                <button type="button" onClick={scrollToDiagnosticUpload} className="mt-3 inline-flex max-w-full items-center gap-1 text-sm font-semibold text-primary hover:text-primary/80">Update your CV <ArrowRight size={15} className="shrink-0" /></button>
               </article>
 
-              <article className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur-md transition-all hover:shadow-md sm:p-6 dark:border-slate-800 dark:bg-slate-900/85">
+              <article className="box-border w-full max-w-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm backdrop-blur-md transition-all hover:shadow-md sm:p-6 dark:border-slate-800 dark:bg-slate-900/85">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">From your latest CV review</p>
-                    <h2 className="mt-1 text-lg font-semibold text-foreground">Profile-matched jobs</h2>
+                    <h2 className="mt-1 break-words text-base font-bold text-foreground sm:text-lg">Profile-matched jobs</h2>
                   </div>
                   <span className="text-xs text-muted-foreground">{updateLabel}</span>
                 </div>
@@ -1872,7 +1881,7 @@ function Home() {
                 ) : (
                   <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground dark:bg-slate-800/70">Upload your CV for a review to see the latest matching jobs here.</div>
                 )}
-                <Link href="/jobs" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary">See all matched jobs <ArrowRight size={15} /></Link>
+                <Link href="/jobs" className="mt-4 inline-flex max-w-full items-center gap-1 text-sm font-semibold text-primary hover:text-primary/80">See all matched jobs <ArrowRight size={15} className="shrink-0" /></Link>
               </article>
             </div>
 
@@ -1885,7 +1894,7 @@ function Home() {
               <form
               onSubmit={submitDiagnostic}
               id="upload-section"
-              className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6 dark:bg-slate-900"
+              className="box-border w-full max-w-full overflow-hidden rounded-2xl border border-border bg-white p-4 shadow-sm sm:p-6 dark:bg-slate-900"
             >
               {isReviewing ? (
                 <div className="space-y-5 py-4" data-testid="cv-scan-progress">
@@ -1931,7 +1940,7 @@ function Home() {
                   >
                     <span className="mb-2 block text-xs font-semibold text-foreground">Upload your current CV</span>
                     <span
-                      className={`flex min-h-16 cursor-pointer items-center gap-3 rounded-2xl border border-dashed px-4 py-4 transition-colors ${
+                      className={`flex min-h-16 w-full max-w-full min-w-0 cursor-pointer items-center gap-2 overflow-hidden rounded-2xl border border-dashed px-3 py-3 transition-colors sm:gap-3 sm:px-4 sm:py-4 ${
                         isCvDragging
                           ? 'border-primary bg-primary/10 ring-2 ring-primary/20'
                           : fileName
@@ -1949,14 +1958,14 @@ function Home() {
                         }}
                         data-testid="input-cv-file"
                       />
-                      <FileText size={18} className={fileName ? 'text-primary' : 'text-muted-foreground'} />
-                      <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                      <FileText size={18} className={`shrink-0 ${fileName ? 'text-primary' : 'text-muted-foreground'}`} />
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground" title={fileName || undefined}>
                         {fileName || 'PDF or Word document'}
                       </span>
                       {fileName ? (
-                        <CheckCircle2 size={17} className="text-primary" />
+                        <CheckCircle2 size={17} className="shrink-0 text-primary" />
                       ) : (
-                        <span className="rounded-lg bg-background px-2 py-1 text-[10px] font-bold text-foreground">
+                        <span className="shrink-0 rounded-lg bg-background px-2 py-1 text-[10px] font-bold text-foreground">
                           Choose
                         </span>
                       )}
@@ -2006,7 +2015,7 @@ function Home() {
                 </>
               )}
               </form>
-              <div className="rounded-2xl border border-border bg-white p-5 shadow-sm dark:bg-slate-900">
+              <div className="box-border w-full max-w-full overflow-hidden rounded-2xl border border-border bg-white p-4 shadow-sm sm:p-5 dark:bg-slate-900">
                 <h3 className="text-sm font-semibold text-foreground">More career tools</h3>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   {[
@@ -2015,7 +2024,7 @@ function Home() {
                     { label: 'My Saved CVs', href: '/dashboard', icon: FileText },
                     { label: 'Subscription & Upgrade', href: '/pricing', icon: ShieldCheck },
                   ].map((item) => (
-                    <Link key={item.href} href={item.href} className="flex min-h-14 items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-medium text-foreground transition hover:bg-secondary">
+                    <Link key={item.href} href={item.href} className="flex min-h-14 min-w-0 items-center gap-2 overflow-hidden rounded-xl bg-slate-50 px-2.5 py-2 text-xs font-medium text-foreground transition hover:bg-secondary sm:px-3">
                       <item.icon size={16} className="shrink-0 text-primary" />{item.label}
                     </Link>
                   ))}
@@ -2079,7 +2088,7 @@ function Home() {
               </li>
             </ul>
           </div>
-          <div className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8" data-testid="cv-locked-panel">
+          <div className="box-border w-full max-w-full rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6 md:p-8" data-testid="cv-locked-panel">
             <div className="grid h-12 w-12 place-items-center rounded-2xl bg-secondary text-primary">
               <Lock size={20} />
             </div>
@@ -2312,7 +2321,7 @@ function ProfilePage() {
 
       <form
         onSubmit={saveProfile}
-        className="rounded-3xl border border-border bg-card p-6 md:p-8"
+        className="box-border w-full max-w-full rounded-3xl border border-border bg-card p-4 sm:p-6 md:p-8"
         data-testid="form-profile-edit"
       >
         <div className="grid gap-4 sm:grid-cols-2">
@@ -2526,7 +2535,7 @@ function DiagnosticPage() {
     </aside>
   );
   const renderWorkstation = (content: ReactNode) => (
-    <div className="flex h-[calc(100dvh-3.5rem)] w-full gap-3 overflow-hidden bg-slate-50/70 p-3 sm:h-[calc(100dvh-4rem)] md:gap-6 md:p-6">
+    <div className="flex h-[calc(100dvh-3.5rem)] w-full max-w-full min-w-0 gap-3 overflow-hidden bg-slate-50/70 p-2 sm:h-[calc(100dvh-4rem)] sm:p-3 md:gap-6 md:p-6">
       {renderSidebar('hidden h-full md:flex')}
       {mobileSidebarOpen ? (
         <div className="md:hidden">
@@ -2535,7 +2544,7 @@ function DiagnosticPage() {
         </div>
       ) : null}
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="sticky top-2 z-30 mx-1 mt-1 flex min-h-16 shrink-0 items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white/95 px-3 shadow-sm backdrop-blur sm:px-6 lg:px-8">
+        <header className="sticky top-2 z-30 mx-0 mt-1 flex min-h-16 w-full max-w-full shrink-0 items-center justify-between gap-2 rounded-2xl border border-slate-200/80 bg-white/95 px-2.5 shadow-sm backdrop-blur sm:mx-1 sm:gap-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <button type="button" onClick={() => setMobileSidebarOpen(true)} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 md:hidden" aria-label="Open workspace navigation">
               <Menu size={19} />
@@ -2545,11 +2554,11 @@ function DiagnosticPage() {
               <h1 className="truncate text-sm font-bold text-slate-900 sm:text-base">{activeWorkstationTab === 'jobs' ? 'Job Matches' : activeWorkstationTab === 'advice' ? 'Advice and Next Steps' : 'CV Diagnostic Report'}</h1>
             </div>
           </div>
-          <button type="button" onClick={handleGenerateCv} className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 sm:gap-2 sm:px-4 sm:text-sm" data-testid="button-improve-my-cv">
-            <Sparkles size={15} /> <span>Improve My CV</span>
+          <button type="button" onClick={handleGenerateCv} className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 sm:gap-2 sm:px-4 sm:text-sm" data-testid="button-improve-my-cv">
+            <Sparkles size={15} /> <span className="hidden min-[390px]:inline">Improve My CV</span>
           </button>
         </header>
-        <div className="mx-auto w-full max-w-6xl flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-7 lg:px-8">{content}</div>
+        <div className="mx-auto w-full max-w-6xl min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-2 py-4 min-[390px]:px-3 sm:px-6 sm:py-7 lg:px-8">{content}</div>
       </main>
     </div>
   );
@@ -2642,7 +2651,7 @@ function DiagnosticPage() {
       <div className="mb-8">
         <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-blue-700">CV diagnostic</p>
         <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Your readiness at a glance</h2>
-        <p className="mt-2 text-sm text-slate-500">
+        <p className="mt-2 break-all text-sm text-slate-500 sm:break-words">
           {report.fileName}
           {report.targetRole ? ` — ${report.targetRole}` : ''}
           {locationHint ? ` — ${locationHint}` : ''}
@@ -2650,7 +2659,7 @@ function DiagnosticPage() {
       </div>
 
       {/* 1. ATS & READINESS OVERVIEW */}
-      <section className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-7">
+      <section className="box-border w-full max-w-full rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6 md:p-7">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">1 — ATS & readiness overview</p>
         <div className="mt-4 flex flex-wrap items-end gap-x-8 gap-y-3">
           <div>
@@ -2685,7 +2694,7 @@ function DiagnosticPage() {
       </section>
 
       {/* 2. SCORE CARD */}
-      <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
+      <section className="mt-6 box-border w-full max-w-full rounded-3xl border border-border bg-card p-4 sm:p-6 md:p-7">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">2 — Score card at a glance</p>
         <ul className="mt-4 divide-y divide-border">
           {scoreCard.map((row) => {
@@ -2706,7 +2715,7 @@ function DiagnosticPage() {
       </section>
 
       {/* 3. TOP STRENGTHS */}
-      <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
+      <section className="mt-6 box-border w-full max-w-full rounded-3xl border border-border bg-card p-4 sm:p-6 md:p-7">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">3 — Top strengths</p>
         <h2 className="mt-1 text-lg font-semibold text-foreground">What&apos;s working</h2>
         {strengths.length ? (
@@ -2727,7 +2736,7 @@ function DiagnosticPage() {
       </section>
 
       {/* 4. PRIORITY FIXES */}
-      <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
+      <section className="mt-6 box-border w-full max-w-full rounded-3xl border border-border bg-card p-4 sm:p-6 md:p-7">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">4 — Priority fixes</p>
         <h2 className="mt-1 text-lg font-semibold text-foreground">Immediate actions</h2>
         {fixes.length ? (
@@ -2767,7 +2776,7 @@ function DiagnosticPage() {
 
       {/* 5. BEFORE vs AFTER */}
       {rewrites.length ? (
-        <section className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-7">
+        <section className="mt-6 box-border w-full max-w-full rounded-3xl border border-border bg-card p-4 sm:p-6 md:p-7">
           <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">5 — Before vs after</p>
           <h2 className="mt-1 text-lg font-semibold text-foreground">Rewrite guide</h2>
           <div className="mt-4 space-y-4">
@@ -3088,7 +3097,7 @@ function JobMatchesWorkstation({ report, jobs, premiumUnlocked, onOpenJob }: Job
             <h3 className="text-sm font-bold text-slate-900">Best-fit roles for your CV</h3>
             <p className="mt-1 text-xs leading-5 text-slate-600">{report.jobSearch?.liveResults ? `Matches gathered for “${report.jobSearch.query}”.` : 'These recommendations are based on the latest CV review.'}</p>
           </div>
-          {jobs.length ? jobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={job.match >= 90 && !premiumUnlocked} onViewDetails={() => setActiveJobId(String(job.id))} />) : <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">No job matches were returned with this CV review.</div>}
+          {jobs.length ? jobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={job.match >= 90 && !premiumUnlocked} onViewDetails={() => setActiveJobId(String(job.id))} />) : <div className="box-border w-full max-w-full rounded-xl border border-slate-200 bg-white p-4 text-center text-sm text-slate-500 sm:p-8">No job matches were returned with this CV review.</div>}
           {!premiumUnlocked && jobs.some((job) => job.match >= 90) ? <p className="text-xs text-slate-500">Some high-scoring matches are reserved for administrators.</p> : null}
         </div>
       ) : (
@@ -3177,7 +3186,7 @@ function AdviceAndNextStepsView({ report, jobs, premiumUnlocked, onImproveCv }: 
   const topJobs = jobs.slice(0, 6);
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-border bg-card p-6 md:p-7">
+      <section className="box-border w-full max-w-full rounded-3xl border border-border bg-card p-4 sm:p-6 md:p-7">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">6 — Recommended matches &amp; next steps</p>
         <h2 className="mt-1 text-lg font-semibold text-foreground">Recent job matches</h2>
         {report.jobSearch?.liveResults ? <p className="mt-1 text-xs text-muted-foreground">Live listings for “{report.jobSearch.query}” — open a role to apply on the board.</p> : null}
@@ -3197,7 +3206,7 @@ function AdviceAndNextStepsView({ report, jobs, premiumUnlocked, onImproveCv }: 
         <div className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="text-xs font-bold uppercase tracking-wide text-slate-700">Parsed CV profile</h3><p className="mt-1 text-sm leading-6 text-slate-700">{report.careerAdvisory.cvProfileSummary}</p>{report.careerAdvisory.primarySystems.length ? <p className="mt-2 text-xs text-slate-600"><span className="font-semibold">Systems found:</span> {report.careerAdvisory.primarySystems.join(', ')}</p> : null}</div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2"><div className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-semibold uppercase tracking-wide text-emerald-700">Highest Probability Roles</h3><p className="mt-1 text-sm leading-6 text-slate-700">{report.careerAdvisory.highestProbabilityAdvice}</p>{report.careerAdvisory.strongestFitSectors.length ? <div className="mt-3 flex flex-wrap gap-1.5">{report.careerAdvisory.strongestFitSectors.map((sector) => <span key={sector} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">{sector}</span>)}</div> : null}</div><div className="rounded-xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-semibold uppercase tracking-wide text-amber-700">Positioning Adjustments Needed</h3><p className="mt-1 text-sm leading-6 text-slate-700">{report.careerAdvisory.positioningGapsAdvice}</p>{report.careerAdvisory.skillGaps.length ? <p className="mt-2 text-xs text-amber-900"><span className="font-semibold">Potential gaps:</span> {report.careerAdvisory.skillGaps.join(', ')}</p> : null}</div></div>
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-4"><p className="text-sm leading-6 text-blue-900"><strong>Agent Success Verdict:</strong> {report.careerAdvisory.strategicSuccessVerdict}</p></div>
-      </section> : <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600">Career alignment advice will appear here when the CV review includes an advisory report.</div>}
+      </section> : <div className="box-border w-full max-w-full rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600 sm:p-6">Career alignment advice will appear here when the CV review includes an advisory report.</div>}
     </div>
   );
 }
@@ -3456,7 +3465,7 @@ function JobDetailPage() {
         ? Back to matches
       </Link>
 
-      <div className="mt-6 rounded-3xl border border-border bg-card p-6 md:p-8">
+      <div className="mt-6 box-border w-full max-w-full rounded-3xl border border-border bg-card p-4 sm:p-6 md:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
@@ -3787,7 +3796,7 @@ function CoachingPage() {
             </p>
           </div>
         </div>
-        <form onSubmit={submit} className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8">
+        <form onSubmit={submit} className="box-border w-full max-w-full rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6 md:p-8">
           <div className="mb-7">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Programme intake</p>
             <h2 className="display mt-2 text-2xl font-semibold text-foreground">Tell us where you are.</h2>

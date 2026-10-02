@@ -7,20 +7,20 @@ export function JobListingCard({ job, onViewDetails, locked = false }: {
   locked?: boolean;
 }) {
   return (
-    <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md sm:p-6">
-      <div className="flex gap-4">
-        <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-2xl bg-slate-950 text-lg font-bold text-white">
+    <article className="box-border w-full max-w-full overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md sm:p-6">
+      <div className="flex min-w-0 gap-3 sm:gap-4">
+        <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-950 text-lg font-bold text-white sm:h-14 sm:w-14 sm:rounded-2xl">
           {job.logoUrl ? <img src={job.logoUrl} alt="" className="h-full w-full object-contain" /> : <span aria-hidden="true" className="text-sm font-black tracking-tight">{job.sourceBoard.split(/\s+/).length > 1 ? job.sourceBoard.split(/\s+/).map((part) => part[0]).join('').slice(0, 3).toUpperCase() : job.sourceBoard.slice(0, 3).toUpperCase()}</span>}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-base font-bold leading-snug text-slate-950">{locked ? 'Premium job match' : job.title}</h3>
+                <h3 className="break-words text-sm font-bold leading-snug text-slate-950 sm:text-base">{locked ? 'Premium job match' : job.title}</h3>
                 {!locked && job.isRemote ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700">Remote</span> : null}
               </div>
               <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
-                <span>{locked ? 'Unlock to view employer details' : job.company}</span>
+                <span className="break-words">{locked ? 'Unlock to view employer details' : job.company}</span>
                 {!locked && job.location ? <span className="inline-flex items-center gap-1"><MapPin size={13} />{job.location}</span> : null}
                 {job.postedDate && job.postedDate !== 'Date unavailable' ? <span className="text-slate-400">{job.postedDate}</span> : null}
               </p>

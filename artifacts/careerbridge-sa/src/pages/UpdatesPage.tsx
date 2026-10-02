@@ -299,8 +299,8 @@ export function UpdatesPage() {
   const showActionError = (value: string) => { setActionError(value); setError(value); if (value) setMessage(""); };
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
-      <div className="rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8">
+    <main className="mx-auto w-full max-w-3xl min-w-0 overflow-x-hidden px-4 py-6 sm:px-6 sm:py-8">
+      <div className="box-border w-full max-w-full rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-8">
         <div className="flex items-start gap-4">
           <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary"><Smartphone size={22} /></span>
           <div className="min-w-0 flex-1">

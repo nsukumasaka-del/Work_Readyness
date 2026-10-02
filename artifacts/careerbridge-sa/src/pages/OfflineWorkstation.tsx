@@ -18,12 +18,12 @@ export default function OfflineWorkstationPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 sm:px-8">
-      <div className="mx-auto max-w-4xl">
+    <main className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 px-4 py-6 text-slate-900 sm:px-8 sm:py-8">
+      <div className="mx-auto w-full max-w-4xl min-w-0">
         <div className="mb-7 flex flex-wrap items-center justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-amber-800"><WifiOff size={14} /> Offline Workstation</p>
-            <h1 className="mt-2 text-3xl font-bold">CVs saved on this device</h1>
+            <h1 className="mt-2 break-words text-2xl font-bold sm:text-3xl">CVs saved on this device</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-600">Only local CV documents are available here. Account services, job search, AI tools, and cloud documents require an internet connection and sign-in.</p>
           </div>
           <button type="button" onClick={refresh} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold"><RefreshCw size={15} /> Refresh</button>

@@ -5082,12 +5082,13 @@ export default function CvBuilderPage() {
     }
   };
 
-  const openExportFormatModal = () => {
+  const openExportFormatModal = async () => {
     if (!cv) {
       setError("Generate or load a CV before downloading.");
       return;
     }
     setIsEditMode(false);
+    await handleSaveCv(documentTitle.trim() || "My CV");
     setIsExportFormatModalOpen(true);
   };
 
@@ -5817,29 +5818,6 @@ export default function CvBuilderPage() {
               <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:from-amber-100 hover:to-orange-100 dark:border-amber-800 dark:from-amber-950/50 dark:to-orange-950/50 dark:text-amber-100" title="Open AI suggestions" aria-label="Open AI suggestions">
                 <Sparkles size={14} /><span>Suggestions</span><Crown size={12} className="text-amber-500" />
               </button>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isEditMode}
-                disabled={!cv}
-                onClick={() => {
-                  setIsEditMode((current) => !current);
-                  setMobileWorkspaceView("preview");
-                }}
-                className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${isEditMode ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
-                title={isEditMode ? "Finish direct canvas editing" : "Edit directly on the CV canvas"}
-              >
-                <Pencil size={14} /><span>Edit Mode</span>
-                <span className={`relative h-5 w-9 rounded-full transition ${isEditMode ? "bg-blue-500" : "bg-slate-300"}`} aria-hidden>
-                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${isEditMode ? "translate-x-[18px]" : "translate-x-0.5"}`} />
-                </span>
-              </button>
-              {isEditMode ? (
-                <label className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-500" title="Adjust spacing between CV sections">
-                  Section gap
-                  <input type="range" min="8" max="48" step="2" value={sectionSpacing} onChange={(event) => setSectionSpacing(Number(event.target.value))} className="w-16" />
-                </label>
-              ) : null}
               <button type="button" disabled={!cv || saving} onClick={() => { void handleSaveCv(documentTitle.trim() || "My CV").then(() => canvasRef.current?.focus()); }} className="ml-auto inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-black px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50" title="Save your CV">
                 <Save size={14} /><span>{saving ? "Saving…" : "Save"}</span>
               </button>
@@ -6602,10 +6580,30 @@ export default function CvBuilderPage() {
           style={{ touchAction: "pan-x pan-y pinch-zoom", WebkitOverflowScrolling: "touch" }}
         >
           <header className="no-print sticky top-0 z-20 flex w-full shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950 sm:flex-nowrap sm:gap-3 sm:px-5 sm:py-4">
-            <div className="flex min-w-0 flex-1 items-center">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-y-1.5">
               <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-bold tracking-widest text-slate-400 uppercase sm:gap-2 sm:text-xs"><Eye size={14} /> PREVIEW</span>
               <span className="ml-2 max-w-32 truncate rounded-full bg-slate-200/80 px-2 py-1 text-[10px] font-semibold uppercase text-slate-700 sm:ml-3 sm:max-w-40 sm:px-3 sm:text-xs">{TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "ATS template"}</span>
               <span className="ml-2 shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-500 sm:text-xs">{a4PageCount} {a4PageCount === 1 ? "page" : "pages"}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isEditMode}
+                disabled={!cv}
+                onClick={() => setIsEditMode((current) => !current)}
+                className={`ml-2 inline-flex h-8 w-[132px] shrink-0 flex-row items-center justify-between gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition disabled:opacity-50 ${isEditMode ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                title={isEditMode ? "Finish direct canvas editing" : "Edit directly on the CV canvas"}
+              >
+                <span className="inline-flex items-center gap-1 whitespace-nowrap"><Pencil size={12} />Edit Mode</span>
+                <span className={`relative h-4 w-7 shrink-0 rounded-full transition ${isEditMode ? "bg-blue-500" : "bg-slate-400"}`} aria-hidden>
+                  <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${isEditMode ? "translate-x-3.5" : "translate-x-0.5"}`} />
+                </span>
+              </button>
+              {isEditMode ? (
+                <label className="ml-2 inline-flex h-8 shrink-0 items-center gap-2 rounded-full border border-slate-300 bg-white px-3 text-[10px] font-semibold text-slate-600" title="Adjust spacing between CV sections">
+                  Gap
+                  <input aria-label="Section gap" type="range" min="8" max="48" step="2" value={sectionSpacing} onChange={(event) => setSectionSpacing(Number(event.target.value))} className="w-16 accent-blue-500" />
+                </label>
+              ) : null}
             </div>
             <div className="flex w-full shrink-0 items-center justify-end gap-1.5 sm:w-auto sm:gap-2">
               <button type="button" onClick={() => { setImportStep("upload"); setLocation("/cv-builder/import"); }} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-200 sm:min-h-10 sm:gap-2 sm:rounded-2xl sm:px-4 sm:py-2.5 sm:text-xs" title="Import an existing resume">

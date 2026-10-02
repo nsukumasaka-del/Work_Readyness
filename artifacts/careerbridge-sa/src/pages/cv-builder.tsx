@@ -2286,6 +2286,12 @@ export default function CvBuilderPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
+  useEffect(() => {
+    if (!message) return;
+    const timeout = window.setTimeout(() => setMessage(""), 3500);
+    return () => window.clearTimeout(timeout);
+  }, [message]);
+
   // Styling & Customization (Enhancv Clone Architecture with Custom Brand Colors)
   const [selectedTemplate, setSelectedTemplate] = useState<string>("serif_classic");
   const [monetization, setMonetization] = useState<MonetizationStatus>(EMPTY_MONETIZATION);
@@ -2557,6 +2563,15 @@ export default function CvBuilderPage() {
   const [showPasteInsideUpload, setShowPasteInsideUpload] = useState(false);
   const [selectedUploadMeta, setSelectedUploadMeta] = useState<{ name: string; size: number; type: string } | null>(null);
   const [showImportSuccessBanner, setShowImportSuccessBanner] = useState(() => readIntakeSession<string>(CV_INTAKE_SUCCESS_KEY, "") === "1");
+
+  useEffect(() => {
+    if (!showImportSuccessBanner) return;
+    const timeout = window.setTimeout(() => {
+      setShowImportSuccessBanner(false);
+      try { window.sessionStorage.removeItem(CV_INTAKE_SUCCESS_KEY); } catch { /* session storage is optional */ }
+    }, 3500);
+    return () => window.clearTimeout(timeout);
+  }, [showImportSuccessBanner]);
   const [isUploadDropActive, setIsUploadDropActive] = useState(false);
   const [uploadReadStatus, setUploadReadStatus] = useState("");
   const intakeUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -2951,7 +2966,7 @@ export default function CvBuilderPage() {
       const size = file.size < 1024 * 1024
         ? `${Math.max(1, Math.round(file.size / 1024))} KB`
         : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
-      setUploadReadStatus(`${isDifferentDocument ? "New CV detected" : "File selected"}: ${file.name} (${size}). Click Parse & Import to read it.`);
+      setUploadReadStatus(`${isDifferentDocument ? "New CV detected" : "File selected"}: ${file.name} (${size}). Click Parse & Upload to read it.`);
       setError("");
       setShowImportSuccessBanner(false);
       try { window.sessionStorage.removeItem(CV_INTAKE_SUCCESS_KEY); } catch { /* session storage is optional */ }
@@ -3114,6 +3129,7 @@ export default function CvBuilderPage() {
       persistGeneratedCv(created);
 
       setShowPasteInsideUpload(false);
+      setMobileWorkspaceView(window.innerWidth < 768 ? "preview" : "edit");
       setLocation("/cv-builder/edit");
       showTemplatesAfterGeneration();
       setMessage("CV created from text! Use Templates to switch layouts.");
@@ -3350,7 +3366,7 @@ export default function CvBuilderPage() {
           location: manualInput.location.trim() || authProfile?.location || "",
           targetRole: manualInput.professionalTitle.trim() || authProfile?.targetRole || "",
         },
-        "Imported CV details are ready to review.",
+        "Your uploaded CV is ready to review.",
       );
       persistGeneratedCv(importedDraft);
       setCv(importedDraft);
@@ -3366,7 +3382,7 @@ export default function CvBuilderPage() {
       setIsIntakeModalOpen(false);
       setIsPasteModalOpen(false);
       setIsExtractModalOpen(false);
-      setMobileWorkspaceView(window.innerWidth < 1025 ? "preview" : "edit");
+      setMobileWorkspaceView(window.innerWidth < 768 ? "preview" : "edit");
       selectedFileRef.current = null;
       setSelectedUploadMeta(null);
       setUploadReadStatus("");
@@ -3380,7 +3396,7 @@ export default function CvBuilderPage() {
       showTemplatesAfterGeneration();
       setShowImportSuccessBanner(Boolean(extractedData));
       setMessage(extractedData
-        ? "CV imported successfully! Review and edit the extracted data below, then save."
+        ? "CV uploaded successfully! Review and edit your information, then save."
         : "Your modern ATS CV is ready! Use Templates to test layouts.");
       setTimeout(() => setMessage(""), 5000);
       // Dismiss the blocking progress overlay now that a populated document is
@@ -3692,7 +3708,7 @@ export default function CvBuilderPage() {
         clearGeneratedCv();
         setCv(createBlankCvDraft(selectedTemplate));
         setMessage("Your previous CV was incomplete. Please re-upload your PDF/DOCX so we can rebuild all sections.");
-        setTimeout(() => setMessage(""), 8000);
+        setTimeout(() => setMessage(""), 3500);
         setIsIntakeModalOpen(false);
         setActiveNavPanel("sections");
         return;
@@ -4206,7 +4222,7 @@ export default function CvBuilderPage() {
     const element = event.target;
     if (!(element instanceof HTMLElement) || !element.matches("input:not([type='hidden']), textarea, [data-inline-editable='true']")) return;
     activeInlineElementRef.current = element;
-    selectedCanvasElementRef.current = element.closest<HTMLElement>("[data-canvas-position-target='true']") || element;
+    selectedCanvasElementRef.current = element;
     const key = inlineFieldKey(element);
     setActiveInlineField(key);
     setSelectedCanvasPositionKey(key);
@@ -5423,6 +5439,7 @@ export default function CvBuilderPage() {
           setAiFeedback(created.document.aiFeedback);
         }
         persistGeneratedCv(created);
+        setMobileWorkspaceView(window.innerWidth < 768 ? "preview" : "edit");
         setIsIntakeModalOpen(false);
         showTemplatesAfterGeneration();
         setMessage("Your CV has been built and verified! Use Templates to test different layouts.");
@@ -5461,6 +5478,7 @@ export default function CvBuilderPage() {
 
       setCv(created);
       persistGeneratedCv(created);
+      setMobileWorkspaceView(window.innerWidth < 768 ? "preview" : "edit");
       showTemplatesAfterGeneration();
       setMessage("Your CV has been generated from your verified information.");
       void runQualityEvaluation(created.document);
@@ -5827,7 +5845,7 @@ export default function CvBuilderPage() {
             <div><Link href="/cv-builder/edit" className="mb-3 inline-flex items-center gap-1 text-sm font-medium text-slate-500 transition hover:text-indigo-600"><ChevronLeft size={16} /> Back to CV Builder</Link><p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-600 dark:text-indigo-300">BonList CV Studio</p><h1 className="mt-1 text-3xl font-bold tracking-tight md:text-4xl">Choose a CV template</h1><p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-slate-400">Start with a layout that fits your experience, then personalize every section in the editor.</p></div>
             <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
               <label className="flex min-h-12 min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:w-[330px]"><Search size={17} className="shrink-0 text-slate-400" /><input value={templateSearch} onChange={(event) => setTemplateSearch(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder="Search templates..." aria-label="Search templates" /></label>
-              <button type="button" onClick={() => { setIntakeTab("upload"); setImportStep("upload"); setIsIntakeModalOpen(false); setError(""); setLocation("/cv-builder/import"); }} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 dark:bg-indigo-600 dark:hover:bg-indigo-500"><Upload size={16} /> Import Existing CV</button>
+              <button type="button" onClick={() => { setIntakeTab("upload"); setImportStep("upload"); setIsIntakeModalOpen(false); setError(""); setLocation("/cv-builder/import"); }} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 dark:bg-indigo-600 dark:hover:bg-indigo-500"><Upload size={16} /> Upload Existing CV</button>
             </div>
           </div>
           <div className="mb-6 flex gap-2 overflow-x-auto pb-2" role="tablist" aria-label="Template categories">
@@ -5881,7 +5899,7 @@ export default function CvBuilderPage() {
         <div className="mx-auto max-w-5xl">
           {showingImportConfirmation ? <section className="mb-7 flex flex-col gap-4 rounded-2xl border border-slate-200 border-l-4 border-l-slate-950 bg-white p-5 shadow-md dark:border-slate-800 dark:border-l-indigo-500 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"><Briefcase size={19} /></span><div><span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Suggested next step</span><h2 className="mt-1 text-lg font-bold">Your CV is ready — find matching roles</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Browse curated job listings and save roles that fit your profile.</p></div></div><Link href="/jobs" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white dark:bg-indigo-600">Browse jobs <ArrowRight size={16} /></Link></section> : null}
           <Link href="/cv-builder/templates" className="inline-flex items-center gap-1 text-sm font-medium text-slate-500 transition hover:text-indigo-600"><ChevronLeft size={16} /> Back to CV Builder</Link>
-          <h1 className="mt-5 text-3xl font-bold tracking-tight sm:text-4xl">Import Resume</h1>
+          <h1 className="mt-5 text-3xl font-bold tracking-tight sm:text-4xl">Upload Resume</h1>
           <p className="mt-2 border-b border-slate-200 pb-5 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-400">Upload your existing CV or paste the text — we'll extract your details and pre-fill the builder.</p>
           <div className="mx-auto mt-7 max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
             {showingImportConfirmation ? <div className="space-y-5 p-5 sm:p-8">
@@ -5889,7 +5907,7 @@ export default function CvBuilderPage() {
               <div className="flex flex-wrap gap-2 text-[11px]">{[`${content?.experiences?.length || 0} work roles`, `${content?.education?.length || 0} qualifications`, `${content?.skills?.length || 0} skills`].map((item) => <span key={item} className="rounded-full bg-slate-100 px-3 py-1.5 font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{item}</span>)}</div>
               <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">Apply the extracted details to your CV Builder draft, then review and edit them before saving.</p>
               <button type="button" disabled={generatingFromIntake} onClick={() => void handleGenerateFromIntake()} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60 dark:bg-indigo-600 dark:hover:bg-indigo-500">{generatingFromIntake ? "Applying extracted details…" : "Apply to CV Builder"} <ArrowRight size={17} /></button>
-              <button type="button" onClick={() => { selectedFileRef.current = null; lastHandledUploadRef.current = ""; lastSelectedUploadFingerprintRef.current = ""; if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = ""; setSelectedUploadMeta(null); setExtractedData(null); setImportStep("upload"); setUploadReadStatus(""); setError(""); setLocation("/cv-builder/import"); }} className="min-h-12 w-full rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Import a different file</button>
+              <button type="button" onClick={() => { selectedFileRef.current = null; lastHandledUploadRef.current = ""; lastSelectedUploadFingerprintRef.current = ""; if (intakeUploadInputRef.current) intakeUploadInputRef.current.value = ""; setSelectedUploadMeta(null); setExtractedData(null); setImportStep("upload"); setUploadReadStatus(""); setError(""); setLocation("/cv-builder/import"); }} className="min-h-12 w-full rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Upload a different file</button>
             </div> : <>
               <div className="grid grid-cols-2 border-b border-slate-200 dark:border-slate-800"><button type="button" onClick={() => { setIntakeTab("upload"); setError(""); }} className={`min-h-14 border-b-2 text-sm font-semibold ${intakeTab === "upload" ? "border-slate-950 text-slate-950 dark:border-indigo-400 dark:text-indigo-200" : "border-transparent text-slate-500"}`}><Upload className="mr-2 inline" size={16} />Upload file</button><button type="button" onClick={() => { setIntakeTab("manual"); setError(""); }} className={`min-h-14 border-b-2 text-sm font-semibold ${intakeTab === "manual" ? "border-slate-950 text-slate-950 dark:border-indigo-400 dark:text-indigo-200" : "border-transparent text-slate-500"}`}><FileText className="mr-2 inline" size={16} />Paste text</button></div>
               <div className="space-y-4 p-5 sm:p-7">
@@ -5901,10 +5919,10 @@ export default function CvBuilderPage() {
                     <span className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-100"><Upload size={27} /></span><strong className="text-base">{selectedUploadMeta?.name || "Drop your resume here"}</strong><span className="mt-2 text-sm text-slate-600 dark:text-slate-400">{selectedUploadMeta ? `${(selectedUploadMeta.size / 1024 / 1024).toFixed(2)} MB · click to change` : "or click to browse"}</span><span className="mt-4 text-xs text-slate-400">PDF, DOCX, or TXT · Max 10MB</span>
                   </div>
                   {uploadReadStatus ? <p className="text-center text-xs text-slate-500 dark:text-slate-400">{uploadReadStatus}</p> : null}
-                  <button type="button" disabled={!selectedFile || extracting} onClick={handleImportFileParse} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-600 dark:hover:bg-indigo-500">{extracting ? <><RefreshCw className="animate-spin" size={16} /> Parsing resume…</> : <><Upload size={16} /> Parse &amp; Import</>}</button>
+                  <button type="button" disabled={!selectedFile || extracting} onClick={handleImportFileParse} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-indigo-600 dark:hover:bg-indigo-500">{extracting ? <><RefreshCw className="animate-spin" size={16} /> Reading resume…</> : <><Upload size={16} /> Parse &amp; Upload</>}</button>
                 </> : <>
                   <label className="block text-sm font-semibold">Paste resume text<textarea value={intakePasteText} onChange={(event) => setIntakePasteText(event.target.value)} rows={10} className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" placeholder="Paste the text from your resume here…" /></label>
-                  <button type="button" disabled={!intakePasteText.trim() || extracting} onClick={() => void parseImportPasteOnly()} className="min-h-12 w-full rounded-xl bg-slate-950 px-4 text-sm font-bold text-white disabled:bg-slate-400 dark:bg-indigo-600">{extracting ? "Parsing resume…" : "Parse & Import"}</button>
+                  <button type="button" disabled={!intakePasteText.trim() || extracting} onClick={() => void parseImportPasteOnly()} className="min-h-12 w-full rounded-xl bg-slate-950 px-4 text-sm font-bold text-white disabled:bg-slate-400 dark:bg-indigo-600">{extracting ? "Reading resume…" : "Parse & Upload"}</button>
                 </>}
                 <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-950/70"><h3 className="text-xs font-bold">What we extract:</h3><ul className="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-600 dark:text-slate-400 sm:grid-cols-2">{["Full name & contact", "Work experience", "Education history", "Skills & tools", "Professional summary", "LinkedIn & GitHub URLs"].map((item) => <li key={item} className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" />{item}</li>)}</ul></div>
               </div>
@@ -5919,7 +5937,7 @@ export default function CvBuilderPage() {
     <div className="cv-builder relative flex h-[calc(100dvh-3.5rem-var(--safe-top))] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
       {/* Notifications / Toast */}
       {message ? (
-        <div className="no-print pointer-events-none absolute right-4 top-2 z-50 rounded-lg border border-emerald-500/20 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-800 shadow-md">
+        <div key={message} className="cv-toast-auto-dismiss no-print pointer-events-none absolute left-4 right-4 top-2 z-50 mx-auto max-w-sm rounded-lg border border-emerald-500/20 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-800 shadow-md min-[768px]:left-auto min-[768px]:mx-0">
           ✓ {message}
         </div>
       ) : null}
@@ -6013,9 +6031,10 @@ export default function CvBuilderPage() {
               role="tab"
               aria-selected={mobileWorkspaceView === "edit"}
               onClick={() => setMobileWorkspaceView("edit")}
-              className={`min-h-10 flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${mobileWorkspaceView === "edit" ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"}`}
+              className={`relative inline-flex min-h-10 flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition ${mobileWorkspaceView === "edit" ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"}`}
             >
-              Edit CV
+              <span>Edit CV</span>
+              <span className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[8px] font-bold uppercase leading-none text-red-600">Recommended</span>
             </button>
             <button
               type="button"
@@ -6056,13 +6075,13 @@ export default function CvBuilderPage() {
               </button>
             </div>
             {showImportSuccessBanner ? (
-              <div role="status" aria-live="polite" className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-medium leading-5 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
-                <span><CheckCircle2 size={15} className="mr-1.5 inline-block align-[-3px]" />CV imported successfully! Review and edit the extracted data below, then save.</span>
-                <button type="button" onClick={() => { setShowImportSuccessBanner(false); try { window.sessionStorage.removeItem(CV_INTAKE_SUCCESS_KEY); } catch { /* session storage is optional */ } }} className="shrink-0 rounded px-1 text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900/60" aria-label="Dismiss import confirmation">×</button>
+              <div role="status" aria-live="polite" className="cv-toast-auto-dismiss mb-4 flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-medium leading-5 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+                <span><CheckCircle2 size={15} className="mr-1.5 inline-block align-[-3px]" />CV uploaded successfully! Review and edit the information below, then save.</span>
+                <button type="button" onClick={() => { setShowImportSuccessBanner(false); try { window.sessionStorage.removeItem(CV_INTAKE_SUCCESS_KEY); } catch { /* session storage is optional */ } }} className="shrink-0 rounded px-1 text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900/60" aria-label="Dismiss upload confirmation">×</button>
               </div>
             ) : null}
             <button type="button" onClick={() => { setImportStep("upload"); setError(""); setLocation("/cv-builder/import"); }} className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 min-[1025px]:hidden dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700">
-              <FileUp size={15} /> Import Resume (Auto-fill CV Data)
+              <FileUp size={15} /> Upload Resume (Auto-fill CV Data)
             </button>
             <div className="mb-5 flex min-w-0 items-center gap-1 md:block">
               {stepperScrollEdges.left ? (
@@ -6813,18 +6832,18 @@ export default function CvBuilderPage() {
           style={{ touchAction: "pan-x pan-y pinch-zoom", WebkitOverflowScrolling: "touch" }}
         >
           <div className="no-print sticky top-0 z-20 w-full shrink-0">
-          <header className="flex w-full flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950 sm:flex-nowrap sm:gap-3 sm:px-5 sm:py-4">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-y-1.5">
-              <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-bold tracking-widest text-slate-400 uppercase sm:gap-2 sm:text-xs"><Eye size={14} /> PREVIEW</span>
-              <span className="ml-2 max-w-32 truncate rounded-full bg-slate-200/80 px-2 py-1 text-[10px] font-semibold uppercase text-slate-700 sm:ml-3 sm:max-w-40 sm:px-3 sm:text-xs">{TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "ATS template"}</span>
-              <span className="ml-2 shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-500 sm:text-xs">{a4PageCount} {a4PageCount === 1 ? "page" : "pages"}</span>
+          <header className="grid w-full grid-cols-1 gap-2 border-b border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950 min-[768px]:flex min-[768px]:flex-nowrap min-[768px]:items-center min-[768px]:justify-between min-[768px]:gap-3 min-[768px]:px-5 min-[768px]:py-4">
+            <div className="flex min-w-0 items-center justify-between gap-2 min-[768px]:flex-1 min-[768px]:justify-start">
+              <span className="hidden shrink-0 items-center gap-1.5 text-[11px] font-bold tracking-widest text-slate-400 uppercase min-[768px]:inline-flex min-[768px]:gap-2 min-[768px]:text-xs"><Eye size={14} /> PREVIEW</span>
+              <span className="ml-2 hidden max-w-32 truncate rounded-full bg-slate-200/80 px-2 py-1 text-[10px] font-semibold uppercase text-slate-700 min-[768px]:ml-3 min-[768px]:inline-flex min-[768px]:max-w-40 min-[768px]:px-3 min-[768px]:text-xs">{TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "ATS template"}</span>
+              <span className="ml-2 hidden shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-500 min-[768px]:inline-flex min-[768px]:text-xs">{a4PageCount} {a4PageCount === 1 ? "page" : "pages"}</span>
               <button
                 type="button"
                 role="switch"
                 aria-checked={isEditMode}
                 disabled={!cv}
                 onClick={() => setIsEditMode((current) => !current)}
-                className="ml-2 inline-flex h-8 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex h-8 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-50 min-[768px]:ml-2 min-[768px]:px-3 min-[768px]:py-1.5 min-[768px]:text-xs"
                 title={isEditMode ? "Finish direct canvas editing" : "Edit directly on the CV canvas"}
               >
                 <span className="inline-flex items-center gap-1.5 whitespace-nowrap"><Pencil size={14} className="text-slate-500" />Edit Mode</span>
@@ -6833,18 +6852,18 @@ export default function CvBuilderPage() {
                 </span>
               </button>
               {isEditMode ? (
-                <label className="ml-2 inline-flex h-8 shrink-0 items-center gap-2 rounded-full border border-slate-300 bg-white px-3 text-[10px] font-semibold text-slate-600" title="Adjust spacing between CV sections">
+                <label className="inline-flex h-8 min-w-0 shrink items-center gap-1.5 rounded-full border border-slate-300 bg-white px-2.5 text-[10px] font-semibold text-slate-600 min-[768px]:ml-2 min-[768px]:shrink-0 min-[768px]:gap-2 min-[768px]:px-3" title="Adjust spacing between CV sections">
                   Gap
-                  <input aria-label="Section gap" type="range" min="8" max="48" step="2" value={sectionSpacing} onPointerDown={recordCanvasHistory} onKeyDown={(event) => { if (event.key.startsWith("Arrow")) recordCanvasHistory(); }} onChange={(event) => setSectionSpacing(Number(event.target.value))} className="w-16 accent-blue-500" />
+                  <input aria-label="Section gap" type="range" min="8" max="48" step="2" value={sectionSpacing} onPointerDown={recordCanvasHistory} onKeyDown={(event) => { if (event.key.startsWith("Arrow")) recordCanvasHistory(); }} onChange={(event) => setSectionSpacing(Number(event.target.value))} className="w-14 min-w-0 accent-blue-500 min-[768px]:w-16" />
                 </label>
               ) : null}
             </div>
-            <div className="flex w-full shrink-0 items-center justify-end gap-1.5 sm:w-auto sm:gap-2">
-              <button type="button" onClick={() => { setImportStep("upload"); setLocation("/cv-builder/import"); }} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-200 sm:min-h-10 sm:gap-2 sm:rounded-2xl sm:px-4 sm:py-2.5 sm:text-xs" title="Import an existing resume">
-                <FileUp size={14} /><span>Import Resume</span>
+            <div className="grid w-full shrink-0 grid-cols-2 items-center gap-2 min-[768px]:flex min-[768px]:w-auto">
+              <button type="button" onClick={() => { setImportStep("upload"); setLocation("/cv-builder/import"); }} className="inline-flex min-h-9 min-w-0 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 min-[768px]:min-h-10 min-[768px]:gap-2 min-[768px]:rounded-2xl min-[768px]:px-4 min-[768px]:py-2.5" title="Upload an existing resume" aria-label="Upload Resume">
+                <FileUp size={14} /><span>Upload Resume</span>
               </button>
-              <button type="button" disabled={!cv} onClick={openExportFormatModal} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-black px-3 py-1.5 text-[11px] font-bold tracking-wide text-white transition hover:bg-slate-800 disabled:opacity-50 sm:min-h-10 sm:gap-2 sm:rounded-2xl sm:px-5 sm:py-2.5 sm:text-xs" title="Export CV">
-                <Download size={14} /><span>EXPORT CV</span>
+              <button type="button" disabled={!cv} onClick={openExportFormatModal} className="inline-flex min-h-9 min-w-0 items-center justify-center gap-1.5 rounded-lg bg-black px-2.5 py-1 text-xs font-bold text-white transition hover:bg-slate-800 disabled:opacity-50 min-[768px]:min-h-10 min-[768px]:gap-2 min-[768px]:rounded-2xl min-[768px]:px-5 min-[768px]:py-2.5 min-[768px]:tracking-wide" title="Download Resume" aria-label="Download Resume">
+                <Download size={14} /><span>Download Resume</span>
               </button>
             </div>
           </header>
@@ -6901,7 +6920,7 @@ export default function CvBuilderPage() {
                   onPointerCancel={handleCanvasPointerEnd}
                 >
                   <div className="cv-a4-stack">
-                    <div className="cv-page-guides no-print" aria-hidden>
+                    {!isEditMode ? <div className="cv-page-guides no-print" aria-hidden>
                       {Array.from({ length: Math.max(0, a4PageCount - 1) }).map((_, i) => (
                         <div
                           key={i}
@@ -6913,7 +6932,7 @@ export default function CvBuilderPage() {
                           </span>
                         </div>
                       ))}
-                    </div>
+                    </div> : null}
                     {isEditMode ? (
                       <div className="no-print canvas-control absolute inset-0 z-40 pointer-events-none" aria-label="CV page controls">
                         {Array.from({ length: a4PageCount }).map((_, pageIndex) => {
@@ -7759,6 +7778,14 @@ export default function CvBuilderPage() {
                     ref={printRef}
                     inert={isEditMode ? undefined : true}
                     onFocusCapture={handleInlineFieldFocus}
+                    onPointerDownCapture={(event) => {
+                      if (!isEditMode || !(event.target instanceof Element)) return;
+                      if (event.target.matches("input:not([type='hidden']), textarea, [data-inline-editable='true']") || event.target.closest(".canvas-control")) return;
+                      setActiveInlineField(null);
+                      activeInlineElementRef.current = null;
+                      selectedCanvasElementRef.current = null;
+                      setSelectedCanvasPositionKey(null);
+                    }}
                     id="bonlist-cv-document"
                     style={{
                       fontFamily: selectedFont.family,
@@ -8238,7 +8265,7 @@ export default function CvBuilderPage() {
             <Save size={15} /> {saving ? "Saving" : "Save"}
           </button>
           <button type="button" disabled={!cv} onClick={openExportFormatModal} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-950 px-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-indigo-600">
-            <Download size={15} /> Export CV
+            <Download size={15} /> Download CV
           </button>
         </nav>
 
@@ -9469,10 +9496,10 @@ export default function CvBuilderPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Download</p>
-                <h2 id="export-format-title" className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Export CV</h2>
+                <h2 id="export-format-title" className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Download CV</h2>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Choose a format for your current CV design.</p>
               </div>
-              <button type="button" onClick={() => setIsExportFormatModalOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close export format dialog">×</button>
+              <button type="button" onClick={() => setIsExportFormatModalOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close download format dialog">×</button>
             </div>
             <div className="mt-5 grid gap-3">
               <button type="button" onClick={() => selectExportFormat("print")} className="flex min-h-16 items-center gap-3 rounded-xl border border-slate-200 p-4 text-left transition hover:border-indigo-400 hover:bg-indigo-50/60 dark:border-slate-700 dark:hover:bg-slate-800">

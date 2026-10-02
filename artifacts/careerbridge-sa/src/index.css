@@ -812,16 +812,8 @@
 #bonlist-cv-document.cv-inline-edit-mode textarea,
 #bonlist-cv-document.cv-inline-edit-mode [data-inline-editable="true"] {
   border-radius: 0.25rem;
-  outline: 1px dashed transparent !important;
-  outline-offset: 2px;
+  outline: none !important;
   cursor: text;
-  transition: outline-color 120ms ease;
-}
-
-#bonlist-cv-document.cv-inline-edit-mode input:hover,
-#bonlist-cv-document.cv-inline-edit-mode textarea:hover,
-#bonlist-cv-document.cv-inline-edit-mode [data-inline-editable="true"]:hover {
-  outline: 1px dashed #00c4cc !important;
   background-color: transparent;
   box-shadow: none !important;
 }
@@ -829,7 +821,7 @@
 #bonlist-cv-document.cv-inline-edit-mode input:focus,
 #bonlist-cv-document.cv-inline-edit-mode textarea:focus,
 #bonlist-cv-document.cv-inline-edit-mode [data-inline-editable="true"]:focus {
-  outline: 1.5px solid #3b82f6 !important;
+  outline: none !important;
   background-color: transparent;
   box-shadow: none !important;
 }
@@ -839,13 +831,16 @@
 }
 
 #bonlist-cv-document.cv-inline-edit-mode .cv-positionable-block {
-  outline: 1px dashed transparent;
-  outline-offset: 2px;
-  transition: outline-color 120ms ease;
+  outline: none !important;
 }
 
-#bonlist-cv-document.cv-inline-edit-mode .cv-positionable-block:hover {
-  outline-color: #00c4cc;
+@keyframes cv-toast-life {
+  0%, 82% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-0.25rem); }
+}
+
+.cv-toast-auto-dismiss {
+  animation: cv-toast-life 3.5s ease-in-out forwards;
 }
 
 #bonlist-cv-document .cv-inline-bullet {

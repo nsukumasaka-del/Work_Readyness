@@ -75,6 +75,12 @@ import {
   useUnreadJobMatches,
 } from '@/lib/job-match-notifications';
 import { JobListingCard, JobListingDetails } from '@/components/jobs/JobListingCard';
+import { SeoManager } from '@/components/SeoManager';
+import { CookieConsent } from '@/components/CookieConsent';
+import { CareerAdviceCategoryPage, CareerAdviceIndexPage, CareerArticlePage } from '@/pages/CareerAdvice';
+import { PublicJobCategoryPage, PublicJobsIndexPage } from '@/pages/PublicJobs';
+import { TrustPage } from '@/pages/TrustPages';
+import { findPublicJobCategory } from '@/content/public-jobs';
 import { directApplicationUrl, toJobListing, type JobDetailsPayload, type JobListingSource } from '@/types/job';
 
 import { isNativeApp } from '@/lib/platform';
@@ -1223,6 +1229,18 @@ function AppShell({ children }: { children: ReactNode }) {
               )}
             </div>
 
+            <Link
+              href="/career-advice"
+              className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                location.startsWith('/career-advice')
+                  ? 'bg-secondary text-secondary-foreground'
+                  : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+              }`}
+              data-testid="link-nav-career-advice"
+            >
+              Career Advice
+            </Link>
+
             {/* Pricing Direct Link */}
             <Link
               href="/pricing"
@@ -1335,6 +1353,8 @@ function AppShell({ children }: { children: ReactNode }) {
               <nav className="grid gap-1" aria-label="General navigation">
                 <Link href="/my-resumes" className="rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted">My Resumes</Link>
                 <Link href="/jobs" className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted"><span>Job Matches</span><JobMatchBadge count={unreadMatchesCount} verbose /></Link>
+                <Link href="/career-advice" className="rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted">Career Advice</Link>
+                <Link href="/jobs/explore" className="rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted">Job Guides</Link>
                 <Link href="/pricing" className="rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted">Pricing</Link>
                 {!inNativeApp && <button type="button" onClick={() => triggerAndroidApkDownload()} className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-medium text-foreground hover:bg-muted"><Smartphone size={17} />Download Android APK</button>}
               </nav>
@@ -1451,10 +1471,15 @@ function AppShell({ children }: { children: ReactNode }) {
                 Your CV workspace for building, improving and keeping a career document ready for what comes next.
               </p>
               <nav aria-label="Privacy and support" className="flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold text-muted-foreground">
+                <Link href="/about" className="hover:text-primary">About</Link>
+                <Link href="/career-advice" className="hover:text-primary">Career Advice</Link>
+                <Link href="/jobs/explore" className="hover:text-primary">Job Guides</Link>
                 <Link href="/privacy" className="hover:text-primary">Privacy</Link>
                 <Link href="/terms" className="hover:text-primary">Terms</Link>
+                <Link href="/cookies" className="hover:text-primary">Cookies</Link>
                 <Link href="/data" className="hover:text-primary">Data handling &amp; deletion</Link>
-                <Link href="/support" className="hover:text-primary">Contact &amp; support</Link>
+                <Link href="/contact" className="hover:text-primary">Contact</Link>
+                <Link href="/advertise" className="hover:text-primary">Business enquiries</Link>
               </nav>
             </div>
             {!inNativeApp ? (
@@ -3866,17 +3891,7 @@ function Field({
 }
 
 const PUBLIC_AUTH_PATHS = new Set(['/login', '/signup', '/forgot-password', '/reset-password', '/auth/callback']);
-const PUBLIC_INFO_PATHS = new Set(['/pricing', '/privacy', '/terms', '/data', '/support']);
-
-function PublicInfoPage({ kind }: { kind: 'privacy' | 'terms' | 'data' | 'support' }) {
-  const content = {
-    privacy: ['Privacy Policy', 'BonList stores the account and CV information needed to provide the workspace. CV content is used to deliver requested CV, review and career features, and is not used for unrelated purposes without consent.'],
-    terms: ['Terms of Use', 'Use BonList to create and manage truthful career documents. Career guidance and match scores are advisory and do not guarantee interviews, employment or ATS outcomes.'],
-    data: ['Data handling & deletion', 'You can manage saved CVs from My CVs. For account or data deletion requests, contact support from the email address associated with your BonList account.'],
-    support: ['Contact & support', 'For product, account, privacy or deletion support, email nsukumasaka@gmail.com. Do not include passwords, identity numbers or payment card details in support messages.'],
-  }[kind];
-  return <main className="mx-auto min-h-[60vh] max-w-3xl px-5 py-16 md:px-8"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">BonList</p><h1 className="display mt-3 text-4xl font-semibold text-foreground">{content[0]}</h1><p className="mt-5 text-sm leading-7 text-muted-foreground">{content[1]}</p><Link href="/" className="btn-secondary mt-8">Back to BonList</Link></main>;
-}
+const PUBLIC_INFO_PATHS = new Set(['/pricing', '/about', '/contact', '/privacy', '/terms', '/cookies', '/data', '/support', '/advertise']);
 
 function ProtectedApp() {
   const [location, setLocation] = useLocation();
@@ -4056,6 +4071,10 @@ function ProtectedApp() {
 function Router() {
   const [location] = useLocation();
   const pathname = location.split('?')[0];
+  const publicJobSlug = pathname.match(/^\/jobs\/([^/]+)$/)?.[1];
+  const isPublicCareerRoute = pathname === '/career-advice' || pathname.startsWith('/career-advice/');
+  const isPublicJobRoute = pathname === '/jobs/explore'
+    || Boolean(publicJobSlug && findPublicJobCategory(publicJobSlug));
   if (PUBLIC_AUTH_PATHS.has(pathname)) {
     return (
       <RoutedErrorBoundary>
@@ -4075,10 +4094,29 @@ function Router() {
         <AppShell>
           <Switch>
             <Route path="/pricing" component={PricingPage} />
-            <Route path="/privacy" component={() => <PublicInfoPage kind="privacy" />} />
-            <Route path="/terms" component={() => <PublicInfoPage kind="terms" />} />
-            <Route path="/data" component={() => <PublicInfoPage kind="data" />} />
-            <Route path="/support" component={() => <PublicInfoPage kind="support" />} />
+            <Route path="/about" component={() => <TrustPage kind="about" />} />
+            <Route path="/contact" component={() => <TrustPage kind="contact" />} />
+            <Route path="/privacy" component={() => <TrustPage kind="privacy" />} />
+            <Route path="/terms" component={() => <TrustPage kind="terms" />} />
+            <Route path="/cookies" component={() => <TrustPage kind="cookies" />} />
+            <Route path="/data" component={() => <TrustPage kind="data" />} />
+            <Route path="/support" component={() => <TrustPage kind="support" />} />
+            <Route path="/advertise" component={() => <TrustPage kind="advertise" />} />
+          </Switch>
+        </AppShell>
+      </RoutedErrorBoundary>
+    );
+  }
+  if (isPublicCareerRoute || isPublicJobRoute) {
+    return (
+      <RoutedErrorBoundary>
+        <AppShell>
+          <Switch>
+            <Route path="/career-advice/category/:slug" component={CareerAdviceCategoryPage} />
+            <Route path="/career-advice/:slug" component={CareerArticlePage} />
+            <Route path="/career-advice" component={CareerAdviceIndexPage} />
+            <Route path="/jobs/explore" component={PublicJobsIndexPage} />
+            <Route path="/jobs/:slug" component={PublicJobCategoryPage} />
           </Switch>
         </AppShell>
       </RoutedErrorBoundary>
@@ -4152,7 +4190,9 @@ function App() {
       <TooltipProvider>
         <AppUpdatePrompt />
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+          <SeoManager />
           <Router />
+          <CookieConsent />
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

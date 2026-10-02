@@ -326,6 +326,18 @@ function withNativeCors(request: Request, response: Response): Response {
   });
 }
 
+const PUBLIC_JOB_GUIDES = new Set(["explore", "administration", "customer-service", "logistics", "sales", "finance", "it"]);
+
+function shouldNoIndex(pathname: string): boolean {
+  if (pathname === "/jobs") return true;
+  if (pathname.startsWith("/jobs/")) return !PUBLIC_JOB_GUIDES.has(pathname.split("/")[2] || "");
+  return [
+    "/admin", "/dashboard", "/my-resumes", "/cv-builder", "/diagnostic", "/profile", "/account",
+    "/settings", "/security", "/login", "/signup", "/forgot-password", "/reset-password",
+    "/auth/callback", "/checkout", "/payment", "/interview", "/coaching", "/programme", "/offline-workstation",
+  ].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
 async function serveOtaAsset(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const isBundle = url.pathname === "/ota/latest.zip";
@@ -582,7 +594,9 @@ export default {
 
     const assetResponse = await env.ASSETS.fetch(request);
     const headers = new Headers(assetResponse.headers);
+    const contentType = (assetResponse.headers.get("Content-Type") || "").toLowerCase();
     const isHtmlOrScript =
+      contentType.includes("text/html") ||
       request.url.includes(".html") ||
       request.url.includes(".js") ||
       request.url.includes(".css") ||
@@ -592,6 +606,10 @@ export default {
       headers.set("Cache-Control", "no-store, max-age=0");
       headers.set("Pragma", "no-cache");
       headers.set("Expires", "0");
+    }
+
+    if (contentType.includes("text/html") && shouldNoIndex(url.pathname)) {
+      headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
     }
 
     return new Response(assetResponse.body, {

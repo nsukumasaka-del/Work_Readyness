@@ -1,2 +1,16 @@
 User-agent: *
 Allow: /
+Disallow: /api/
+Disallow: /admin
+Disallow: /dashboard
+Disallow: /my-resumes
+Disallow: /cv-builder
+Disallow: /profile
+Disallow: /account
+Disallow: /settings
+Disallow: /security
+Disallow: /checkout
+Disallow: /payment
+Disallow: /offline-workstation
+
+Sitemap: https://www.bonlist.site/sitemap.xml

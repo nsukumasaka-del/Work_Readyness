@@ -71,6 +71,7 @@ import { buildParseUploadBody, readFileAsDataUrl } from '@/lib/cv-parse-upload';
 import {
   announceJobMatches,
   JOB_MATCHES_FOUND_EVENT,
+  isJobMatchesPath,
   markJobMatchesRead,
   useUnreadJobMatches,
 } from '@/lib/job-match-notifications';
@@ -785,7 +786,7 @@ function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (location === '/jobs' || location.startsWith('/jobs/')) {
+    if (isJobMatchesPath(location)) {
       markJobMatchesRead();
       setMatchAlertCount(0);
     }
@@ -4053,6 +4054,7 @@ function ProtectedApp() {
           <Route path="/diagnostic" component={DiagnosticPage} />
           <Route path="/jobs/:id" component={JobDetailPage} />
           <Route path="/jobs" component={JobsPage} />
+          <Route path="/job-matches" component={JobsPage} />
           <Route path="/interview" component={InterviewPage} />
           <Route path="/pricing" component={PricingPage} />
           <Route path="/programme" component={ProgrammePage} />

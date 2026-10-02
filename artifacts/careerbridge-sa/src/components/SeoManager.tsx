@@ -33,7 +33,7 @@ const STATIC_PUBLIC_META: Record<string, Pick<SeoState, 'title' | 'description'>
 const PRIVATE_ROUTE_PREFIXES = [
   '/admin', '/dashboard', '/my-resumes', '/profile', '/account', '/settings', '/security',
   '/login', '/signup', '/forgot-password', '/reset-password', '/auth/callback', '/checkout',
-  '/payment', '/cv-builder', '/diagnostic', '/interview', '/coaching', '/programme', '/offline-workstation',
+  '/payment', '/cv-builder', '/diagnostic', '/interview', '/coaching', '/programme', '/offline-workstation', '/job-matches',
 ];
 
 function breadcrumbSchema(items: Array<{ name: string; path: string }>) {

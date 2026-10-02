@@ -12,7 +12,7 @@ import {
 } from "./auth";
 import { fetchTrustedJobDetails, searchTrustedJobBoards } from "../../artifacts/api-server/src/lib/job-board-search";
 import { buildCareerAlignmentReport, estimateCareerYears } from "../../artifacts/api-server/src/lib/career-alignment";
-import { enrichCareerAdvisoryWithGemini, scoreJobListingsWithGemini } from "../../artifacts/api-server/src/lib/ai/gemini-client";
+import { calibrateJobListingScores, enrichCareerAdvisoryWithGemini, scoreJobListingsWithGemini } from "../../artifacts/api-server/src/lib/ai/gemini-client";
 import {
   buildGeneratedCv,
   normalizeStructure,
@@ -849,9 +849,10 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
     jobs: results.jobs,
     searchPreferences: { industry: industryPreference, postedRange: postedRangePreference },
   });
+  const calibratedJobs = calibrateJobListingScores(candidate, scoredJobs || results.jobs);
   return json({
     ...results,
-    jobs: scoredJobs || results.jobs,
+    jobs: calibratedJobs,
     scoring: scoredJobs ? "gemini" : "evidence-based-fallback",
     fallbackApplied,
     ...(fallbackApplied ? { searchNotice: `No listings were found for the exact search area; results were broadened to ${effectiveLocation}.` } : {}),

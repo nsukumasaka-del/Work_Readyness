@@ -4,6 +4,7 @@ Disallow: /api/
 Disallow: /admin
 Disallow: /dashboard
 Disallow: /my-resumes
+Disallow: /job-matches
 Disallow: /cv-builder
 Disallow: /profile
 Disallow: /account

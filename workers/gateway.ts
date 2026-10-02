@@ -334,7 +334,7 @@ function shouldNoIndex(pathname: string): boolean {
   return [
     "/admin", "/dashboard", "/my-resumes", "/cv-builder", "/diagnostic", "/profile", "/account",
     "/settings", "/security", "/login", "/signup", "/forgot-password", "/reset-password",
-    "/auth/callback", "/checkout", "/payment", "/interview", "/coaching", "/programme", "/offline-workstation",
+    "/auth/callback", "/checkout", "/payment", "/interview", "/coaching", "/programme", "/offline-workstation", "/job-matches",
   ].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 

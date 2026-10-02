@@ -1,7 +1,8 @@
-import { buildGeneratedCv, extractCvDataFromText, generateCandidateBiography } from "./cv-builder";
+import { buildGeneratedCv, evaluateAts, extractCvDataFromText, generateCandidateBiography, type GeneratedCvDocument } from "./cv-builder";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { reconstructPdfTextFromItems } from "./pdf-layout-text";
+import { calibrateJobListingScores } from "./ai/gemini-client";
 
 function expect<T>(actual: T) {
   const includes = (value: unknown, expected: unknown) =>
@@ -210,5 +211,35 @@ describe("complex CV import layout extraction", () => {
     assert.ok(extracted.experiences.length > 0);
     assert.ok(extracted.education.length > 0);
     assert.ok(extracted.skills.some((skill) => /Excel/i.test(skill)));
+  });
+});
+
+describe("strict ATS role alignment", () => {
+  const logisticsCv: GeneratedCvDocument = {
+    structure: "classic", structureLabel: "Classic", structureDescription: "Test", templateType: "single_column",
+    fullName: "Jane Doe", headline: "Customer Service and Logistics Coordinator", contactLine: "jane@example.com",
+    email: "jane@example.com", phone: "+27821234567", location: "Johannesburg",
+    summary: "Customer service and road freight coordinator experienced in dispatch records, client queries, imports and shipment tracking.",
+    experiences: [{ id: "1", role: "Road Freight Coordinator", company: "ABC Logistics", startDate: "2021", endDate: "Present", bullets: ["Coordinated dispatch schedules and resolved customer delivery queries."] }],
+    education: [], skillGroups: [], skills: ["Customer service", "Freight", "Dispatch", "Shipment tracking"], keywords: [], sections: [], footerNote: "", authenticityScore: 90,
+  };
+
+  it("caps an unrelated technical engineering target below 40 percent", () => {
+    const report = evaluateAts(logisticsCv, "Technical Manager - Solar Engineering");
+    assert.ok(report.overallScore < 40);
+    assert.ok(report.missingKeywords.some((item) => /solar|engineering|technical/i.test(item)));
+  });
+
+  it("does not apply the mismatch cap to a directly aligned logistics target", () => {
+    const report = evaluateAts(logisticsCv, "Road Freight Coordinator");
+    assert.ok(report.overallScore >= 65);
+  });
+
+  it("does not treat an aspirational target role as technical experience", () => {
+    const [job] = calibrateJobListingScores(
+      { targetRole: "Technical Manager - Solar Engineering", experienceRoles: ["Customer Service Representative", "Road Freight Coordinator"], skills: ["Customer service", "Dispatch"] },
+      [{ id: 1, title: "Technical Manager - Solar Engineering", company: "Employer", location: "Gauteng", sector: "Engineering", salary: "Not stated", match: 95, posted: "Today", tags: [], description: "Lead solar engineering delivery.", source: "Test", url: "https://example.com/job" }],
+    );
+    assert.ok(job.match < 40);
   });
 });

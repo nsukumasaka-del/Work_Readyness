@@ -125,6 +125,37 @@ export async function generateCvAssistantJson<T>(input: {
   });
 }
 
+const LISTING_ROLE_DOMAINS = [
+  /\b(?:solar|photovoltaic|renewable energy|electrical|mechanical|engineering|engineer|technical manager|technician)\b/i,
+  /\b(?:software|developer|programmer|information technology|\bit\b|cloud|devops|cybersecurity|network engineer|data engineer)\b/i,
+  /\b(?:accounting|accountant|finance|bookkeep|audit|credit control|accounts payable|accounts receivable)\b/i,
+  /\b(?:logistics|freight|transport|warehouse|supply chain|import|export|customs|shipping|dispatch)\b/i,
+  /\b(?:customer service|customer support|client service|call centre|contact centre|customer care)\b/i,
+  /\b(?:construction|civil|site manager|site agent|foreman|quantity survey|built environment)\b/i,
+  /\b(?:nurse|nursing|medical|clinical|healthcare|pharmacy|pharmacist|patient care)\b/i,
+  /\b(?:sales|marketing|business development|account executive|digital marketing|seo|campaign)\b/i,
+];
+
+function strictListingScoreCeiling(candidate: { targetRole?: string; summary?: string; experienceRoles?: string[]; skills?: string[]; systems?: string[] }, job: LiveJobListing): number {
+  // A desired targetRole is an aspiration, not evidence of experience. Never
+  // use it to lift or uncap a match score.
+  const candidateEvidence = [candidate.summary, ...(candidate.experienceRoles || []), ...(candidate.skills || []), ...(candidate.systems || [])].filter(Boolean).join(" ");
+  const targetDomain = LISTING_ROLE_DOMAINS.find((pattern) => pattern.test(job.title));
+  if (targetDomain && !targetDomain.test(candidateEvidence)) return 35;
+  const importantTitleTokens = job.title.toLowerCase().match(/[a-z][a-z0-9+#.-]{2,}/g)?.filter((token) => !/^(?:the|and|for|with|senior|junior|manager|assistant)$/.test(token)) || [];
+  const experienceText = (candidate.experienceRoles || []).join(" ").toLowerCase();
+  const titleOverlap = importantTitleTokens.filter((token) => experienceText.includes(token)).length / Math.max(1, importantTitleTokens.length);
+  const candidateHasDifferentKnownDomain = LISTING_ROLE_DOMAINS.some((pattern) => pattern !== targetDomain && pattern.test(candidateEvidence));
+  return titleOverlap === 0 && candidateHasDifferentKnownDomain ? 45 : 100;
+}
+
+export function calibrateJobListingScores(
+  candidate: { targetRole?: string; summary?: string; experienceRoles?: string[]; skills?: string[]; systems?: string[] },
+  jobs: LiveJobListing[],
+): LiveJobListing[] {
+  return jobs.map((job) => ({ ...job, match: Math.min(job.match, strictListingScoreCeiling(candidate, job)) }));
+}
+
 /** Score actual board listings against the CV profile on the server. */
 export async function scoreJobListingsWithGemini(input: {
   apiKey?: string;
@@ -144,11 +175,20 @@ export async function scoreJobListingsWithGemini(input: {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     const scoring = generateGeminiJson<{
-      scores: Array<{ id: number; score: number; rationale?: string }>;
+      scores: Array<{ id: number; overallScore: number; atsFitScore: number; authenticityScore: number; isMatch: boolean; matchReason?: string; gaps?: string[] }>;
     }>({
       apiKey: input.apiKey,
       model: input.model,
-      instruction: "Score each real job listing against the candidate CV from 0 to 100 using evidence only. Weight core skills and domain relevance most, then seniority and location. Search preferences are soft ranking context: do not discard valid jobs solely because the industry or posting date differs. Do not invent candidate qualifications or job requirements. Return {scores:[{id:number,score:number,rationale:string}]} with exactly one score per supplied listing id. Keep rationales under 24 words.",
+      instruction: `You are a senior executive technical recruiter and a strict ATS auditor. Critically compare the candidate's documented CV evidence with each real job listing.
+
+SCORING:
+1. Hard industry and role alignment: 40%. Direct professional evidence in the exact field is required. If a technical, engineering, solar, medical, finance, software, or similarly specialised role requires domain expertise absent from the CV, cap ATS fit and overall score at 35.
+2. Experience and title relevance: 35%. Exact title/function match may score 90-100; closely related work 65-80; unrelated work below 40.
+3. Hard skills, tools, certifications, and domain workflows: 25%. Count only explicit CV evidence.
+
+Do not award compensating points for communication, teamwork, administration, formatting, location, or generic transferable skills when core professional requirements are absent. Search preferences affect ordering only, never competency fit. Never invent qualifications or requirements. A customer-service or logistics CV assessed against a Technical Manager - Solar/Engineering role must score below 40.
+
+Return exactly {scores:[{id:number,overallScore:number,atsFitScore:number,authenticityScore:number,isMatch:boolean,matchReason:string,gaps:string[]}]} with one entry per listing. All scores must be integers from 0 to 100. authenticityScore assesses whether the CV evidence is internally supportable, not job fit. Keep matchReason under 35 words and list concrete missing requirements.`,
       evidence: {
         candidate: input.candidateProfile,
         searchPreferences: input.searchPreferences || {},
@@ -164,17 +204,19 @@ export async function scoreJobListingsWithGemini(input: {
     ]);
     if (!Array.isArray(result.scores)) return null;
     const byId = new Map(result.scores
-      .filter((entry) => Number.isFinite(entry.id) && Number.isFinite(entry.score))
+      .filter((entry) => Number.isFinite(entry.id) && Number.isFinite(entry.overallScore) && Number.isFinite(entry.atsFitScore))
       .map((entry) => [String(entry.id), entry]));
     if (!byId.size) return null;
-    if (input.jobs.every((job) => (byId.get(String(job.id))?.score ?? 0) <= 0)) return null;
+    if (input.jobs.every((job) => (byId.get(String(job.id))?.overallScore ?? 0) <= 0)) return null;
     return input.jobs.map((job) => {
       const score = byId.get(String(job.id));
       if (!score) return job;
-      const rationale = typeof score.rationale === "string" ? score.rationale.trim().slice(0, 240) : "";
+      const ceiling = strictListingScoreCeiling(input.candidateProfile, job);
+      const calibratedScore = Math.min(ceiling, Math.round(Math.min(score.overallScore, score.atsFitScore)));
+      const rationale = typeof score.matchReason === "string" ? score.matchReason.trim().slice(0, 240) : "";
       return {
         ...job,
-        match: Math.max(0, Math.min(100, Math.round(score.score))),
+        match: Math.max(0, Math.min(100, calibratedScore)),
         ...(rationale ? { matchRationale: rationale } : {}),
       } as LiveJobListing;
     });

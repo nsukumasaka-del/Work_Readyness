@@ -1027,6 +1027,66 @@ export interface ImproveCvReport {
 
 const METRIC_REGEX = /(\d+[%kKmMbB]?|\$\d+|\bR\d+|\b\d+\s*(?:percent|hours|days|weeks|months|people|members|clients|projects|teams|queries|tickets|accounts))/i;
 
+const ROLE_DOMAINS = [
+  { pattern: /\b(?:solar|photovoltaic|renewable energy|electrical|mechanical|engineering|engineer|technical manager|technician)\b/i, hardSkills: ["solar", "photovoltaic", "electrical", "mechanical", "engineering", "renewable", "installation", "commissioning"] },
+  { pattern: /\b(?:software|developer|programmer|information technology|\bit\b|cloud|devops|cybersecurity|network engineer|data engineer)\b/i, hardSkills: ["software", "programming", "cloud", "devops", "cybersecurity", "network", "database", "api"] },
+  { pattern: /\b(?:accounting|accountant|finance|financial|bookkeep|audit|credit control|accounts payable|accounts receivable)\b/i, hardSkills: ["accounting", "bookkeeping", "audit", "reconciliation", "ledger", "tax", "payroll", "credit control"] },
+  { pattern: /\b(?:logistics|freight|transport|warehouse|supply chain|import|export|customs|shipping|dispatch)\b/i, hardSkills: ["logistics", "freight", "warehouse", "supply chain", "import", "export", "customs", "shipping", "dispatch"] },
+  { pattern: /\b(?:customer service|customer support|client service|call centre|contact centre|customer care)\b/i, hardSkills: ["customer service", "customer support", "call centre", "crm", "complaint", "ticketing", "service level"] },
+  { pattern: /\b(?:construction|civil|site manager|site agent|foreman|quantity survey|built environment)\b/i, hardSkills: ["construction", "civil", "site", "quantity surveying", "health and safety", "contractor", "project scheduling"] },
+  { pattern: /\b(?:nurse|nursing|medical|clinical|healthcare|pharmacy|pharmacist|patient care)\b/i, hardSkills: ["nursing", "clinical", "medical", "patient", "pharmacy", "healthcare", "hpcsa", "sanc"] },
+  { pattern: /\b(?:sales|marketing|business development|account executive|digital marketing|seo|campaign)\b/i, hardSkills: ["sales", "marketing", "pipeline", "crm", "campaign", "seo", "lead generation", "business development"] },
+] as const;
+
+const ROLE_TOKEN_STOPWORDS = new Set([
+  "and", "the", "for", "with", "from", "job", "role", "position", "required", "requirements", "description",
+  "responsibilities", "candidate", "looking", "seeking", "south", "africa", "senior", "junior", "manager", "assistant",
+]);
+
+function roleTokens(value: string): string[] {
+  return Array.from(new Set(value.toLowerCase().match(/[a-z][a-z0-9+#.-]{2,}/g) || []))
+    .filter((token) => !ROLE_TOKEN_STOPWORDS.has(token));
+}
+
+function strictRoleFit(cv: GeneratedCvDocument, target: string) {
+  const targetTitle = target.split(/[\r\n.!?]/, 1)[0].slice(0, 180).trim();
+  const experienceTitles = cv.experiences.map((experience) => experience.role || "").filter(Boolean);
+  const titleEvidence = experienceTitles.join(" ");
+  const candidateEvidence = [
+    titleEvidence,
+    cv.summary,
+    ...cv.experiences.flatMap((experience) => experience.bullets),
+    ...cv.skills,
+    ...(cv.toolsAndSoftware || []),
+    ...(cv.certifications || []).map((item) => `${item.name} ${item.issuer || ""}`),
+    ...cv.education.map((item) => `${item.degree} ${item.institution} ${item.details || ""}`),
+  ].join(" ");
+  const targetDomain = ROLE_DOMAINS.find((domain) => domain.pattern.test(target));
+  const hasTargetDomainEvidence = Boolean(targetDomain?.pattern.test(candidateEvidence));
+  const targetTitleTokens = roleTokens(targetTitle);
+  const experienceTitleTokens = new Set(roleTokens(titleEvidence));
+  const matchedTitleTokens = targetTitleTokens.filter((token) => experienceTitleTokens.has(token));
+  const titleOverlap = targetTitleTokens.length ? matchedTitleTokens.length / targetTitleTokens.length : 0;
+  const normalizedTarget = targetTitle.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const exactTitle = experienceTitles.some((title) => {
+    const normalized = title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    return normalized.length >= 4 && (normalized === normalizedTarget || normalizedTarget.includes(normalized) || normalized.includes(normalizedTarget));
+  });
+  const roleAlignment = exactTitle ? 100 : hasTargetDomainEvidence ? 82 : titleOverlap >= 0.5 ? 65 : titleOverlap > 0 ? 40 : 15;
+  const titleRelevance = exactTitle ? 95 : titleOverlap >= 0.67 ? 80 : hasTargetDomainEvidence ? 68 : titleOverlap > 0 ? 38 : 15;
+  const hardSkillPool = targetDomain?.hardSkills || [];
+  const matchedHardSkills = hardSkillPool.filter((skill) => candidateEvidence.toLowerCase().includes(skill));
+  const hardSkillScore = hardSkillPool.length ? Math.round((matchedHardSkills.length / hardSkillPool.length) * 100) : Math.min(100, Math.round(titleOverlap * 100));
+  const gaps = [
+    ...hardSkillPool.filter((skill) => !matchedHardSkills.includes(skill)),
+    ...(!exactTitle && titleOverlap < 0.5 ? [`direct ${targetTitle || "target-role"} title experience`] : []),
+  ];
+  let score = Math.round(roleAlignment * 0.4 + titleRelevance * 0.35 + hardSkillScore * 0.25);
+  const hardMismatch = Boolean(targetDomain && !hasTargetDomainEvidence && titleOverlap < 0.5);
+  if (hardMismatch) score = Math.min(score, 35);
+  return { score, roleAlignment, titleRelevance, hardSkillScore, hardMismatch, matchedTitleTokens, matchedHardSkills, gaps };
+}
+
 // ---------------------------------------------------------------------------
 // 27-Check ATS Scoring Algorithm
 // ---------------------------------------------------------------------------
@@ -1036,6 +1096,8 @@ export function evaluateAts(
   jobDescription?: string,
 ): AtsReport {
   const checks: AtsCheckItem[] = [];
+  const target = jobDescription?.trim() || "";
+  const fit = target ? strictRoleFit(cv, target) : null;
   const allBullets = cv.experiences.flatMap((e) => e.bullets);
 
   const totalWords = (
@@ -1155,15 +1217,9 @@ export function evaluateAts(
   });
 
   // 5. Keywords
-  const targetKeywords = Array.from(
-    new Set([
-      ...(cv.keywords || []),
-      cv.headline.toLowerCase(),
-      "communication",
-      "reporting",
-      "coordination",
-    ]),
-  );
+  const targetKeywords = target
+    ? roleTokens(target).slice(0, 30)
+    : Array.from(new Set(cv.keywords || []));
 
   const cvFullText = (
     cv.fullName + " " + cv.headline + " " + cv.summary + " " + allBullets.join(" ") + " " + cv.skills.join(" ")
@@ -1187,6 +1243,36 @@ export function evaluateAts(
     detail: `Matched ${matchedKeywords.length} of ${targetKeywords.length} core role competencies.`,
     recommendation: missingKeywords.length > 0 ? `Consider adding demonstrated skills: ${missingKeywords.slice(0, 3).join(", ")}.` : undefined,
   });
+
+  if (fit) {
+    checks.push({
+      id: "kw-role-domain",
+      category: "keywords",
+      label: "Hard Industry & Role Alignment",
+      passed: fit.roleAlignment >= 65,
+      score: fit.roleAlignment,
+      detail: fit.hardMismatch ? "The CV does not show direct experience in the target role's core professional domain." : "Role-domain evidence was compared against documented work history.",
+      recommendation: fit.hardMismatch ? "Prioritise roles aligned with documented experience; add domain evidence only when it is true." : undefined,
+    });
+    checks.push({
+      id: "kw-title-relevance",
+      category: "keywords",
+      label: "Experience Title Relevance",
+      passed: fit.titleRelevance >= 65,
+      score: fit.titleRelevance,
+      detail: fit.matchedTitleTokens.length ? `Relevant experience-title terms: ${fit.matchedTitleTokens.join(", ")}.` : "No meaningful target-title overlap was found in prior job titles.",
+      recommendation: fit.titleRelevance < 65 ? "Do not substitute general soft skills for required role experience." : undefined,
+    });
+    checks.push({
+      id: "kw-hard-skills",
+      category: "keywords",
+      label: "Hard Skills & Certification Evidence",
+      passed: fit.hardSkillScore >= 60,
+      score: fit.hardSkillScore,
+      detail: fit.matchedHardSkills.length ? `Supported domain evidence: ${fit.matchedHardSkills.join(", ")}.` : "No explicit target-domain hard skills or credentials were found.",
+      recommendation: fit.gaps.length ? `Missing or unclear: ${fit.gaps.slice(0, 5).join(", ")}.` : undefined,
+    });
+  }
 
   // 6. Formatting & Authenticity
   checks.push({
@@ -1234,7 +1320,7 @@ export function evaluateAts(
     authenticity: calcCat("authenticity"),
   };
 
-  const overallScore = Math.round(
+  const documentQualityScore = Math.round(
     categories.essentials * 0.15 +
       categories.contentQuality * 0.15 +
       categories.actionVerbs * 0.2 +
@@ -1243,6 +1329,7 @@ export function evaluateAts(
       categories.formatCompliance * 0.1 +
       categories.authenticity * 0.1,
   );
+  const overallScore = fit ? Math.min(fit.score, fit.hardMismatch ? 35 : 100) : documentQualityScore;
 
   let grade: AtsReport["grade"] = "Fair";
   if (overallScore >= 88) grade = "Exceptional";
@@ -1260,7 +1347,7 @@ export function evaluateAts(
     categories,
     checks,
     matchedKeywords: Array.from(new Set(matchedKeywords)),
-    missingKeywords: Array.from(new Set(missingKeywords)),
+    missingKeywords: Array.from(new Set([...missingKeywords, ...(fit?.gaps || [])])),
     weakBullets,
     strongBullets,
     recommendedFixes,

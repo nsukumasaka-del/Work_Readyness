@@ -8281,7 +8281,7 @@ export default function CvBuilderPage() {
                   <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
                     ATS Live Score & Simulation
                   </h3>
-                  <p className="text-[10px] text-muted-foreground">Workday · Taleo · Greenhouse Tested</p>
+                  <p className="text-[10px] text-muted-foreground">Document structure and ATS readability</p>
                 </div>
               </div>
               <button
@@ -8296,9 +8296,13 @@ export default function CvBuilderPage() {
             {/* Score Hero Banner */}
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-center space-y-1">
               <div className="text-3xl font-black text-emerald-700 dark:text-emerald-400">
-                {qualityReport?.overallScore || 94}%
+                {qualityReport ? `${qualityReport.overallScore}%` : 'Not scored'}
               </div>
-              <div className="text-xs font-bold text-foreground">ATS Parseability Grade: Exceptional</div>
+              <div className="text-xs font-bold text-foreground">
+                {qualityReport
+                  ? `ATS Parseability Grade: ${qualityReport.overallScore >= 88 ? 'Exceptional' : qualityReport.overallScore >= 75 ? 'Competitive' : qualityReport.overallScore >= 60 ? 'Fair' : 'Needs work'}`
+                  : 'Run an ATS check to calculate this score'}
+              </div>
               <p className="text-[10px] text-muted-foreground">
                 Single-layer semantic text hierarchy without floating boxes or custom canvas traps.
               </p>

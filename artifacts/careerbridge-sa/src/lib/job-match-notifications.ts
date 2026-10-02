@@ -40,6 +40,11 @@ export function markJobMatchesRead() {
   publishUpdate();
 }
 
+export function isJobMatchesPath(pathname: string) {
+  const cleanPath = pathname.split(/[?#]/, 1)[0];
+  return cleanPath === '/jobs' || /^\/jobs\/\d+$/.test(cleanPath) || cleanPath === '/job-matches' || cleanPath.startsWith('/job-matches/');
+}
+
 function subscribe(listener: () => void) {
   if (typeof window === 'undefined') return () => undefined;
   window.addEventListener(JOB_MATCHES_UPDATED_EVENT, listener);

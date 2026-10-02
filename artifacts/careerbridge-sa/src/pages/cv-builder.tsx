@@ -15,7 +15,6 @@ import { Link, useLocation } from "wouter";
 import {
   AlertCircle,
   AlignCenter,
-  AlignJustify,
   AlignLeft,
   AlignRight,
   ArrowRight,
@@ -40,11 +39,8 @@ import {
   GraduationCap,
   GripVertical,
   HelpCircle,
-  Highlighter,
   History,
   Info,
-  IndentDecrease,
-  IndentIncrease,
   Italic,
   Layers,
   LayoutTemplate,
@@ -2303,6 +2299,7 @@ export default function CvBuilderPage() {
   const [inlineFormatting, setInlineFormatting] = useState<InlineFormattingMap>({});
   const [activeInlineField, setActiveInlineField] = useState<string | null>(null);
   const activeInlineElementRef = useRef<HTMLElement | null>(null);
+  const formatToolbarRef = useRef<HTMLDivElement>(null);
   const [formatToolbarPosition, setFormatToolbarPosition] = useState({ top: 96, left: 320 });
   const [sectionOrder, setSectionOrder] = useState<CanvasSectionKey[]>(DEFAULT_CANVAS_SECTION_ORDER);
   const [sectionSpacing, setSectionSpacing] = useState(24);
@@ -4079,17 +4076,36 @@ export default function CvBuilderPage() {
     return index >= 0 ? `preview-field-${index}` : null;
   };
 
+  const positionInlineToolbar = (element: HTMLElement) => {
+    window.requestAnimationFrame(() => {
+      if (!document.contains(element)) return;
+      const elementRect = element.getBoundingClientRect();
+      const toolbarRect = formatToolbarRef.current?.getBoundingClientRect();
+      const toolbarWidth = toolbarRect?.width || 360;
+      const toolbarHeight = toolbarRect?.height || 38;
+      const viewportPadding = 8;
+      const verticalOffset = 12;
+      let top = elementRect.top - toolbarHeight - verticalOffset;
+      if (top < viewportPadding) top = elementRect.bottom + verticalOffset;
+      if (top + toolbarHeight > window.innerHeight - viewportPadding) {
+        top = Math.max(viewportPadding, window.innerHeight - toolbarHeight - viewportPadding);
+      }
+      const halfWidth = toolbarWidth / 2;
+      const left = Math.min(
+        window.innerWidth - halfWidth - viewportPadding,
+        Math.max(halfWidth + viewportPadding, elementRect.left + elementRect.width / 2),
+      );
+      setFormatToolbarPosition({ top, left });
+    });
+  };
+
   const handleInlineFieldFocus = (event: ReactFocusEvent<HTMLElement>) => {
     if (!isEditMode) return;
     const element = event.target;
     if (!(element instanceof HTMLElement) || !element.matches("input:not([type='hidden']), textarea, [data-inline-editable='true']")) return;
     activeInlineElementRef.current = element;
     setActiveInlineField(inlineFieldKey(element));
-    const rect = element.getBoundingClientRect();
-    setFormatToolbarPosition({
-      top: Math.max(8, rect.top - 58),
-      left: Math.min(window.innerWidth - 16, Math.max(16, rect.left + rect.width / 2)),
-    });
+    positionInlineToolbar(element);
   };
 
   const updateActiveInlineFormat = (patch: Partial<InlineTextFormat>) => {
@@ -4098,6 +4114,23 @@ export default function CvBuilderPage() {
       ...current,
       [activeInlineField]: { ...current[activeInlineField], ...patch },
     }));
+  };
+
+  const deleteActiveInlineText = () => {
+    const element = activeInlineElementRef.current;
+    if (!element) return;
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      const prototype = element instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+      setter?.call(element, "");
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+      element.focus();
+      return;
+    }
+    element.textContent = "";
+    element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContent" }));
+    element.blur();
   };
 
   useLayoutEffect(() => {
@@ -4131,11 +4164,7 @@ export default function CvBuilderPage() {
     const repositionToolbar = () => {
       const element = activeInlineElementRef.current;
       if (!element || !document.contains(element)) return;
-      const rect = element.getBoundingClientRect();
-      setFormatToolbarPosition({
-        top: Math.max(8, rect.top - 58),
-        left: Math.min(window.innerWidth - 16, Math.max(16, rect.left + rect.width / 2)),
-      });
+      positionInlineToolbar(element);
     };
     window.addEventListener("resize", repositionToolbar);
     window.addEventListener("scroll", repositionToolbar, true);
@@ -6590,12 +6619,12 @@ export default function CvBuilderPage() {
                 aria-checked={isEditMode}
                 disabled={!cv}
                 onClick={() => setIsEditMode((current) => !current)}
-                className={`ml-2 inline-flex h-8 w-[132px] shrink-0 flex-row items-center justify-between gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition disabled:opacity-50 ${isEditMode ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                className="ml-2 inline-flex h-8 shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-50"
                 title={isEditMode ? "Finish direct canvas editing" : "Edit directly on the CV canvas"}
               >
-                <span className="inline-flex items-center gap-1 whitespace-nowrap"><Pencil size={12} />Edit Mode</span>
-                <span className={`relative h-4 w-7 shrink-0 rounded-full transition ${isEditMode ? "bg-blue-500" : "bg-slate-400"}`} aria-hidden>
-                  <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${isEditMode ? "translate-x-3.5" : "translate-x-0.5"}`} />
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap"><Pencil size={14} className="text-slate-500" />Edit Mode</span>
+                <span className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer overflow-hidden rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${isEditMode ? "bg-blue-600" : "bg-slate-200"}`} aria-hidden>
+                  <span className={`pointer-events-none inline-block h-3 w-3 shrink-0 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${isEditMode ? "translate-x-3" : "translate-x-0"}`} />
                 </span>
               </button>
               {isEditMode ? (
@@ -6616,7 +6645,8 @@ export default function CvBuilderPage() {
           </header>
           {isEditMode && activeInlineField ? (
             <div
-              className="no-print fixed z-[70] flex max-w-[calc(100vw-1rem)] flex-wrap items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
+              ref={formatToolbarRef}
+              className="no-print pointer-events-auto fixed z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1 overflow-x-auto rounded-lg border border-slate-800 bg-slate-900 px-2 py-1 text-white shadow-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               style={{ top: formatToolbarPosition.top, left: formatToolbarPosition.left, transform: "translateX(-50%)" }}
               role="toolbar"
               aria-label="Inline text formatting"
@@ -6625,27 +6655,22 @@ export default function CvBuilderPage() {
                 ["left", AlignLeft, "Align left"],
                 ["center", AlignCenter, "Align center"],
                 ["right", AlignRight, "Align right"],
-                ["justify", AlignJustify, "Justify"],
               ] as const).map(([alignment, Icon, label]) => (
-                <button key={alignment} type="button" disabled={!activeInlineField} aria-label={label} aria-pressed={activeInlineField ? inlineFormatting[activeInlineField]?.alignment === alignment : false} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ alignment })} className={`rounded-lg p-2 transition hover:bg-slate-100 disabled:opacity-35 ${activeInlineField && inlineFormatting[activeInlineField]?.alignment === alignment ? "bg-indigo-100 text-indigo-700" : "text-slate-600"}`}>
-                  <Icon size={15} />
+                <button key={alignment} type="button" aria-label={label} aria-pressed={inlineFormatting[activeInlineField]?.alignment === alignment} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ alignment })} className={`rounded p-1 transition hover:bg-slate-800 ${inlineFormatting[activeInlineField]?.alignment === alignment ? "bg-slate-700 text-white" : "text-slate-300"}`}>
+                  <Icon size={16} />
                 </button>
               ))}
-              <span className="mx-1 h-6 w-px bg-slate-200" />
-              <button type="button" disabled={!activeInlineField} aria-label="Bold" aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.bold) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ bold: !inlineFormatting[activeInlineField]?.bold })} className={`rounded-lg p-2 transition hover:bg-slate-100 disabled:opacity-35 ${activeInlineField && inlineFormatting[activeInlineField]?.bold ? "bg-indigo-100 text-indigo-700" : "text-slate-600"}`}><Bold size={15} /></button>
-              <button type="button" disabled={!activeInlineField} aria-label="Italic" aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.italic) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ italic: !inlineFormatting[activeInlineField]?.italic })} className={`rounded-lg p-2 transition hover:bg-slate-100 disabled:opacity-35 ${activeInlineField && inlineFormatting[activeInlineField]?.italic ? "bg-indigo-100 text-indigo-700" : "text-slate-600"}`}><Italic size={15} /></button>
-              <button type="button" aria-label="Underline" aria-pressed={Boolean(inlineFormatting[activeInlineField]?.underline)} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ underline: !inlineFormatting[activeInlineField]?.underline })} className={`rounded-lg p-2 transition hover:bg-slate-100 ${inlineFormatting[activeInlineField]?.underline ? "bg-blue-50 text-blue-700" : "text-slate-600"}`}><Underline size={15} /></button>
-              <button type="button" disabled={!activeInlineField} aria-label="Toggle bullet" aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.bullet) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ bullet: !inlineFormatting[activeInlineField]?.bullet })} className={`rounded-lg p-2 transition hover:bg-slate-100 disabled:opacity-35 ${activeInlineField && inlineFormatting[activeInlineField]?.bullet ? "bg-indigo-100 text-indigo-700" : "text-slate-600"}`}><List size={15} /></button>
-              <button type="button" aria-label="Outdent" onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ indent: Math.max(0, (inlineFormatting[activeInlineField]?.indent || 0) - 8) })} className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100"><IndentDecrease size={15} /></button>
-              <button type="button" aria-label="Indent" onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ indent: Math.min(48, (inlineFormatting[activeInlineField]?.indent || 0) + 8) })} className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100"><IndentIncrease size={15} /></button>
-              <span className="mx-1 h-6 w-px bg-slate-200" />
-              <button type="button" disabled={!activeInlineField} aria-label="Decrease text size" onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ fontScale: Math.max(0.75, (inlineFormatting[activeInlineField]?.fontScale || 1) - 0.1) })} className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 disabled:opacity-35"><Minus size={14} /></button>
-              <Type size={15} className="text-slate-500" aria-hidden />
-              <button type="button" disabled={!activeInlineField} aria-label="Increase text size" onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ fontScale: Math.min(1.5, (inlineFormatting[activeInlineField]?.fontScale || 1) + 0.1) })} className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 disabled:opacity-35"><Plus size={14} /></button>
-              <label className="flex items-center gap-1 rounded-lg px-1.5 text-[10px] font-semibold text-slate-500" title="Line height">LH<input type="range" min="1" max="2" step="0.1" value={inlineFormatting[activeInlineField]?.lineHeight || 1.4} onChange={(event) => updateActiveInlineFormat({ lineHeight: Number(event.target.value) })} className="w-14" /></label>
-              <label className="flex items-center gap-1 rounded-lg px-1.5 text-[10px] font-semibold text-slate-500" title="Letter spacing">LS<input type="range" min="-1" max="4" step="0.25" value={inlineFormatting[activeInlineField]?.letterSpacing || 0} onChange={(event) => updateActiveInlineFormat({ letterSpacing: Number(event.target.value) })} className="w-14" /></label>
-              <label className="relative grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-slate-600 hover:bg-slate-100" title="Text color"><Type size={15} /><input type="color" value={inlineFormatting[activeInlineField]?.color || "#0f172a"} onChange={(event) => updateActiveInlineFormat({ color: event.target.value })} className="absolute inset-0 cursor-pointer opacity-0" /></label>
-              <label className="relative grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-slate-600 hover:bg-slate-100" title="Highlight color"><Highlighter size={15} /><input type="color" value={inlineFormatting[activeInlineField]?.highlightColor || "#fef3c7"} onChange={(event) => updateActiveInlineFormat({ highlightColor: event.target.value })} className="absolute inset-0 cursor-pointer opacity-0" /></label>
+              <span className="mx-1 h-5 w-px shrink-0 bg-slate-700" />
+              <button type="button" aria-label="Bold" aria-pressed={Boolean(inlineFormatting[activeInlineField]?.bold)} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ bold: !inlineFormatting[activeInlineField]?.bold })} className={`rounded p-1 transition hover:bg-slate-800 ${inlineFormatting[activeInlineField]?.bold ? "bg-slate-700 text-white" : "text-slate-300"}`}><Bold size={16} /></button>
+              <button type="button" aria-label="Italic" aria-pressed={Boolean(inlineFormatting[activeInlineField]?.italic)} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ italic: !inlineFormatting[activeInlineField]?.italic })} className={`rounded p-1 transition hover:bg-slate-800 ${inlineFormatting[activeInlineField]?.italic ? "bg-slate-700 text-white" : "text-slate-300"}`}><Italic size={16} /></button>
+              <button type="button" aria-label="Underline" aria-pressed={Boolean(inlineFormatting[activeInlineField]?.underline)} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ underline: !inlineFormatting[activeInlineField]?.underline })} className={`rounded p-1 transition hover:bg-slate-800 ${inlineFormatting[activeInlineField]?.underline ? "bg-slate-700 text-white" : "text-slate-300"}`}><Underline size={16} /></button>
+              <span className="mx-1 h-5 w-px shrink-0 bg-slate-700" />
+              <button type="button" aria-label="Decrease text size" onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ fontScale: Math.max(0.75, (inlineFormatting[activeInlineField]?.fontScale || 1) - 0.1) })} className="rounded p-1 text-slate-300 transition hover:bg-slate-800"><Minus size={16} /></button>
+              <Type size={16} className="shrink-0 text-slate-300" aria-hidden />
+              <button type="button" aria-label="Increase text size" onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ fontScale: Math.min(1.5, (inlineFormatting[activeInlineField]?.fontScale || 1) + 0.1) })} className="rounded p-1 text-slate-300 transition hover:bg-slate-800"><Plus size={16} /></button>
+              <span className="mx-1 h-5 w-px shrink-0 bg-slate-700" />
+              <button type="button" aria-label="Toggle bullet list" aria-pressed={Boolean(inlineFormatting[activeInlineField]?.bullet)} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ bullet: !inlineFormatting[activeInlineField]?.bullet })} className={`rounded p-1 transition hover:bg-slate-800 ${inlineFormatting[activeInlineField]?.bullet ? "bg-slate-700 text-white" : "text-slate-300"}`}><List size={16} /></button>
+              <button type="button" aria-label="Delete text" onMouseDown={(event) => event.preventDefault()} onClick={deleteActiveInlineText} className="rounded p-1 text-slate-300 transition hover:bg-rose-600 hover:text-white"><Trash2 size={16} /></button>
             </div>
           ) : null}
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}

@@ -759,6 +759,10 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
       ...(data?.skills || []),
       ...(data?.toolsAndSoftware || []),
     ].slice(0, 60),
+    credentials: [
+      ...(data?.certifications || []).map((entry) => entry.name),
+      ...(data?.education || []).flatMap((entry) => [entry.degree, entry.details || ""]),
+    ].filter(Boolean),
     yearsExperience: estimateCareerYears(data?.experiences),
     adzunaAppId: env.ADZUNA_APP_ID,
     adzunaAppKey: env.ADZUNA_APP_KEY,
@@ -775,6 +779,10 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
     experienceRoles: data?.experiences.map((entry) => entry.role).filter(Boolean) || [],
     skills: data?.skills || [],
     systems: data?.toolsAndSoftware || [],
+    credentials: [
+      ...(data?.certifications || []).map((entry) => entry.name),
+      ...(data?.education || []).flatMap((entry) => [entry.degree, entry.details || ""]),
+    ].filter(Boolean),
     yearsExperience: estimateCareerYears(data?.experiences),
     location: location || data?.personal.location || "South Africa",
   };
@@ -855,6 +863,7 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
       experienceRoles?: string[];
       skills?: string[];
       systems?: string[];
+      credentials?: string[];
       yearsExperience?: number;
       location?: string;
     };
@@ -870,6 +879,7 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
     includeAllBoards: false,
     experienceRoles: profile.experienceRoles || [],
     expertise,
+    credentials: profile.credentials || [],
     yearsExperience: profile.yearsExperience,
     adzunaAppId: env.ADZUNA_APP_ID,
     adzunaAppKey: env.ADZUNA_APP_KEY,
@@ -891,6 +901,7 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
     experienceRoles: (profile.experienceRoles || []).slice(0, 12),
     skills: (profile.skills || []).slice(0, 30),
     systems: (profile.systems || []).slice(0, 20),
+    credentials: (profile.credentials || []).slice(0, 20),
     yearsExperience: profile.yearsExperience,
   };
   const scoredJobs = await scoreJobListingsWithGemini({
@@ -900,7 +911,8 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
     jobs: results.jobs,
     searchPreferences: { industry: industryPreference, postedRange: postedRangePreference },
   });
-  const calibratedJobs = calibrateJobListingScores(candidate, scoredJobs || results.jobs);
+  const calibratedJobs = calibrateJobListingScores(candidate, scoredJobs || results.jobs)
+    .filter((job) => job.match >= 60);
   return json({
     ...results,
     jobs: calibratedJobs,

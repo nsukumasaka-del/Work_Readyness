@@ -651,7 +651,7 @@ export function candidateMatch(
     if (new RegExp(`\\b${language}\\b`, "i").test(titleText)
       && !listedLanguages.includes(language)) return noFit();
   }
-  const candidateEvidence = [...expertise, ...credentials].join(" ");
+  const candidateEvidence = [...experienceRoles, ...expertise, ...credentials].join(" ");
   const regulatedRoleGuards = [
     {
       job: /\b(?:professional|registered|enrolled)?\s*nurse\b|\bnursing specialist\b|\bnurse practitioner\b|\bmidwi(?:fe|ves)\b/i,
@@ -675,6 +675,14 @@ export function candidateMatch(
   ];
   const jobRequirementText = `${job.title} ${job.description}`;
   if (requiredCredentialGroups.some(({ required, candidate }) => required.test(jobRequirementText) && !candidate.test(candidateEvidence))) return noFit();
+  const hasIntroductoryNLevel = /\bN[23]\b/i.test(credentials.join(" "));
+  const hasEngineeringDegreeOrRegistration = /\bBEng\b|\b(?:BSc|BTech)\b[^.]{0,60}\b(?:engineering|mechanical|electrical|civil|chemical|industrial)\b|bachelor(?:'s)?(?: degree)?[^.]{0,60}\bengineering\b|\b(?:Pr\.?\s*Eng\.?|ECSA)\b/i.test(credentials.join(" "));
+  const professionalEngineeringTitle = /\b(?:principal|lead|senior|project|professional|design)?\s*(?:mechanical|electrical|civil|chemical|industrial)\s+engineer\b/i.test(job.title);
+  const explicitlyRequiresEngineeringDegree = /\b(?:BEng|BSc|BTech|bachelor(?:'s)?(?: degree)?)[^.]{0,70}\b(?:engineering|engineer)\b|\b(?:Pr\.?\s*Eng\.?|ECSA)\b/i.test(jobRequirementText);
+  // N2/N3 are valuable vocational credentials, but they are not substitutes for
+  // a university engineering degree or professional registration.
+  if (professionalEngineeringTitle && hasIntroductoryNLevel && !hasEngineeringDegreeOrRegistration) return noFit();
+  if (explicitlyRequiresEngineeringDegree && !hasEngineeringDegreeOrRegistration) return noFit();
   const wantedLocation = location?.toLowerCase().trim();
   if (wantedLocation && !["south africa", "all south africa", "hybrid"].includes(wantedLocation)) {
     const listedLocation = job.location.toLowerCase();
@@ -708,13 +716,22 @@ export function candidateMatch(
     ? (experienceRoles.length ? 52 : 35)
     : yearsExperience <= 1 ? 38 : yearsExperience <= 3 ? 58 : yearsExperience <= 7 ? 76 : 90;
   let seniority = candidateLeadership ? Math.max(candidateBaseSeniority, 88) : candidateBaseSeniority;
-  const listingSenior = /\b(head|director|executive|chief|senior manager|team manager|senior lead)\b/i.test(seniorTerms);
+  const listingSenior = /\b(principal|lead|senior|manager|director|chief|executive)\b|\bhead of\b/i.test(job.title);
   const listingJunior = /\b(entry[- ]level|graduate|junior|trainee|intern(ship)?)\b/i.test(seniorTerms);
-  if (listingSenior) seniority = candidateLeadership || (yearsExperience ?? 0) >= 7 ? Math.max(seniority, 88) : Math.min(seniority, 30);
+  if (listingSenior) {
+    const minimumSeniorYears = /\b(?:principal|director|chief|executive)\b|\bhead of\b/i.test(job.title)
+      ? 8
+      : /\b(?:lead|manager)\b/i.test(job.title) ? 5 : 4;
+    const hasSeniorDomainExperience = historyDomainFit >= 0.35
+      && ((yearsExperience ?? 0) >= minimumSeniorYears || candidateLeadership);
+    if (!hasSeniorDomainExperience) return noFit();
+    seniority = Math.max(seniority, 88);
+  }
   else if (listingJunior) seniority = candidateLeadership || (yearsExperience ?? 0) >= 7 ? 35 : Math.max(seniority, 78);
   const requiredYears = seniorTerms.match(/\b(\d+)\s*(?:\+|to|-)?\s*(?:years?|yrs?)\b/i);
   if (requiredYears && yearsExperience !== undefined) {
     const minimum = Number(requiredYears[1]);
+    if (listingSenior && yearsExperience < minimum) return noFit();
     if (minimum > yearsExperience + 3) seniority = Math.min(seniority, 35);
     else if (yearsExperience < minimum) seniority = Math.min(seniority, 55);
     else seniority = Math.max(seniority, 88);
@@ -954,7 +971,9 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
     for (const job of jobs) {
       const fit = candidateMatch(job, role, input.experienceRoles ?? [], expertise, location, input.languages, input.yearsExperience, input.credentials ?? []);
       const match = fit.score;
-      if (match < 40) continue;
+      // Best-fit recommendations must satisfy at least 60% of the evidence-based
+      // role, skill, seniority, credential, and location criteria.
+      if (match < 60) continue;
       const key = job.company !== "Hiring company"
         ? `${job.title.toLowerCase()}|${job.company.toLowerCase()}|${job.location.toLowerCase()}`
         : job.url.toLowerCase();

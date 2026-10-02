@@ -39,6 +39,9 @@ test("fills six location-matched listings from recognized boards after priority 
   try {
     const result = await searchTrustedJobBoards({
       role: "Software Engineer", location: "Cape Town", limit: 6,
+      experienceRoles: ["Software Engineer"],
+      expertise: ["software engineering"],
+      yearsExperience: 4,
       adzunaAppId: "test", adzunaAppKey: "test",
     });
     assert.equal(result.jobs.length, 6);
@@ -93,4 +96,38 @@ test("calculates different role and seniority subscores from each listing", () =
 
   assert.notEqual(seniorListing.breakdown.seniority, juniorListing.breakdown.seniority);
   assert.notEqual(seniorListing.breakdown.titleDomain, juniorListing.breakdown.titleDomain);
+});
+
+test("rejects professional engineering roles for N2/N3-only candidates", () => {
+  const credentials = ["N2 Mechanical Engineering", "N3 Engineering Studies"];
+  const principal = candidateMatch(
+    listing("Principal Mechanical Engineer", "BEng Mechanical Engineering and Pr.Eng registration required; lead engineering projects."),
+    "Mechanical Apprentice", ["Mechanical Maintenance Assistant"], ["mechanical maintenance", "hand tools"], "Gauteng", [], 3, credentials,
+  );
+  const projectEngineer = candidateMatch(
+    listing("Project Mechanical Engineer", "University engineering degree and five years of project delivery experience required."),
+    "Mechanical Apprentice", ["Mechanical Maintenance Assistant"], ["mechanical maintenance", "hand tools"], "Gauteng", [], 3, credentials,
+  );
+
+  assert.equal(principal.score, 0);
+  assert.equal(projectEngineer.score, 0);
+});
+
+test("keeps entry-level trade roles eligible for an aligned N2/N3 candidate", () => {
+  const match = candidateMatch(
+    listing("Mechanical Apprentice", "Entry-level mechanical maintenance, workshop safety, and hand-tool duties."),
+    "Mechanical Apprentice", ["Maintenance Assistant"], ["mechanical maintenance", "workshop safety", "hand tools"], "Gauteng", [], 2,
+    ["N2 Mechanical Engineering", "N3 Engineering Studies"],
+  );
+
+  assert(match.score >= 60);
+});
+
+test("rejects senior titles without sufficient experience in that job domain", () => {
+  const match = candidateMatch(
+    listing("Senior DevOps Engineer", "Lead cloud infrastructure and Kubernetes platform engineering."),
+    "DevOps Engineer", ["Customer Service Manager"], ["customer service", "team scheduling"], "Gauteng", [], 10,
+  );
+
+  assert.equal(match.score, 0);
 });

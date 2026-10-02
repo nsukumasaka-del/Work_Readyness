@@ -243,6 +243,20 @@ describe("strict ATS role alignment", () => {
     assert.ok(job.match < 40);
   });
 
+  it("caps principal engineering matches for N2/N3-only candidates", () => {
+    const [job] = calibrateJobListingScores(
+      {
+        targetRole: "Mechanical Apprentice",
+        experienceRoles: ["Mechanical Maintenance Assistant"],
+        skills: ["Mechanical maintenance", "Workshop safety"],
+        credentials: ["N2 Mechanical Engineering", "N3 Engineering Studies", "BSc Business Administration"],
+        yearsExperience: 3,
+      },
+      [{ id: 2, title: "Principal Mechanical Engineer", company: "Employer", location: "Gauteng", sector: "Engineering", salary: "Not stated", match: 95, posted: "Today", tags: [], description: "BEng Mechanical Engineering and Pr.Eng registration required.", source: "Test", url: "https://example.com/principal-engineer" }],
+    );
+    assert.ok(job.match <= 10);
+  });
+
   it("caps an unqualified psychologist target at the regulated-role threshold", () => {
     const report = evaluateAts(logisticsCv, "Psychologist");
     assert.ok(report.overallScore <= 20);

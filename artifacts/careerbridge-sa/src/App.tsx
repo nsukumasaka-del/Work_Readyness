@@ -892,7 +892,7 @@ function AppShell({ children }: { children: ReactNode }) {
                 type="button"
                 onClick={() => setActiveDropdown(activeDropdown === 'resume' ? null : 'resume')}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  activeDropdown === 'resume' || location === '/cv-builder' || location === '/diagnostic'
+                  activeDropdown === 'resume' || location === '/cv-builder' || location === '/diagnostic' || location === '/jobs'
                     ? 'bg-muted text-foreground'
                     : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
                 }`}
@@ -900,6 +900,7 @@ function AppShell({ children }: { children: ReactNode }) {
                 aria-haspopup="true"
               >
                 <span>Resume</span>
+                <JobMatchBadge count={unreadMatchesCount} />
                 <ChevronDown
                   size={14}
                   className={`transition-transform duration-200 ${
@@ -957,6 +958,24 @@ function AppShell({ children }: { children: ReactNode }) {
                             <div className="text-xs text-muted-foreground">
                               Is your resume good enough?
                             </div>
+                          </div>
+                        </Link>
+
+                        <Link
+                          href="/jobs"
+                          onClick={() => setActiveDropdown(null)}
+                          className="group flex items-center gap-3.5 rounded-xl p-2.5 transition-colors hover:bg-muted/70"
+                          data-testid="link-nav-resume-job-matches"
+                        >
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-500/10 text-blue-600 transition-colors group-hover:bg-blue-600 group-hover:text-white dark:text-blue-400">
+                            <BriefcaseBusiness size={18} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="inline-flex items-center gap-2 text-sm font-semibold text-foreground transition-colors group-hover:text-primary">
+                              <span>Job Matches</span>
+                              <JobMatchBadge count={unreadMatchesCount} />
+                            </div>
+                            <div className="text-xs text-muted-foreground">Roles matched to your reviewed CV</div>
                           </div>
                         </Link>
 
@@ -1065,7 +1084,7 @@ function AppShell({ children }: { children: ReactNode }) {
                 type="button"
                 onClick={() => setActiveDropdown(activeDropdown === 'tools' ? null : 'tools')}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  activeDropdown === 'tools' || location === '/interview' || location === '/jobs' || location === '/coaching' || location === '/programme'
+                  activeDropdown === 'tools' || location === '/interview' || location === '/coaching' || location === '/programme'
                     ? 'bg-muted text-foreground'
                     : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
                 }`}
@@ -1073,7 +1092,6 @@ function AppShell({ children }: { children: ReactNode }) {
                 aria-haspopup="true"
               >
                 <span>Tools</span>
-                <JobMatchBadge count={unreadMatchesCount} />
                 <ChevronDown
                   size={14}
                   className={`transition-transform duration-200 ${
@@ -1111,26 +1129,6 @@ function AppShell({ children }: { children: ReactNode }) {
                             </div>
                             <div className="text-xs text-muted-foreground">
                               Practice with AI mock interviews
-                            </div>
-                          </div>
-                        </Link>
-
-                        <Link
-                          href="/jobs"
-                          onClick={() => setActiveDropdown(null)}
-                          className="group flex items-center gap-3.5 rounded-xl p-2.5 transition-colors hover:bg-muted/70"
-                          data-testid="link-nav-job-matches"
-                        >
-                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 transition-colors group-hover:bg-blue-600 group-hover:text-white">
-                            <BriefcaseBusiness size={18} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="inline-flex items-center gap-2 text-sm font-semibold text-foreground transition-colors group-hover:text-primary">
-                              <span>Job Matches</span>
-                              <JobMatchBadge count={unreadMatchesCount} />
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              Find roles that match you
                             </div>
                           </div>
                         </Link>
@@ -1270,6 +1268,7 @@ function AppShell({ children }: { children: ReactNode }) {
               aria-expanded={activeMobileDropdown === 'resume'}
             >
               Resume
+              <JobMatchBadge count={unreadMatchesCount} />
               <ChevronDown size={13} className={`transition-transform ${activeMobileDropdown === 'resume' ? 'rotate-180' : ''}`} />
             </button>
             <button
@@ -1284,7 +1283,6 @@ function AppShell({ children }: { children: ReactNode }) {
               aria-expanded={activeMobileDropdown === 'tools'}
             >
               Tools
-              <JobMatchBadge count={unreadMatchesCount} />
               <ChevronDown size={13} className={`transition-transform ${activeMobileDropdown === 'tools' ? 'rotate-180' : ''}`} />
             </button>
               <Link href="/pricing" className="hidden rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 p-[1px] shadow-sm shadow-indigo-500/20 sm:inline-flex" data-testid="link-header-upgrade">
@@ -1353,7 +1351,6 @@ function AppShell({ children }: { children: ReactNode }) {
               </div>
               <nav className="grid gap-1" aria-label="General navigation">
                 <Link href="/my-resumes" className="rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted">My Resumes</Link>
-                <Link href="/jobs" className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted"><span>Job Matches</span><JobMatchBadge count={unreadMatchesCount} verbose /></Link>
                 <Link href="/career-advice" className="rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted">Career Advice</Link>
                 <Link href="/jobs/explore" className="rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted">Job Guides</Link>
                 <Link href="/pricing" className="rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted">Pricing</Link>
@@ -1399,6 +1396,7 @@ function AppShell({ children }: { children: ReactNode }) {
                     <div className="grid gap-1">
                       <Link role="menuitem" href="/cv-builder?intake=1" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">AI Resume Builder</Link>
                       <Link role="menuitem" href="/diagnostic" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Resume Checker</Link>
+                      <Link role="menuitem" href="/jobs" className="flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted"><span>Job Matches</span><JobMatchBadge count={unreadMatchesCount} verbose /></Link>
                       <Link role="menuitem" href="/cv-builder/templates" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Resume Templates</Link>
                       <Link role="menuitem" href="/cv-builder?intake=1" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Resume Examples</Link>
                     </div>
@@ -1420,7 +1418,6 @@ function AppShell({ children }: { children: ReactNode }) {
                     <Link role="menuitem" href="/diagnostic" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">CV Diagnostic</Link>
                     <Link role="menuitem" href="/diagnostic" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">ATS Optimizer</Link>
                     <Link role="menuitem" href="/cv-builder?intake=1" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Cover Letter Generator</Link>
-                    <Link role="menuitem" href="/jobs" className="flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted"><span>Job Matcher</span><JobMatchBadge count={unreadMatchesCount} verbose /></Link>
                     <Link role="menuitem" href="/interview" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Interview Prep</Link>
                     <Link role="menuitem" href="/coaching" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Career Coaching</Link>
                   </div>
@@ -2394,6 +2391,7 @@ function DiagnosticPage() {
   const [location, setLocation] = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [activeWorkstationTab, setActiveWorkstationTab] = useState<'review' | 'jobs' | 'advice'>('review');
+  const unreadMatchesCount = useUnreadJobMatches();
 
   useEffect(() => {
     if (!hasProfile()) {
@@ -2489,13 +2487,18 @@ function DiagnosticPage() {
               key={label}
               type="button"
               onClick={() => {
-                setActiveWorkstationTab(label === 'Job Matches' ? 'jobs' : 'advice');
+                if (label === 'Job Matches') {
+                  markJobMatchesRead();
+                  setActiveWorkstationTab('jobs');
+                } else {
+                  setActiveWorkstationTab('advice');
+                }
                 setMobileSidebarOpen(false);
               }}
               aria-current={active ? 'page' : undefined}
               className={className}
             >
-              <Icon size={17} /><span>{label}</span>
+              <Icon size={17} /><span className="flex-1">{label}</span>{label === 'Job Matches' ? <JobMatchBadge count={unreadMatchesCount} /> : null}
             </button>
           ) : (
             <Link

@@ -200,10 +200,37 @@ const LISTING_ROLE_DOMAINS = [
   /\b(?:sales|marketing|business development|account executive|digital marketing|seo|campaign)\b/i,
 ];
 
-function strictListingScoreCeiling(candidate: { targetRole?: string; summary?: string; experienceRoles?: string[]; skills?: string[]; systems?: string[] }, job: LiveJobListing): number {
+type JobScoringCandidate = {
+  targetRole?: string;
+  summary?: string;
+  experienceRoles?: string[];
+  skills?: string[];
+  systems?: string[];
+  credentials?: string[];
+  yearsExperience?: number;
+};
+
+function strictListingScoreCeiling(candidate: JobScoringCandidate, job: LiveJobListing): number {
   // A desired targetRole is an aspiration, not evidence of experience. Never
   // use it to lift or uncap a match score.
-  const candidateEvidence = [candidate.summary, ...(candidate.experienceRoles || []), ...(candidate.skills || []), ...(candidate.systems || [])].filter(Boolean).join(" ");
+  const credentialEvidence = (candidate.credentials || []).join(" ");
+  const candidateEvidence = [candidate.summary, ...(candidate.experienceRoles || []), ...(candidate.skills || []), ...(candidate.systems || []), credentialEvidence].filter(Boolean).join(" ");
+  const jobEvidence = `${job.title} ${job.description}`;
+  const hasIntroductoryNLevel = /\bN[23]\b/i.test(credentialEvidence);
+  const hasEngineeringDegreeOrRegistration = /\bBEng\b|\b(?:BSc|BTech)\b[^.]{0,60}\b(?:engineering|mechanical|electrical|civil|chemical|industrial)\b|bachelor(?:'s)?(?: degree)?[^.]{0,60}\bengineering\b|\b(?:Pr\.?\s*Eng\.?|ECSA)\b/i.test(credentialEvidence);
+  const professionalEngineeringTitle = /\b(?:principal|lead|senior|project|professional|design)?\s*(?:mechanical|electrical|civil|chemical|industrial)\s+engineer\b/i.test(job.title);
+  const requiresEngineeringDegree = /\b(?:BEng|BSc|BTech|bachelor(?:'s)?(?: degree)?)[^.]{0,70}\b(?:engineering|engineer)\b|\b(?:Pr\.?\s*Eng\.?|ECSA)\b/i.test(jobEvidence);
+  if (professionalEngineeringTitle && hasIntroductoryNLevel && !hasEngineeringDegreeOrRegistration) return 10;
+  if (requiresEngineeringDegree && !hasEngineeringDegreeOrRegistration) return 15;
+
+  const listingSenior = /\b(principal|lead|senior|manager|director|chief|executive)\b|\bhead of\b/i.test(job.title);
+  if (listingSenior) {
+    const minimumYears = /\b(?:principal|director|chief|executive)\b|\bhead of\b/i.test(job.title) ? 8 : /\b(?:lead|manager)\b/i.test(job.title) ? 5 : 4;
+    const experienceText = (candidate.experienceRoles || []).join(" ");
+    const jobDomain = LISTING_ROLE_DOMAINS.find((pattern) => pattern.test(job.title));
+    const hasDomainExperience = Boolean(jobDomain?.test(experienceText));
+    if (!hasDomainExperience || (candidate.yearsExperience ?? 0) < minimumYears) return 14;
+  }
   const targetDomain = LISTING_ROLE_DOMAINS.find((pattern) => pattern.test(job.title));
   if (targetDomain && !targetDomain.test(candidateEvidence)) return 35;
   const importantTitleTokens = job.title.toLowerCase().match(/[a-z][a-z0-9+#.-]{2,}/g)?.filter((token) => !/^(?:the|and|for|with|senior|junior|manager|assistant)$/.test(token)) || [];
@@ -214,7 +241,7 @@ function strictListingScoreCeiling(candidate: { targetRole?: string; summary?: s
 }
 
 export function calibrateJobListingScores(
-  candidate: { targetRole?: string; summary?: string; experienceRoles?: string[]; skills?: string[]; systems?: string[] },
+  candidate: JobScoringCandidate,
   jobs: LiveJobListing[],
 ): LiveJobListing[] {
   return jobs.map((job) => ({ ...job, match: Math.min(job.match, strictListingScoreCeiling(candidate, job)) }));
@@ -224,14 +251,7 @@ export function calibrateJobListingScores(
 export async function scoreJobListingsWithGemini(input: {
   apiKey?: string;
   model?: string;
-  candidateProfile: {
-    targetRole?: string;
-    summary?: string;
-    experienceRoles?: string[];
-    skills?: string[];
-    systems?: string[];
-    yearsExperience?: number;
-  };
+  candidateProfile: JobScoringCandidate;
   jobs: LiveJobListing[];
   searchPreferences?: { industry?: string; postedRange?: string };
 }): Promise<LiveJobListing[] | null> {
@@ -249,6 +269,12 @@ SCORING:
 1. Hard industry and role alignment: 40%. Direct professional evidence in the exact field is required. If a technical, engineering, solar, medical, finance, software, or similarly specialised role requires domain expertise absent from the CV, cap ATS fit and overall score at 35.
 2. Experience and title relevance: 35%. Exact title/function match may score 90-100; closely related work 65-80; unrelated work below 40.
 3. Hard skills, tools, certifications, and domain workflows: 25%. Count only explicit CV evidence.
+
+CRITICAL QUALIFICATION AND SENIORITY GATES:
+- N2/N3 Technical Certificates are introductory TVET vocational qualifications suitable for aligned entry-level trade or artisan roles such as Mechanical Apprentice, Junior Fitter/Turner, Maintenance Assistant, or Mechanical Handyman.
+- Never treat N2/N3 as a BSc/BEng degree or Pr.Eng/ECSA registration. An N2/N3-only candidate must not match Principal, Lead, Senior, Project, Professional, or management-level engineering roles that require a university degree, professional registration, or engineering-management experience. Score these 10-20 maximum and set isMatch false.
+- For Principal, Lead, Senior, Manager, Director, Head of, or Chief roles, verify sufficient years in that exact domain from documented job history. If senior domain experience is absent, score below 15 and set isMatch false.
+- A listing is a Best-fit recommendation only when the candidate satisfies at least 60% of core domain, qualification, and seniority requirements.
 
 Do not award compensating points for communication, teamwork, administration, formatting, location, or generic transferable skills when core professional requirements are absent. Search preferences affect ordering only, never competency fit. Never invent qualifications or requirements. A customer-service or logistics CV assessed against a Technical Manager - Solar/Engineering role must score below 40.
 

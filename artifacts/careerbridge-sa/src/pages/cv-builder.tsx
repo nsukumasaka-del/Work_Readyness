@@ -2285,12 +2285,38 @@ export default function CvBuilderPage() {
   const autoSaveInitializedRef = useRef(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [messageDismissing, setMessageDismissing] = useState(false);
+  const messageFadeTimerRef = useRef<number | null>(null);
+  const messageClearTimerRef = useRef<number | null>(null);
+  const hasHandledIncompleteCvRef = useRef(false);
+  const lastBuilderInitializationRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!message) return;
-    const timeout = window.setTimeout(() => setMessage(""), 3500);
-    return () => window.clearTimeout(timeout);
+    if (messageFadeTimerRef.current) window.clearTimeout(messageFadeTimerRef.current);
+    if (messageClearTimerRef.current) window.clearTimeout(messageClearTimerRef.current);
+    messageFadeTimerRef.current = null;
+    messageClearTimerRef.current = null;
+    if (!message) {
+      setMessageDismissing(false);
+      return;
+    }
+    setMessageDismissing(false);
+    messageFadeTimerRef.current = window.setTimeout(() => setMessageDismissing(true), 3200);
+    messageClearTimerRef.current = window.setTimeout(() => setMessage(""), 3500);
+    return () => {
+      if (messageFadeTimerRef.current) window.clearTimeout(messageFadeTimerRef.current);
+      if (messageClearTimerRef.current) window.clearTimeout(messageClearTimerRef.current);
+      messageFadeTimerRef.current = null;
+      messageClearTimerRef.current = null;
+    };
   }, [message]);
+
+  const dismissMessage = () => {
+    if (messageFadeTimerRef.current) window.clearTimeout(messageFadeTimerRef.current);
+    if (messageClearTimerRef.current) window.clearTimeout(messageClearTimerRef.current);
+    setMessageDismissing(true);
+    messageClearTimerRef.current = window.setTimeout(() => setMessage(""), 300);
+  };
 
   // Styling & Customization (Enhancv Clone Architecture with Custom Brand Colors)
   const [selectedTemplate, setSelectedTemplate] = useState<string>("serif_classic");
@@ -3580,6 +3606,9 @@ export default function CvBuilderPage() {
 
   // Load existing CV or fallback profile, and check for intake request
   useEffect(() => {
+    const initializationKey = `${profile?.id || "guest"}:${location}`;
+    if (lastBuilderInitializationRef.current === initializationKey) return;
+    lastBuilderInitializationRef.current = initializationKey;
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
 
     const diag = readReport();
@@ -3690,7 +3719,11 @@ export default function CvBuilderPage() {
       setActiveNavPanel(panelParam);
     }
 
-    const existing = readGeneratedCv() || currentCvRef.current;
+    // The initial in-memory value is an intentionally blank draft. Only run
+    // corruption checks against a persisted/generated document; otherwise a
+    // brand-new builder session is falsely reported as an incomplete old CV.
+    const persistedCv = readGeneratedCv();
+    const existing = persistedCv || (hasGeneratedRef.current ? currentCvRef.current : null);
     if (existing?.document && Object.keys(existing).length > 0) {
       const condensed = {
         ...existing,
@@ -3705,12 +3738,14 @@ export default function CvBuilderPage() {
         /obj|endobj/i.test(existing.document.summary || "") ||
         /[\uFFFD]/.test(existing.document.fullName || "");
       if (looksBroken) {
-        clearGeneratedCv();
-        setCv(createBlankCvDraft(selectedTemplate));
-        setMessage("Your previous CV was incomplete. Please re-upload your PDF/DOCX so we can rebuild all sections.");
-        setTimeout(() => setMessage(""), 3500);
-        setIsIntakeModalOpen(false);
-        setActiveNavPanel("sections");
+        if (!hasHandledIncompleteCvRef.current) {
+          hasHandledIncompleteCvRef.current = true;
+          clearGeneratedCv();
+          setCv(createBlankCvDraft(selectedTemplate));
+          setMessage("Your previous CV was incomplete. Please re-upload your PDF/DOCX so we can rebuild all sections.");
+          setIsIntakeModalOpen(false);
+          setActiveNavPanel("sections");
+        }
         return;
       }
       setCv(condensed);
@@ -3783,7 +3818,7 @@ export default function CvBuilderPage() {
 
     setIsIntakeModalOpen(false);
     setActiveNavPanel("sections");
-  }, [profile?.id, setLocation]);
+  }, [profile?.id, location]);
 
   // Close download menu when clicking outside
   useEffect(() => {
@@ -5937,8 +5972,12 @@ export default function CvBuilderPage() {
     <div className="cv-builder relative flex h-[calc(100dvh-3.5rem-var(--safe-top))] min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 font-sans text-slate-800 dark:bg-slate-950 dark:text-slate-100">
       {/* Notifications / Toast */}
       {message ? (
-        <div key={message} className="cv-toast-auto-dismiss no-print pointer-events-none absolute left-4 right-4 top-2 z-50 mx-auto max-w-sm rounded-lg border border-emerald-500/20 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-800 shadow-md min-[768px]:left-auto min-[768px]:mx-0">
-          ✓ {message}
+        <div role="status" aria-live="polite" className={`cv-toast-auto-dismiss no-print absolute left-4 right-4 top-2 z-50 mx-auto flex max-w-sm items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-800 shadow-md transition-opacity duration-300 min-[768px]:left-auto min-[768px]:mx-0 ${messageDismissing ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"}`}>
+          <span aria-hidden>✓</span>
+          <span className="min-w-0 flex-1">{message}</span>
+          <button type="button" onClick={dismissMessage} className="-mr-1 grid h-6 w-6 shrink-0 place-items-center rounded text-emerald-700 transition hover:bg-emerald-100 hover:text-emerald-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600" aria-label="Dismiss notification">
+            <X size={14} aria-hidden />
+          </button>
         </div>
       ) : null}
       {error ? (

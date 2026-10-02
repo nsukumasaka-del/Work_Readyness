@@ -68,6 +68,12 @@ import {
   type MonetizationStatus,
 } from '@/lib/monetization';
 import { buildParseUploadBody, readFileAsDataUrl } from '@/lib/cv-parse-upload';
+import {
+  announceJobMatches,
+  JOB_MATCHES_FOUND_EVENT,
+  markJobMatchesRead,
+  useUnreadJobMatches,
+} from '@/lib/job-match-notifications';
 import { JobListingCard, JobListingDetails } from '@/components/jobs/JobListingCard';
 import { directApplicationUrl, toJobListing, type JobDetailsPayload, type JobListingSource } from '@/types/job';
 
@@ -688,6 +694,8 @@ function CareerGuideModal({
 
 function AppShell({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
+  const unreadMatchesCount = useUnreadJobMatches();
+  const [matchAlertCount, setMatchAlertCount] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeMobileDropdown, setActiveMobileDropdown] = useState<'resume' | 'tools' | null>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
@@ -762,6 +770,22 @@ function AppShell({ children }: { children: ReactNode }) {
   }, [location]);
 
   useEffect(() => {
+    const showMatchAlert = (event: Event) => {
+      const count = Number((event as CustomEvent<{ count?: number }>).detail?.count || 0);
+      setMatchAlertCount(Math.max(0, count));
+    };
+    window.addEventListener(JOB_MATCHES_FOUND_EVENT, showMatchAlert);
+    return () => window.removeEventListener(JOB_MATCHES_FOUND_EVENT, showMatchAlert);
+  }, []);
+
+  useEffect(() => {
+    if (location === '/jobs' || location.startsWith('/jobs/')) {
+      markJobMatchesRead();
+      setMatchAlertCount(0);
+    }
+  }, [location]);
+
+  useEffect(() => {
     return () => {
       if (closeTimeoutRef.current) window.clearTimeout(closeTimeoutRef.current);
     };
@@ -806,6 +830,7 @@ function AppShell({ children }: { children: ReactNode }) {
       // Ignore server-side failures and continue with a local logout.
     } finally {
       clearAuthSession();
+      markJobMatchesRead();
       if (typeof document !== 'undefined') {
         document.cookie = 'bonlist_session=; Path=/; Max-Age=0; SameSite=Lax';
       }
@@ -1041,6 +1066,7 @@ function AppShell({ children }: { children: ReactNode }) {
                 aria-haspopup="true"
               >
                 <span>Tools</span>
+                <JobMatchBadge count={unreadMatchesCount} />
                 <ChevronDown
                   size={14}
                   className={`transition-transform duration-200 ${
@@ -1092,8 +1118,9 @@ function AppShell({ children }: { children: ReactNode }) {
                             <BriefcaseBusiness size={18} />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
-                              Job Matches
+                            <div className="inline-flex items-center gap-2 text-sm font-semibold text-foreground transition-colors group-hover:text-primary">
+                              <span>Job Matches</span>
+                              <JobMatchBadge count={unreadMatchesCount} />
                             </div>
                             <div className="text-xs text-muted-foreground">
                               Find roles that match you
@@ -1238,6 +1265,7 @@ function AppShell({ children }: { children: ReactNode }) {
               aria-expanded={activeMobileDropdown === 'tools'}
             >
               Tools
+              <JobMatchBadge count={unreadMatchesCount} />
               <ChevronDown size={13} className={`transition-transform ${activeMobileDropdown === 'tools' ? 'rotate-180' : ''}`} />
             </button>
               <Link href="/pricing" className="hidden rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 p-[1px] shadow-sm shadow-indigo-500/20 sm:inline-flex" data-testid="link-header-upgrade">
@@ -1306,6 +1334,7 @@ function AppShell({ children }: { children: ReactNode }) {
               </div>
               <nav className="grid gap-1" aria-label="General navigation">
                 <Link href="/my-resumes" className="rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted">My Resumes</Link>
+                <Link href="/jobs" className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted"><span>Job Matches</span><JobMatchBadge count={unreadMatchesCount} verbose /></Link>
                 <Link href="/pricing" className="rounded-xl px-3 py-3 text-sm font-medium text-foreground hover:bg-muted">Pricing</Link>
                 {!inNativeApp && <button type="button" onClick={() => triggerAndroidApkDownload()} className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-medium text-foreground hover:bg-muted"><Smartphone size={17} />Download Android APK</button>}
               </nav>
@@ -1370,7 +1399,7 @@ function AppShell({ children }: { children: ReactNode }) {
                     <Link role="menuitem" href="/diagnostic" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">CV Diagnostic</Link>
                     <Link role="menuitem" href="/diagnostic" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">ATS Optimizer</Link>
                     <Link role="menuitem" href="/cv-builder?intake=1" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Cover Letter Generator</Link>
-                    <Link role="menuitem" href="/jobs" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Job Matcher</Link>
+                    <Link role="menuitem" href="/jobs" className="flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted"><span>Job Matcher</span><JobMatchBadge count={unreadMatchesCount} verbose /></Link>
                     <Link role="menuitem" href="/interview" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Interview Prep</Link>
                     <Link role="menuitem" href="/coaching" className="rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted">Career Coaching</Link>
                   </div>
@@ -1380,6 +1409,29 @@ function AppShell({ children }: { children: ReactNode }) {
           </>
         ), document.body)}
       </header>
+
+      {matchAlertCount > 0 && location !== '/jobs' && !location.startsWith('/jobs/') && typeof document !== 'undefined' ? createPortal(
+        <aside
+          className="fixed inset-x-4 top-[calc(4.5rem+env(safe-area-inset-top))] z-[90] mx-auto max-w-sm rounded-2xl border border-emerald-200 bg-white p-4 shadow-2xl sm:inset-x-auto sm:bottom-6 sm:right-6 sm:top-auto sm:m-0 sm:w-[24rem] dark:border-emerald-800 dark:bg-slate-950"
+          role="status"
+          aria-live="polite"
+          data-testid="job-matches-alert"
+        >
+          <button type="button" onClick={() => setMatchAlertCount(0)} className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800" aria-label="Dismiss job matches alert"><X size={16} /></button>
+          <div className="flex gap-3 pr-7">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"><BriefcaseBusiness size={20} /></span>
+            <div>
+              <p className="text-sm font-bold text-slate-950 dark:text-white">🎉 Good news!</p>
+              <p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300">We found {matchAlertCount} job {matchAlertCount === 1 ? 'match' : 'matches'} tailored to your CV.</p>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <button type="button" onClick={() => setMatchAlertCount(0)} className="min-h-10 rounded-xl px-3 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">Check later</button>
+            <button type="button" onClick={() => { markJobMatchesRead(); setMatchAlertCount(0); setLocation('/jobs'); }} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white shadow-sm hover:bg-emerald-700">View Job Matches <ArrowRight size={14} /></button>
+          </div>
+        </aside>,
+        document.body,
+      ) : null}
 
       <CareerGuideModal
         topicId={guideModalTopic}
@@ -1633,6 +1685,7 @@ function Home() {
       setLatestReport(reportForCurrentViewer(payload as DiagnosticReport));
       setReportUpdatedAt(completedAt);
       window.dispatchEvent(new Event('careerbridge-report-updated'));
+      announceJobMatches(Array.isArray((payload as DiagnosticReport).relatedJobs) ? (payload as DiagnosticReport).relatedJobs.length : 0);
       setLocation('/diagnostic');
     } catch (err) {
       setReviewError(err instanceof Error ? err.message : 'We could not review that CV. Please try again.');
@@ -2729,6 +2782,18 @@ function DiagnosticPage() {
         </button>
       </div>}
     </div>,
+  );
+}
+
+function JobMatchBadge({ count, verbose = false }: { count: number; verbose?: boolean }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow-sm ring-2 ring-background"
+      aria-label={`${count} unread job ${count === 1 ? 'match' : 'matches'}`}
+    >
+      {count > 99 ? '99+' : count}{verbose ? ` ${count === 1 ? 'match' : 'matches'}` : ''}
+    </span>
   );
 }
 

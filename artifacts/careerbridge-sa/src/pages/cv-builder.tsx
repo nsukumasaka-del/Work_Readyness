@@ -38,9 +38,13 @@ import {
   FileText,
   FileUp,
   GraduationCap,
+  GripVertical,
   HelpCircle,
+  Highlighter,
   History,
   Info,
+  IndentDecrease,
+  IndentIncrease,
   Italic,
   Layers,
   LayoutTemplate,
@@ -70,6 +74,7 @@ import {
   Trash2,
   TrendingUp,
   Type,
+  Underline,
   Undo2,
   Upload,
   User,
@@ -111,11 +116,22 @@ type InlineTextFormat = {
   alignment?: InlineTextAlignment;
   bold?: boolean;
   italic?: boolean;
+  underline?: boolean;
   bullet?: boolean;
   fontScale?: number;
+  lineHeight?: number;
+  letterSpacing?: number;
+  color?: string;
+  highlightColor?: string;
+  indent?: number;
 };
 
 type InlineFormattingMap = Record<string, InlineTextFormat>;
+type CanvasSectionKey = "summary" | "experience" | "projects" | "education" | "skills" | "certifications" | "languages" | "references" | "custom";
+
+const DEFAULT_CANVAS_SECTION_ORDER: CanvasSectionKey[] = [
+  "summary", "experience", "projects", "education", "skills", "certifications", "languages", "references", "custom",
+];
 
 const PDF_JUNK_RE =
   /\b(?:\d+\s+\d+\s+obj|endobj|endstream|stream\b|xref\b|trailer\b|startxref|\/Type\s*\/|\/Filter\s*\/|\/Length\s+\d+|<<|>>)\b/i;
@@ -625,6 +641,10 @@ export interface GeneratedCvResponse {
     lineSpacing?: "tight" | "balanced" | "relaxed";
     marginSize?: "compact" | "normal" | "wide";
     inlineFormatting?: InlineFormattingMap;
+    sectionOrder?: CanvasSectionKey[];
+    sectionSpacing?: number;
+    columnRatio?: number;
+    sectionLabels?: Record<string, string>;
   };
   document: GeneratedCvDocument;
   cv_content?: CvContentData;
@@ -2234,6 +2254,8 @@ export default function CvBuilderPage() {
   const [canvasPageWidthPx, setCanvasPageWidthPx] = useState(794);
   const [draggedCustomSection, setDraggedCustomSection] = useState<number | null>(null);
   const [draggedExperienceIndex, setDraggedExperienceIndex] = useState<number | null>(null);
+  const [draggedEducationIndex, setDraggedEducationIndex] = useState<number | null>(null);
+  const [draggedProjectIndex, setDraggedProjectIndex] = useState<number | null>(null);
   const [draggedSkillIndex, setDraggedSkillIndex] = useState<number | null>(null);
 
   const [cv, setCv] = useState<GeneratedCvResponse | null>(() => createBlankCvDraft());
@@ -2280,6 +2302,15 @@ export default function CvBuilderPage() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [inlineFormatting, setInlineFormatting] = useState<InlineFormattingMap>({});
   const [activeInlineField, setActiveInlineField] = useState<string | null>(null);
+  const activeInlineElementRef = useRef<HTMLElement | null>(null);
+  const [formatToolbarPosition, setFormatToolbarPosition] = useState({ top: 96, left: 320 });
+  const [sectionOrder, setSectionOrder] = useState<CanvasSectionKey[]>(DEFAULT_CANVAS_SECTION_ORDER);
+  const [sectionSpacing, setSectionSpacing] = useState(24);
+  const [columnRatio, setColumnRatio] = useState(62);
+  const [sectionLabels, setSectionLabels] = useState<Record<string, string>>({});
+  const [draggedCanvasSection, setDraggedCanvasSection] = useState<CanvasSectionKey | null>(null);
+  const [draggedCanvasBullet, setDraggedCanvasBullet] = useState<{ experienceIndex: number; bulletIndex: number } | null>(null);
+  const [draggedProjectBullet, setDraggedProjectBullet] = useState<{ projectIndex: number; bulletIndex: number } | null>(null);
   const [zoomLevel, setZoomLevel] = useState<number>(() =>
     typeof window !== "undefined" && window.innerWidth < 768 ? 75 : 100,
   );
@@ -3574,6 +3605,10 @@ export default function CvBuilderPage() {
           if (preferences?.lineSpacing) setLineSpacing(preferences.lineSpacing);
           if (preferences?.marginSize) setMarginSize(preferences.marginSize);
           setInlineFormatting(preferences?.inlineFormatting || {});
+          setSectionOrder(preferences?.sectionOrder || DEFAULT_CANVAS_SECTION_ORDER);
+          setSectionSpacing(preferences?.sectionSpacing ?? 24);
+          setColumnRatio(preferences?.columnRatio ?? 62);
+          setSectionLabels(preferences?.sectionLabels || {});
           hasGeneratedRef.current = true;
           if (searchParams?.get("print") === "1") {
             window.setTimeout(() => handleDirectDownload("print"), 900);
@@ -3635,6 +3670,10 @@ export default function CvBuilderPage() {
       setIsIntakeModalOpen(false);
       setSelectedTemplate(existing.structure || "professional");
       setInlineFormatting(existing.preferences?.inlineFormatting || {});
+      setSectionOrder(existing.preferences?.sectionOrder || DEFAULT_CANVAS_SECTION_ORDER);
+      setSectionSpacing(existing.preferences?.sectionSpacing ?? 24);
+      setColumnRatio(existing.preferences?.columnRatio ?? 62);
+      setSectionLabels(existing.preferences?.sectionLabels || {});
       void runQualityEvaluation(condensed.document);
       return;
     }
@@ -3673,6 +3712,10 @@ export default function CvBuilderPage() {
           if (preferences?.lineSpacing) setLineSpacing(preferences.lineSpacing);
           if (preferences?.marginSize) setMarginSize(preferences.marginSize);
           setInlineFormatting(preferences?.inlineFormatting || {});
+          setSectionOrder(preferences?.sectionOrder || DEFAULT_CANVAS_SECTION_ORDER);
+          setSectionSpacing(preferences?.sectionSpacing ?? 24);
+          setColumnRatio(preferences?.columnRatio ?? 62);
+          setSectionLabels(preferences?.sectionLabels || {});
           hasGeneratedRef.current = true;
         })
         .catch((loadError) => {
@@ -3952,6 +3995,10 @@ export default function CvBuilderPage() {
       lineSpacing,
       marginSize,
       inlineFormatting,
+      sectionOrder,
+      sectionSpacing,
+      columnRatio,
+      sectionLabels,
     },
   });
 
@@ -4036,7 +4083,13 @@ export default function CvBuilderPage() {
     if (!isEditMode) return;
     const element = event.target;
     if (!(element instanceof HTMLElement) || !element.matches("input:not([type='hidden']), textarea, [data-inline-editable='true']")) return;
+    activeInlineElementRef.current = element;
     setActiveInlineField(inlineFieldKey(element));
+    const rect = element.getBoundingClientRect();
+    setFormatToolbarPosition({
+      top: Math.max(8, rect.top - 58),
+      left: Math.min(window.innerWidth - 16, Math.max(16, rect.left + rect.width / 2)),
+    });
   };
 
   const updateActiveInlineFormat = (patch: Partial<InlineTextFormat>) => {
@@ -4050,17 +4103,58 @@ export default function CvBuilderPage() {
   useLayoutEffect(() => {
     editablePreviewFields().forEach((element, index) => {
       const format = inlineFormatting[`preview-field-${index}`] || {};
+      if (element.dataset.inlineBaseColor === undefined) element.dataset.inlineBaseColor = element.style.color;
+      if (element.dataset.inlineBaseBackground === undefined) element.dataset.inlineBaseBackground = element.style.backgroundColor;
       element.style.textAlign = format.alignment || "";
       element.style.fontWeight = format.bold ? "700" : "";
       element.style.fontStyle = format.italic ? "italic" : "";
+      element.style.textDecoration = format.underline ? "underline" : "";
       element.style.fontSize = format.fontScale && format.fontScale !== 1 ? `${format.fontScale}em` : "";
+      element.style.lineHeight = format.lineHeight ? String(format.lineHeight) : "";
+      element.style.letterSpacing = format.letterSpacing ? `${format.letterSpacing}px` : "";
+      element.style.color = format.color || element.dataset.inlineBaseColor;
+      element.style.backgroundColor = format.highlightColor || element.dataset.inlineBaseBackground;
+      element.style.paddingInlineStart = format.indent ? `${format.indent}px` : "";
       element.classList.toggle("cv-inline-bullet", Boolean(format.bullet));
     });
   }, [cv, selectedTemplate, inlineFormatting]);
 
   useEffect(() => {
-    if (!isEditMode) setActiveInlineField(null);
+    if (!isEditMode) {
+      setActiveInlineField(null);
+      activeInlineElementRef.current = null;
+    }
   }, [isEditMode]);
+
+  useEffect(() => {
+    if (!isEditMode || !activeInlineField) return;
+    const repositionToolbar = () => {
+      const element = activeInlineElementRef.current;
+      if (!element || !document.contains(element)) return;
+      const rect = element.getBoundingClientRect();
+      setFormatToolbarPosition({
+        top: Math.max(8, rect.top - 58),
+        left: Math.min(window.innerWidth - 16, Math.max(16, rect.left + rect.width / 2)),
+      });
+    };
+    window.addEventListener("resize", repositionToolbar);
+    window.addEventListener("scroll", repositionToolbar, true);
+    return () => {
+      window.removeEventListener("resize", repositionToolbar);
+      window.removeEventListener("scroll", repositionToolbar, true);
+    };
+  }, [isEditMode, activeInlineField, zoomLevel]);
+
+  const reorderCanvasSection = (target: CanvasSectionKey) => {
+    if (!draggedCanvasSection || draggedCanvasSection === target) return;
+    setSectionOrder((current) => {
+      const next = current.filter((key) => key !== draggedCanvasSection);
+      const targetIndex = next.indexOf(target);
+      next.splice(targetIndex < 0 ? next.length : targetIndex, 0, draggedCanvasSection);
+      return next;
+    });
+    setDraggedCanvasSection(null);
+  };
 
   const moveCustomSection = (from: number, to: number) => {
     if (!cv || from === to) return;
@@ -4092,7 +4186,7 @@ export default function CvBuilderPage() {
         void saveNativeCv({ ...cv, title }, true, { title, preferences: payload.preferences });
       }
     }
-  }, [cv, documentTitle, selectedTemplate, selectedColor.id, selectedFont.id, fontSize, lineSpacing, marginSize, inlineFormatting, isIntakeModalOpen]);
+  }, [cv, documentTitle, selectedTemplate, selectedColor.id, selectedFont.id, fontSize, lineSpacing, marginSize, inlineFormatting, sectionOrder, sectionSpacing, columnRatio, sectionLabels, isIntakeModalOpen]);
 
   useEffect(() => {
     if (!isAndroidApp()) return;
@@ -5723,6 +5817,29 @@ export default function CvBuilderPage() {
               <button type="button" onClick={() => openWizardStep(8)} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:from-amber-100 hover:to-orange-100 dark:border-amber-800 dark:from-amber-950/50 dark:to-orange-950/50 dark:text-amber-100" title="Open AI suggestions" aria-label="Open AI suggestions">
                 <Sparkles size={14} /><span>Suggestions</span><Crown size={12} className="text-amber-500" />
               </button>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isEditMode}
+                disabled={!cv}
+                onClick={() => {
+                  setIsEditMode((current) => !current);
+                  setMobileWorkspaceView("preview");
+                }}
+                className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${isEditMode ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
+                title={isEditMode ? "Finish direct canvas editing" : "Edit directly on the CV canvas"}
+              >
+                <Pencil size={14} /><span>Edit Mode</span>
+                <span className={`relative h-5 w-9 rounded-full transition ${isEditMode ? "bg-blue-500" : "bg-slate-300"}`} aria-hidden>
+                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${isEditMode ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+                </span>
+              </button>
+              {isEditMode ? (
+                <label className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-500" title="Adjust spacing between CV sections">
+                  Section gap
+                  <input type="range" min="8" max="48" step="2" value={sectionSpacing} onChange={(event) => setSectionSpacing(Number(event.target.value))} className="w-16" />
+                </label>
+              ) : null}
               <button type="button" disabled={!cv || saving} onClick={() => { void handleSaveCv(documentTitle.trim() || "My CV").then(() => canvasRef.current?.focus()); }} className="ml-auto inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-black px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50" title="Save your CV">
                 <Save size={14} /><span>{saving ? "Saving…" : "Save"}</span>
               </button>
@@ -6491,28 +6608,6 @@ export default function CvBuilderPage() {
               <span className="ml-2 shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-500 sm:text-xs">{a4PageCount} {a4PageCount === 1 ? "page" : "pages"}</span>
             </div>
             <div className="flex w-full shrink-0 items-center justify-end gap-1.5 sm:w-auto sm:gap-2">
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isEditMode}
-                disabled={!cv}
-                onClick={() => {
-                  setIsEditMode((current) => !current);
-                  setMobileWorkspaceView("preview");
-                }}
-                className={`inline-flex min-h-9 items-center gap-2 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold transition disabled:opacity-50 sm:min-h-10 sm:rounded-2xl sm:px-3 sm:text-xs ${
-                  isEditMode
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm"
-                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-                title={isEditMode ? "Turn off direct preview editing" : "Edit text directly on the CV preview"}
-              >
-                <Pencil size={14} />
-                <span>Edit Mode</span>
-                <span className={`relative h-5 w-9 rounded-full transition ${isEditMode ? "bg-emerald-500" : "bg-slate-300"}`} aria-hidden>
-                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${isEditMode ? "translate-x-[18px]" : "translate-x-0.5"}`} />
-                </span>
-              </button>
               <button type="button" onClick={() => { setImportStep("upload"); setLocation("/cv-builder/import"); }} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-200 sm:min-h-10 sm:gap-2 sm:rounded-2xl sm:px-4 sm:py-2.5 sm:text-xs" title="Import an existing resume">
                 <FileUp size={14} /><span>Import Resume</span>
               </button>
@@ -6521,11 +6616,13 @@ export default function CvBuilderPage() {
               </button>
             </div>
           </header>
-          {isEditMode ? (
-            <div className="no-print sticky top-[65px] z-20 mx-auto mt-2 flex max-w-[calc(100%-1rem)] flex-wrap items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 sm:top-[73px]" role="toolbar" aria-label="Inline text formatting">
-              <span className="px-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                {activeInlineField ? "Format selection" : "Select text to format"}
-              </span>
+          {isEditMode && activeInlineField ? (
+            <div
+              className="no-print fixed z-[70] flex max-w-[calc(100vw-1rem)] flex-wrap items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
+              style={{ top: formatToolbarPosition.top, left: formatToolbarPosition.left, transform: "translateX(-50%)" }}
+              role="toolbar"
+              aria-label="Inline text formatting"
+            >
               {([
                 ["left", AlignLeft, "Align left"],
                 ["center", AlignCenter, "Align center"],
@@ -6539,11 +6636,18 @@ export default function CvBuilderPage() {
               <span className="mx-1 h-6 w-px bg-slate-200" />
               <button type="button" disabled={!activeInlineField} aria-label="Bold" aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.bold) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ bold: !inlineFormatting[activeInlineField]?.bold })} className={`rounded-lg p-2 transition hover:bg-slate-100 disabled:opacity-35 ${activeInlineField && inlineFormatting[activeInlineField]?.bold ? "bg-indigo-100 text-indigo-700" : "text-slate-600"}`}><Bold size={15} /></button>
               <button type="button" disabled={!activeInlineField} aria-label="Italic" aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.italic) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ italic: !inlineFormatting[activeInlineField]?.italic })} className={`rounded-lg p-2 transition hover:bg-slate-100 disabled:opacity-35 ${activeInlineField && inlineFormatting[activeInlineField]?.italic ? "bg-indigo-100 text-indigo-700" : "text-slate-600"}`}><Italic size={15} /></button>
+              <button type="button" aria-label="Underline" aria-pressed={Boolean(inlineFormatting[activeInlineField]?.underline)} onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ underline: !inlineFormatting[activeInlineField]?.underline })} className={`rounded-lg p-2 transition hover:bg-slate-100 ${inlineFormatting[activeInlineField]?.underline ? "bg-blue-50 text-blue-700" : "text-slate-600"}`}><Underline size={15} /></button>
               <button type="button" disabled={!activeInlineField} aria-label="Toggle bullet" aria-pressed={activeInlineField ? Boolean(inlineFormatting[activeInlineField]?.bullet) : false} onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ bullet: !inlineFormatting[activeInlineField]?.bullet })} className={`rounded-lg p-2 transition hover:bg-slate-100 disabled:opacity-35 ${activeInlineField && inlineFormatting[activeInlineField]?.bullet ? "bg-indigo-100 text-indigo-700" : "text-slate-600"}`}><List size={15} /></button>
+              <button type="button" aria-label="Outdent" onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ indent: Math.max(0, (inlineFormatting[activeInlineField]?.indent || 0) - 8) })} className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100"><IndentDecrease size={15} /></button>
+              <button type="button" aria-label="Indent" onMouseDown={(event) => event.preventDefault()} onClick={() => updateActiveInlineFormat({ indent: Math.min(48, (inlineFormatting[activeInlineField]?.indent || 0) + 8) })} className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100"><IndentIncrease size={15} /></button>
               <span className="mx-1 h-6 w-px bg-slate-200" />
               <button type="button" disabled={!activeInlineField} aria-label="Decrease text size" onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ fontScale: Math.max(0.75, (inlineFormatting[activeInlineField]?.fontScale || 1) - 0.1) })} className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 disabled:opacity-35"><Minus size={14} /></button>
               <Type size={15} className="text-slate-500" aria-hidden />
               <button type="button" disabled={!activeInlineField} aria-label="Increase text size" onMouseDown={(event) => event.preventDefault()} onClick={() => activeInlineField && updateActiveInlineFormat({ fontScale: Math.min(1.5, (inlineFormatting[activeInlineField]?.fontScale || 1) + 0.1) })} className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 disabled:opacity-35"><Plus size={14} /></button>
+              <label className="flex items-center gap-1 rounded-lg px-1.5 text-[10px] font-semibold text-slate-500" title="Line height">LH<input type="range" min="1" max="2" step="0.1" value={inlineFormatting[activeInlineField]?.lineHeight || 1.4} onChange={(event) => updateActiveInlineFormat({ lineHeight: Number(event.target.value) })} className="w-14" /></label>
+              <label className="flex items-center gap-1 rounded-lg px-1.5 text-[10px] font-semibold text-slate-500" title="Letter spacing">LS<input type="range" min="-1" max="4" step="0.25" value={inlineFormatting[activeInlineField]?.letterSpacing || 0} onChange={(event) => updateActiveInlineFormat({ letterSpacing: Number(event.target.value) })} className="w-14" /></label>
+              <label className="relative grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-slate-600 hover:bg-slate-100" title="Text color"><Type size={15} /><input type="color" value={inlineFormatting[activeInlineField]?.color || "#0f172a"} onChange={(event) => updateActiveInlineFormat({ color: event.target.value })} className="absolute inset-0 cursor-pointer opacity-0" /></label>
+              <label className="relative grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-slate-600 hover:bg-slate-100" title="Highlight color"><Highlighter size={15} /><input type="color" value={inlineFormatting[activeInlineField]?.highlightColor || "#fef3c7"} onChange={(event) => updateActiveInlineFormat({ highlightColor: event.target.value })} className="absolute inset-0 cursor-pointer opacity-0" /></label>
             </div>
           ) : null}
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
@@ -6606,11 +6710,21 @@ export default function CvBuilderPage() {
                 const professionalTitle = professionalTitleFrom(cv.document);
 
                 const renderSectionHeading = (title: string) => {
+                  const displayTitle = sectionLabels[title] || title;
+                  const headingEditProps = {
+                    "data-inline-editable": "true",
+                    contentEditable: isEditMode ? true : undefined,
+                    suppressContentEditableWarning: true,
+                    onBlur: (event: ReactFocusEvent<HTMLHeadingElement>) => {
+                      const value = event.currentTarget.textContent?.trim();
+                      if (value) setSectionLabels((current) => ({ ...current, [title]: value }));
+                    },
+                  };
                   if (isSerifClassic) {
                     return (
                       <div className="mb-3 border-b pb-1.5" style={{ borderColor: selectedColor.border }}>
-                        <h2 className="text-[11px] font-serif font-bold uppercase tracking-[0.18em]" style={{ color: selectedColor.primary }}>
-                          {title}
+                        <h2 {...headingEditProps} className="text-[11px] font-serif font-bold uppercase tracking-[0.18em]" style={{ color: selectedColor.primary }}>
+                          {displayTitle}
                         </h2>
                       </div>
                     );
@@ -6618,8 +6732,8 @@ export default function CvBuilderPage() {
                   if (isCorporateBlue) {
                     return (
                       <div className="mb-3">
-                        <h2 className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: selectedColor.primary }}>
-                          {title}
+                        <h2 {...headingEditProps} className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: selectedColor.primary }}>
+                          {displayTitle}
                         </h2>
                         <div className="h-[2px] w-full mt-1.5" style={{ backgroundColor: selectedColor.primary }} />
                       </div>
@@ -6628,8 +6742,8 @@ export default function CvBuilderPage() {
                   if (isEditorialGold) {
                     return (
                       <div className="mb-3">
-                        <h2 className="text-sm font-serif font-bold tracking-wide" style={{ color: selectedColor.primary }}>
-                          {title}
+                        <h2 {...headingEditProps} className="text-sm font-serif font-bold tracking-wide" style={{ color: selectedColor.primary }}>
+                          {displayTitle}
                         </h2>
                         <div className="mt-1 h-px w-full" style={{ backgroundColor: selectedColor.primary }} />
                       </div>
@@ -6638,8 +6752,8 @@ export default function CvBuilderPage() {
                   if (isAnalystClean) {
                     return (
                       <div className="mb-3 border-b border-dashed pb-1.5" style={{ borderColor: selectedColor.border }}>
-                        <h2 className="text-[11px] font-bold uppercase tracking-[0.28em]" style={{ color: selectedColor.primary }}>
-                          {title.split("").join(" ")}
+                        <h2 {...headingEditProps} className="text-[11px] font-bold uppercase tracking-[0.28em]" style={{ color: selectedColor.primary }}>
+                          {displayTitle.split("").join(" ")}
                         </h2>
                       </div>
                     );
@@ -6648,8 +6762,8 @@ export default function CvBuilderPage() {
                     return (
                       <div className="flex items-center gap-2 mb-2">
                         <div className="w-1.5 h-4 rounded-full shrink-0" style={{ backgroundColor: selectedColor.primary }} />
-                        <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: selectedColor.primary }}>
-                          {title}
+                        <h2 {...headingEditProps} className="text-xs font-bold uppercase tracking-wider" style={{ color: selectedColor.primary }}>
+                          {displayTitle}
                         </h2>
                       </div>
                     );
@@ -6657,8 +6771,8 @@ export default function CvBuilderPage() {
                   if (isIvy) {
                     return (
                       <div className="border-b pb-1 mb-2.5 text-center" style={{ borderColor: selectedColor.border }}>
-                        <h2 className="text-xs font-serif font-bold uppercase tracking-widest text-center" style={{ color: selectedColor.primary }}>
-                          {title}
+                        <h2 {...headingEditProps} className="text-xs font-serif font-bold uppercase tracking-widest text-center" style={{ color: selectedColor.primary }}>
+                          {displayTitle}
                         </h2>
                       </div>
                     );
@@ -6666,8 +6780,8 @@ export default function CvBuilderPage() {
                   if (isMinimal) {
                     return (
                       <div className="border-b border-slate-100/90 pb-1 mb-2">
-                        <h2 className="text-xs font-medium tracking-wider text-slate-800">
-                          {title}
+                        <h2 {...headingEditProps} className="text-xs font-medium tracking-wider text-slate-800">
+                          {displayTitle}
                         </h2>
                       </div>
                     );
@@ -6675,16 +6789,16 @@ export default function CvBuilderPage() {
                   if (isPolished || isClassic) {
                     return (
                       <div className="border-b-2 pb-1 mb-2.5" style={{ borderColor: selectedColor.primary }}>
-                        <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: selectedColor.primary }}>
-                          {title}
+                        <h2 {...headingEditProps} className="text-xs font-bold uppercase tracking-wider" style={{ color: selectedColor.primary }}>
+                          {displayTitle}
                         </h2>
                       </div>
                     );
                   }
                   return (
                     <div className="border-b pb-1 mb-2" style={{ borderColor: selectedColor.border }}>
-                      <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: selectedColor.primary }}>
-                        {title}
+                      <h2 {...headingEditProps} className="text-xs font-bold uppercase tracking-wider" style={{ color: selectedColor.primary }}>
+                        {displayTitle}
                       </h2>
                     </div>
                   );
@@ -6786,7 +6900,22 @@ export default function CvBuilderPage() {
                       {cv.document.experiences.map((exp, expIdx) => (
                         <Fragment key={exp.id || expIdx}>
                         <A4PageSpacer id={`exp-${expIdx}-header`} height={a4Spacers[`exp-${expIdx}-header`] || 0} />
-                        <div className="group/role relative space-y-1.5">
+                        <div
+                          className="group/role relative space-y-1.5"
+                          draggable={isEditMode}
+                          onDragStart={(event) => { event.stopPropagation(); setDraggedExperienceIndex(expIdx); }}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={(event) => {
+                            event.stopPropagation();
+                            if (draggedExperienceIndex === null || draggedExperienceIndex === expIdx) return;
+                            const experiences = [...cv.document.experiences];
+                            const [moved] = experiences.splice(draggedExperienceIndex, 1);
+                            if (moved) experiences.splice(expIdx, 0, moved);
+                            updateDocumentField("experiences", experiences);
+                            setDraggedExperienceIndex(null);
+                          }}
+                        >
+                        {isEditMode ? <GripVertical size={13} className="no-print canvas-control absolute -left-5 top-1 cursor-grab text-slate-300 opacity-0 transition group-hover/role:opacity-100" aria-hidden /> : null}
                         <div data-a4-id={`exp-${expIdx}-header`} className="experience-item cv-a4-keep relative space-y-1.5">
                           {expIdx === 0 && renderSectionHeading(
                             isSerifClassic
@@ -6874,8 +7003,26 @@ export default function CvBuilderPage() {
                               <div
                                 role="listitem"
                                 data-a4-id={`exp-${expIdx}-bullet-${bIdx}`}
+                                draggable={isEditMode}
+                                onDragStart={(event) => {
+                                  event.stopPropagation();
+                                  setDraggedCanvasBullet({ experienceIndex: expIdx, bulletIndex: bIdx });
+                                }}
+                                onDragOver={(event) => event.preventDefault()}
+                                onDrop={(event) => {
+                                  event.stopPropagation();
+                                  if (!draggedCanvasBullet || draggedCanvasBullet.experienceIndex !== expIdx || draggedCanvasBullet.bulletIndex === bIdx) return;
+                                  const experiences = [...cv.document.experiences];
+                                  const bullets = [...exp.bullets];
+                                  const [moved] = bullets.splice(draggedCanvasBullet.bulletIndex, 1);
+                                  if (moved !== undefined) bullets.splice(bIdx, 0, moved);
+                                  experiences[expIdx] = { ...exp, bullets };
+                                  updateDocumentField("experiences", experiences);
+                                  setDraggedCanvasBullet(null);
+                                }}
                                 className="group/bullet relative flex min-w-0 items-start gap-2 text-xs leading-snug text-slate-700"
                               >
+                                {isEditMode ? <GripVertical size={12} className="no-print canvas-control mt-0.5 shrink-0 cursor-grab text-slate-300 opacity-0 transition group-hover/bullet:opacity-100" aria-hidden /> : null}
                                 <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
                                 <AutoGrowTextarea
                                   value={b}
@@ -6895,12 +7042,7 @@ export default function CvBuilderPage() {
                                     exps[expIdx] = { ...exp, bullets: selectProfessionalBullets(bullets) };
                                     updateDocumentField("experiences", exps);
                                   }}
-                                  className={`min-w-0 w-full flex-1 resize-none bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm px-0.5 transition ${
-                                    highlightJobKeywords &&
-                                    tailoringReport?.strongMatches.some((m) => b.toLowerCase().includes(m))
-                                      ? "bg-emerald-500/10 text-emerald-900 rounded"
-                                      : ""
-                                  }`}
+                                  className="min-w-0 w-full flex-1 resize-none bg-transparent focus:outline-none rounded-sm px-0.5 transition"
                                 />
 
                                 {/* Inline Hover Action Group for Bullet */}
@@ -6998,27 +7140,34 @@ export default function CvBuilderPage() {
                     ) : (
                       <div className="cv-badge-list mt-2 flex flex-wrap gap-1.5">
                         {cv.document.skills.map((skill, sIdx) => {
-                          const isMatch =
-                            highlightJobKeywords &&
-                            tailoringReport?.strongMatches.some((m) => skill.toLowerCase().includes(m));
                           return (
                             <span
                               key={sIdx}
                               data-inline-editable="true"
-                              contentEditable={isEditMode}
+                              contentEditable={isEditMode ? true : undefined}
                               suppressContentEditableWarning
                               onBlur={(event) => {
                                 const skills = [...cv.document.skills];
                                 skills[sIdx] = sanitizeSkillBadge(event.currentTarget.textContent || "");
                                 updateDocumentField("skills", skills);
                               }}
-                              className={`cv-skill-chip rounded-lg border px-2.5 py-0.5 text-[11px] font-medium transition ${
-                                isMatch ? "ring-2 ring-emerald-500 bg-emerald-50 text-emerald-800" : ""
-                              }`}
+                              draggable={isEditMode}
+                              onDragStart={(event) => { event.stopPropagation(); setDraggedSkillIndex(sIdx); }}
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={(event) => {
+                                event.stopPropagation();
+                                if (draggedSkillIndex === null || draggedSkillIndex === sIdx) return;
+                                const skills = [...cv.document.skills];
+                                const [moved] = skills.splice(draggedSkillIndex, 1);
+                                if (moved !== undefined) skills.splice(sIdx, 0, moved);
+                                updateDocumentField("skills", skills);
+                                setDraggedSkillIndex(null);
+                              }}
+                              className="cv-skill-chip rounded-lg border px-2.5 py-0.5 text-[11px] font-medium transition"
                               style={{
-                                backgroundColor: isMatch ? "#ecfdf5" : selectedColor.secondary,
-                                borderColor: isMatch ? "#10b981" : selectedColor.border,
-                                color: isMatch ? "#065f46" : selectedColor.primary,
+                                backgroundColor: selectedColor.secondary,
+                                borderColor: selectedColor.border,
+                                color: selectedColor.primary,
                               }}
                             >
                               {sanitizeSkillBadge(skill)}
@@ -7064,7 +7213,23 @@ export default function CvBuilderPage() {
                     ) : (
                       <div className={isTimeline ? "relative pl-6 border-l-2 ml-2 space-y-4 my-2" : "space-y-2"} style={isTimeline ? { borderColor: selectedColor.border } : {}}>
                         {cv.document.education.map((edu, eduIdx) => (
-                          <div key={edu.id || eduIdx} className="education-item cv-a4-keep text-xs overflow-visible group/edu relative">
+                          <div
+                            key={edu.id || eduIdx}
+                            className="education-item cv-a4-keep text-xs overflow-visible group/edu relative"
+                            draggable={isEditMode}
+                            onDragStart={(event) => { event.stopPropagation(); setDraggedEducationIndex(eduIdx); }}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => {
+                              event.stopPropagation();
+                              if (draggedEducationIndex === null || draggedEducationIndex === eduIdx) return;
+                              const education = [...cv.document.education];
+                              const [moved] = education.splice(draggedEducationIndex, 1);
+                              if (moved) education.splice(eduIdx, 0, moved);
+                              updateDocumentField("education", education);
+                              setDraggedEducationIndex(null);
+                            }}
+                          >
+                            {isEditMode ? <GripVertical size={13} className="no-print canvas-control absolute -left-5 top-1 cursor-grab text-slate-300 opacity-0 transition group-hover/edu:opacity-100" aria-hidden /> : null}
                             {isTimeline && (
                               <span
                                 className="absolute -left-[31px] top-1.5 h-3.5 w-3.5 rounded-full border-2 bg-white shadow-xs"
@@ -7148,7 +7313,23 @@ export default function CvBuilderPage() {
                     ) : (
                       <div className="space-y-3">
                         {(cv.document.projects || []).map((proj, pIdx) => (
-                          <div key={proj.id || pIdx} className="text-xs space-y-1">
+                          <div
+                            key={proj.id || pIdx}
+                            draggable={isEditMode}
+                            onDragStart={(event) => { event.stopPropagation(); setDraggedProjectIndex(pIdx); }}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => {
+                              event.stopPropagation();
+                              if (draggedProjectIndex === null || draggedProjectIndex === pIdx) return;
+                              const projects = [...(cv.document.projects || [])];
+                              const [moved] = projects.splice(draggedProjectIndex, 1);
+                              if (moved) projects.splice(pIdx, 0, moved);
+                              updateDocumentField("projects", projects);
+                              setDraggedProjectIndex(null);
+                            }}
+                            className="group/project relative space-y-1 text-xs"
+                          >
+                            {isEditMode ? <GripVertical size={13} className="no-print canvas-control absolute -left-5 top-1 cursor-grab text-slate-300 opacity-0 transition group-hover/project:opacity-100" aria-hidden /> : null}
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <input
                                 type="text"
@@ -7185,7 +7366,25 @@ export default function CvBuilderPage() {
                             />
                             <div className="space-y-1 pt-0.5">
                               {(proj.bullets || []).map((bullet, bIdx) => (
-                                <div key={bIdx} className="flex items-start gap-1.5 text-[11px] text-slate-700">
+                                <div
+                                  key={bIdx}
+                                  draggable={isEditMode}
+                                  onDragStart={(event) => { event.stopPropagation(); setDraggedProjectBullet({ projectIndex: pIdx, bulletIndex: bIdx }); }}
+                                  onDragOver={(event) => event.preventDefault()}
+                                  onDrop={(event) => {
+                                    event.stopPropagation();
+                                    if (!draggedProjectBullet || draggedProjectBullet.projectIndex !== pIdx || draggedProjectBullet.bulletIndex === bIdx) return;
+                                    const projects = [...(cv.document.projects || [])];
+                                    const bullets = [...(proj.bullets || [])];
+                                    const [moved] = bullets.splice(draggedProjectBullet.bulletIndex, 1);
+                                    if (moved !== undefined) bullets.splice(bIdx, 0, moved);
+                                    projects[pIdx] = { ...proj, bullets };
+                                    updateDocumentField("projects", projects);
+                                    setDraggedProjectBullet(null);
+                                  }}
+                                  className="group/project-bullet flex items-start gap-1.5 text-[11px] text-slate-700"
+                                >
+                                  {isEditMode ? <GripVertical size={11} className="no-print canvas-control mt-0.5 cursor-grab text-slate-300 opacity-0 transition group-hover/project-bullet:opacity-100" aria-hidden /> : null}
                                   <span className="text-primary mt-1 text-[8px]">●</span>
                                   <AutoGrowTextarea
                                     value={bullet}
@@ -7262,6 +7461,14 @@ export default function CvBuilderPage() {
                         {(cv.document.languages || []).map((lang, lIdx) => (
                           <span
                             key={lIdx}
+                            data-inline-editable="true"
+                            contentEditable={isEditMode ? true : undefined}
+                            suppressContentEditableWarning
+                            onBlur={(event) => {
+                              const languages = [...(cv.document.languages || [])];
+                              languages[lIdx] = event.currentTarget.textContent || "";
+                              updateDocumentField("languages", languages);
+                            }}
                             className="cv-skill-chip rounded-lg border px-2.5 py-0.5 text-[11px] font-medium"
                             style={{
                               backgroundColor: selectedColor.secondary,
@@ -7325,7 +7532,15 @@ export default function CvBuilderPage() {
                 );
 
                 const customSectionsSection = (cv.document.sections || []).map((section, sectionIndex) => (
-                  <section key={`${section.heading}-${sectionIndex}`} className="relative space-y-2 rounded-xl p-1 transition hover:bg-slate-50/50">
+                  <section
+                    key={`${section.heading}-${sectionIndex}`}
+                    draggable={isEditMode}
+                    onDragStart={(event) => { event.stopPropagation(); setDraggedCustomSection(sectionIndex); }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => { event.stopPropagation(); if (draggedCustomSection !== null) moveCustomSection(draggedCustomSection, sectionIndex); }}
+                    className="group/custom relative space-y-2 rounded-xl p-1 transition hover:bg-slate-50/50"
+                  >
+                    {isEditMode ? <GripVertical size={13} className="no-print canvas-control absolute -left-5 top-1 cursor-grab text-slate-300 opacity-0 transition group-hover/custom:opacity-100" aria-hidden /> : null}
                     <div className="flex items-center gap-2">
                       <input type="text" value={section.heading} onChange={(event) => {
                         const sections = [...(cv.document.sections || [])];
@@ -7349,6 +7564,42 @@ export default function CvBuilderPage() {
                     ))}
                   </section>
                 ));
+
+                const canvasSections = {
+                  summary: summarySection,
+                  experience: experienceSection,
+                  projects: projectsSection,
+                  education: educationSection,
+                  skills: skillsSection,
+                  certifications: certificationsSection,
+                  languages: languagesSection,
+                  references: referencesSection,
+                  custom: customSectionsSection,
+                };
+
+                const renderCanvasSection = (key: CanvasSectionKey) => {
+                  const content = canvasSections[key];
+                  if (!content) return null;
+                  if (!isEditMode) return <Fragment key={key}>{content}</Fragment>;
+                  return (
+                    <div
+                      key={key}
+                      draggable
+                      onDragStart={() => setDraggedCanvasSection(key)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={() => reorderCanvasSection(key)}
+                      className="group/canvas-section relative rounded-md outline outline-1 outline-transparent transition hover:outline-slate-200"
+                    >
+                      <button type="button" className="no-print canvas-control absolute -left-7 top-0 z-20 grid h-6 w-6 cursor-grab place-items-center rounded-md border border-slate-200 bg-white text-slate-400 opacity-0 shadow-sm transition group-hover/canvas-section:opacity-100 active:cursor-grabbing" title={`Move ${key} section`} aria-label={`Move ${key} section`}>
+                        <GripVertical size={14} />
+                      </button>
+                      {content}
+                    </div>
+                  );
+                };
+
+                const leftColumnKeys = sectionOrder.filter((key) => ["summary", "experience", "projects", "custom"].includes(key));
+                const rightColumnKeys = sectionOrder.filter((key) => !["summary", "experience", "projects", "custom"].includes(key));
 
                 return (
                   <article
@@ -7712,36 +7963,40 @@ export default function CvBuilderPage() {
 
                     {/* 2. BODY LAYOUT (TWO-COLUMN OR SINGLE-COLUMN) */}
                     {isDouble ? (
-                      <div className={`grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] items-start ${isCompact ? "gap-5" : "gap-8"}`}>
-                        <div className="min-w-0 space-y-5">
-                          {summarySection}
-                          {experienceSection}
-                          {projectsSection}
+                      <div
+                        className="relative grid items-start"
+                        style={{ gridTemplateColumns: `minmax(0, ${columnRatio}fr) minmax(0, ${100 - columnRatio}fr)`, gap: isCompact ? 20 : 32 }}
+                      >
+                        <div className="min-w-0" style={{ display: "flex", flexDirection: "column", gap: sectionSpacing }}>
+                          {leftColumnKeys.map(renderCanvasSection)}
                         </div>
-                        <div className="min-w-0 space-y-5">
-                          {skillsSection}
-                          {systemsSection}
-                          {educationSection}
-                          {certificationsSection}
-                          {languagesSection}
-                          {referencesSection}
+                        {isEditMode ? (
+                          <div
+                            className="no-print canvas-control absolute inset-y-0 z-20 w-3 -translate-x-1/2 cursor-col-resize"
+                            style={{ left: `calc(${columnRatio}% + ${(isCompact ? 20 : 32) * (columnRatio / 100 - 0.5)}px)` }}
+                            onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)}
+                            onPointerMove={(event) => {
+                              if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                              const rect = event.currentTarget.parentElement?.getBoundingClientRect();
+                              if (!rect) return;
+                              setColumnRatio(Math.min(72, Math.max(35, ((event.clientX - rect.left) / rect.width) * 100)));
+                            }}
+                            onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)}
+                            aria-label="Resize CV columns"
+                            role="separator"
+                          >
+                            <span className="mx-auto block h-full w-px bg-blue-400/60 opacity-0 transition hover:opacity-100" />
+                          </div>
+                        ) : null}
+                        <div className="min-w-0" style={{ display: "flex", flexDirection: "column", gap: sectionSpacing }}>
+                          {rightColumnKeys.map(renderCanvasSection)}
                         </div>
                       </div>
                     ) : (
-                      <div className="space-y-6">
-                        {summarySection}
-                        {experienceSection}
-                        {projectsSection}
-                        {educationSection}
-                        {skillsSection}
-                        {systemsSection}
-                        {certificationsSection}
-                        {languagesSection}
-                        {referencesSection}
+                      <div style={{ display: "flex", flexDirection: "column", gap: sectionSpacing }}>
+                        {sectionOrder.map(renderCanvasSection)}
                       </div>
                     )}
-
-                    {customSectionsSection}
 
                     {/* Footer Note with POPIA Notice — never print marketing footer */}
                     {showPopiaNotice && cv.document.footerNote ? (

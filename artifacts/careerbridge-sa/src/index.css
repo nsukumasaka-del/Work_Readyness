@@ -812,25 +812,30 @@
 #bonlist-cv-document.cv-inline-edit-mode textarea,
 #bonlist-cv-document.cv-inline-edit-mode [data-inline-editable="true"] {
   border-radius: 0.25rem;
-  outline: 1px dashed transparent;
+  outline: 1px dashed transparent !important;
   outline-offset: 2px;
   cursor: text;
-  transition: background-color 120ms ease, outline-color 120ms ease, box-shadow 120ms ease;
+  transition: outline-color 120ms ease;
 }
 
 #bonlist-cv-document.cv-inline-edit-mode input:hover,
 #bonlist-cv-document.cv-inline-edit-mode textarea:hover,
 #bonlist-cv-document.cv-inline-edit-mode [data-inline-editable="true"]:hover {
-  background-color: rgb(238 242 255 / 0.72) !important;
-  outline-color: rgb(129 140 248 / 0.7);
+  outline: 1px dashed #e2e8f0 !important;
+  background-color: transparent;
+  box-shadow: none !important;
 }
 
 #bonlist-cv-document.cv-inline-edit-mode input:focus,
 #bonlist-cv-document.cv-inline-edit-mode textarea:focus,
 #bonlist-cv-document.cv-inline-edit-mode [data-inline-editable="true"]:focus {
-  background-color: rgb(255 255 255 / 0.96) !important;
-  outline: 2px solid rgb(99 102 241 / 0.8);
-  box-shadow: 0 0 0 4px rgb(99 102 241 / 0.12);
+  outline: 1px solid #3b82f6 !important;
+  background-color: transparent;
+  box-shadow: none !important;
+}
+
+#bonlist-cv-document .no-print:not(.canvas-control) {
+  display: none !important;
 }
 
 #bonlist-cv-document .cv-inline-bullet {

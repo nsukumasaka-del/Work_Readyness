@@ -19,6 +19,8 @@ import { searchManualJobs, searchWithLocationFallback } from "../lib/job-search-
 import { buildCareerAlignmentReport, estimateCareerYears, type CareerAlignmentReport } from "../lib/career-alignment";
 import { enrichCareerAdvisoryWithGemini, generateCvAssistantJson, generateSmokeyReply, reviewDiagnosticRoleFitWithGemini, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
 import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
+import { nodePaymentAccess } from '../lib/yoco-store';
+import { protectReport } from '../lib/yoco';
 import { ensurePrimaryAdmin } from "../lib/admin-auth";
 import { createAdminNotification } from "../lib/admin-ops";
 import { clientIp, consumeRateLimit } from "../lib/rate-limit";
@@ -1220,7 +1222,7 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       },
       "CV diagnostic created with trusted board search",
     );
-    res.status(201).json(data);
+    res.status(201).json(protectReport(data, await nodePaymentAccess(req.userProfile!)));
   } catch (err) {
     req.log.error({ err }, "Error in /career/diagnostic");
     if (err && typeof err === "object" && "issues" in err) {
@@ -1249,7 +1251,7 @@ router.get("/career/diagnostic/latest", requireUser, async (req: AuthedUserReque
   if (row.reportJson) {
     try {
       const parsed = JSON.parse(row.reportJson);
-      res.json(CreateDiagnosticResponse.parse({ ...parsed, id: row.id }));
+      res.json(protectReport(CreateDiagnosticResponse.parse({ ...parsed, id: row.id }), await nodePaymentAccess(req.userProfile!)));
       return;
     } catch {
       // fall through to rebuild
@@ -1477,8 +1479,8 @@ router.post("/career/coaching", async (req, res) => {
 
 router.get("/career/pricing", (_req, res) => {
   res.json({
-    plans: PLAN_CATALOG,
-    programme: PROGRAMME,
+    plans: PLAN_CATALOG.filter(plan => plan.id === 'free'),
+    programme: null,
     curriculum: PROGRAMME_CURRICULUM.map(({ id, month, week, title, type, summary }) => ({
       id,
       month,
@@ -1505,92 +1507,11 @@ router.get("/career/entitlements", async (req, res) => {
   res.json(entitlement);
 });
 
-router.post("/career/subscribe", async (req, res) => {
-  const profileId = Number(req.body?.profileId);
-  const plan = String(req.body?.plan || "").trim() as PlanId;
-  if (!Number.isFinite(profileId) || profileId <= 0) {
-    res.status(400).json({ error: "profileId is required" });
-    return;
-  }
-  if (!["free", "job_seeker", "career_pro"].includes(plan)) {
-    res.status(400).json({ error: "Invalid plan. Choose free, job_seeker, or career_pro." });
-    return;
-  }
-  const [profile] = await db.select().from(profilesTable).where(eq(profilesTable.id, profileId)).limit(1);
-  if (!profile) {
-    res.status(404).json({ error: "Profile not found. Please log in again." });
-    return;
-  }
-
-  const entitlementBefore = await resolveEntitlement(profileId);
-  if (entitlementBefore.programme?.status === "active") {
-    res.status(409).json({
-      error:
-        "You already have full platform access through the active 3-month programme. No subscription is required until it ends.",
-      entitlement: entitlementBefore,
-    });
-    return;
-  }
-
-  await setSubscriptionPlan(profileId, plan);
-  const entitlement = await resolveEntitlement(profileId);
-  try {
-    await createAdminNotification({
-      type: "billing.subscription",
-      title: `Subscription: ${PLAN_CATALOG.find((p) => p.id === plan)?.name || plan}`,
-      body: `${profile.name} (${profile.email}) selected ${plan}`,
-      entityType: "profile",
-      entityId: profileId,
-    });
-  } catch {
-    /* ignore */
-  }
-  req.log.info({ profileId, plan }, "Subscription plan updated");
-  res.json({ ok: true, entitlement });
+router.post("/career/subscribe", (_req, res) => {
+  res.status(410).json({ error: "Legacy plan activation is retired. Use Yoco checkout." });
 });
-
-router.post("/career/programme/purchase", async (req, res) => {
-  const profileId = Number(req.body?.profileId);
-  if (!Number.isFinite(profileId) || profileId <= 0) {
-    res.status(400).json({ error: "profileId is required" });
-    return;
-  }
-  const [profile] = await db.select().from(profilesTable).where(eq(profilesTable.id, profileId)).limit(1);
-  if (!profile) {
-    res.status(404).json({ error: "Profile not found. Please log in again." });
-    return;
-  }
-
-  const existing = await resolveEntitlement(profileId);
-  if (existing.programme?.status === "active") {
-    res.status(409).json({
-      error: "You already have an active Career Accelerator programme.",
-      entitlement: existing,
-    });
-    return;
-  }
-
-  const programme = await activateProgramme(profileId);
-  const entitlement = await resolveEntitlement(profileId);
-  try {
-    await createAdminNotification({
-      type: "billing.programme",
-      title: "Programme purchased — Career Accelerator",
-      body: `${profile.name} (${profile.email}) · R${PROGRAMME.priceZar} once-off · ends ${programme.endDate.toISOString().slice(0, 10)}`,
-      entityType: "programme",
-      entityId: programme.id,
-    });
-  } catch {
-    /* ignore */
-  }
-  req.log.info({ profileId, programmeId: programme.id }, "Programme activated");
-  res.status(201).json({
-    ok: true,
-    message:
-      "Programme activated. You now have full platform access for 3 months — no additional subscription required.",
-    programme: entitlement.programme,
-    entitlement,
-  });
+router.post("/career/programme/purchase", (_req, res) => {
+  res.status(410).json({ error: "This offering is retired. Use Mega Access via Yoco." });
 });
 
 router.get("/career/programme", async (req, res) => {

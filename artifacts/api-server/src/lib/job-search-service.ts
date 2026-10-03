@@ -53,6 +53,6 @@ export async function searchManualJobs(input: {
       searchPreferences: { industry: input.industry, postedRange: input.postedRange } }); } catch { /* Keep real vacancies when AI is unavailable. */ }
   }
   const jobs = (fitAvailable ? calibrateJobListingScores(candidate, scored || result.jobs) : result.jobs)
-    .map(job => ({ ...job, fitAvailable }));
+    .map(job => ({ ...job, fitAvailable, isAiMatch: false }));
   return { ...result, jobs, liveResults: jobs.length > 0, scoring: scored ? 'gemini' : 'evidence-based-fallback' };
 }

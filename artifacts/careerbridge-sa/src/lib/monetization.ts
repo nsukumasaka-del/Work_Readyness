@@ -2,6 +2,9 @@ import { authFetch } from "@/lib/auth-session";
 
 export type MonetizationStatus = {
   adminBypass: boolean;
+  megaAccessActive?: boolean;
+  megaAccessUntil?: string | null;
+  unlockedJobIds?: string[];
   credits: number;
   creditPack: { priceZar: number; credits: number };
   ownedTemplateIds: string[];
@@ -16,11 +19,7 @@ export const EMPTY_MONETIZATION: MonetizationStatus = {
   credits: 0,
   creditPack: { priceZar: 50, credits: 5 },
   ownedTemplateIds: [],
-  freeTemplateIds: [
-    "serif_classic", "corporate_blue", "analyst_clean", "double_column", "ivy_league",
-    "elegant", "contemporary", "modern", "timeline", "single_column", "compact",
-    "multicolumn", "classic", "minimal",
-  ],
+  freeTemplateIds: [],
   premiumTemplates: ["editorial_gold", "creative", "stylish", "polished", "high_performer"]
     .map((templateId) => ({ templateId, priceZar: 50, ownership: "lifetime" as const })),
   features: [],
@@ -34,8 +33,7 @@ export async function fetchMonetizationStatus(): Promise<MonetizationStatus> {
 }
 
 export function templateAccess(status: MonetizationStatus, templateId: string) {
-  const free = status.freeTemplateIds.includes(templateId);
   const owned = status.adminBypass || status.ownedTemplateIds.includes(templateId);
   const premium = status.premiumTemplates.find((item) => item.templateId === templateId);
-  return { free, owned, premium, canExport: free || owned || !premium };
+  return { free: false, owned: owned || Boolean(status.megaAccessActive), premium: premium || { templateId, priceZar: 50, ownership: 'lifetime' }, canExport: owned || Boolean(status.megaAccessActive) };
 }

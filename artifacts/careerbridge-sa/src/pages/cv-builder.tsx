@@ -89,6 +89,7 @@ import { buildParseUploadBody, parseUploadErrorMessage, readFileAsDataUrl } from
 import { getNativeCv, NATIVE_CV_STORE_UPDATED, saveNativeCv } from "@/lib/native-cv-store";
 import { isAndroidApp } from "@/lib/platform";
 import { EMPTY_MONETIZATION, fetchMonetizationStatus, templateAccess, type MonetizationStatus } from "@/lib/monetization";
+import { requestPayment } from '@/lib/yoco';
 import { exportCvVisualPdf, type CvPdfExportStage } from "@/utils/export-cv-visual-pdf";
 import { sanitizeSkillBadge } from "@/utils/sanitizeSkills";
 import {
@@ -4543,11 +4544,11 @@ export default function CvBuilderPage() {
     const fallbackCost = featureId === "tailor_cv" ? 3 : 2;
     const feature = monetization.features.find((item) => item.id === featureId);
     const cost = feature?.creditCost ?? fallbackCost;
-    if (!monetization.adminBypass && monetization.credits < cost) {
+    if (!monetization.adminBypass && !monetization.megaAccessActive && monetization.credits < cost) {
       setError(`${feature?.name || "This action"} requires ${cost} BonList Credits. You currently have ${monetization.credits}.`);
       return null;
     }
-    if (!monetization.adminBypass && !window.confirm(`${feature?.name || "Continue"} will use ${cost} BonList Credits. Continue?`)) return null;
+    if (!monetization.adminBypass && !monetization.megaAccessActive && !window.confirm(`${feature?.name || "Continue"} will use ${cost} BonList Credits. Continue?`)) return null;
     const randomPart = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     return `${featureId}:${randomPart}`;
   };
@@ -5047,6 +5048,7 @@ export default function CvBuilderPage() {
       setError("Generate or load a CV before downloading.");
       return;
     }
+    if (!await ensureDownloadAccess(action)) return;
     setPendingDownloadAction(action);
     setPreFlightLoading(true);
     setIsPreFlightModalOpen(true);
@@ -5245,9 +5247,7 @@ export default function CvBuilderPage() {
       options?.onReady?.();
       return;
     }
-    const access = templateAccess(monetization, selectedTemplate);
-    if (!access.canExport) {
-      setError("Unlock this template once for R50 to download, edit and reuse it for life.");
+    if (!await ensureDownloadAccess('print')) {
       options?.onReady?.();
       return;
     }
@@ -5290,6 +5290,7 @@ export default function CvBuilderPage() {
       return;
     }
 
+    if (!await ensureDownloadAccess(action)) return;
     const finish = () => {
       setPendingDownloadAction(null);
       setIsPreFlightModalOpen(false);
@@ -5331,6 +5332,16 @@ export default function CvBuilderPage() {
     handleDirectDownload(action);
   };
 
+  const ensureDownloadAccess = async (action: "print" | "html" | "txt" | "doc") => {
+    try {
+      const next = await fetchMonetizationStatus();
+      setMonetization(next);
+      if (templateAccess(next, selectedTemplate).canExport) return true;
+      requestPayment({ itemType: 'TEMPLATE_DOWNLOAD', targetId: selectedTemplate, downloadFormat: action,
+        onVerified: () => { void triggerPreFlightAudit(action); } });
+    } catch { setError('Sign in and reconnect to check your download access.'); }
+    return false;
+  };
   const handleDirectDownload = (action: "print" | "html" | "txt" | "doc") => {
     setShowExportDropdown(false);
     if (!cv) {
@@ -5343,6 +5354,18 @@ export default function CvBuilderPage() {
   };
 
   // Section 41: Candidate Outcomes Handlers
+  useEffect(() => {
+    if (!cv?.document) return;
+    const timer = window.setTimeout(() => {
+      try {
+        const pending = JSON.parse(sessionStorage.getItem('bonlist-yoco-resume-download') || 'null');
+        if (!pending || pending.templateId !== selectedTemplate || !['print','doc','html','txt'].includes(pending.format)) return;
+        sessionStorage.removeItem('bonlist-yoco-resume-download');
+        handleDirectDownload(pending.format);
+      } catch { /* Optional post-payment download recovery. */ }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [cv?.id, selectedTemplate]);
   const fetchLoggedOutcomes = async () => {
     if (!profile?.id) return;
     try {

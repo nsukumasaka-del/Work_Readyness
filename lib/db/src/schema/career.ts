@@ -223,7 +223,7 @@ export const programmesTable = pgTable("career_programmes", {
   id: serial("id").primaryKey(),
   profileId: integer("profile_id").notNull(),
   status: text("status").notNull().default("active"),
-  amountPaid: integer("amount_paid").notNull().default(2000),
+  amountPaid: integer("amount_paid").notNull().default(0),
   startDate: timestamp("start_date", { withTimezone: true }).notNull().defaultNow(),
   endDate: timestamp("end_date", { withTimezone: true }).notNull(),
   completedLessons: text("completed_lessons").array().notNull().default([]),

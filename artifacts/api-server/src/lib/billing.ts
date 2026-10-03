@@ -1,4 +1,5 @@
-import { db, programmesTable, subscriptionsTable } from "@workspace/db";
+import { db, programmesTable, subscriptionsTable, profilesTable } from "@workspace/db";
+import { nodePaymentAccess } from "./yoco-store";
 import { and, desc, eq } from "drizzle-orm";
 
 export type PlanId = "free" | "job_seeker" | "career_pro";
@@ -52,7 +53,8 @@ export const PROGRAMME = {
   id: "career_accelerator" as const,
   name: "3-Month Career & Interview Coaching Programme",
   shortName: "Career Accelerator",
-  priceZar: 2000,
+  priceZar: 0, // Retired catalogue metadata; historical payments remain on their records.
+  retired: true,
   billing: "once" as const,
   durationMonths: 3,
   headline: "STOP SOUNDING LIKE EVERYONE ELSE.",
@@ -393,7 +395,9 @@ export async function resolveEntitlement(profileId: number): Promise<Entitlement
     programmeRow && programmeRow.status === "active" && programmeRow.endDate.getTime() > now.getTime(),
   );
 
-  const accessLevel: PlanId = programmeActive ? "career_pro" : plan;
+  const [profile] = await db.select().from(profilesTable).where(eq(profilesTable.id, profileId)).limit(1);
+  const paidAccess = profile ? await nodePaymentAccess(profile) : null;
+  const accessLevel: PlanId = programmeActive || paidAccess?.adminBypass || paidAccess?.megaAccessActive ? "career_pro" : plan;
   const completed = programmeRow?.completedLessons ?? [];
   const progressPercent = Math.round((completed.length / PROGRAMME_CURRICULUM.length) * 100);
 

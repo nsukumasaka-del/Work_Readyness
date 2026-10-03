@@ -10,6 +10,7 @@ import { handleCvTools } from "./d1/cv-tools";
 import { getAuthenticatedUser } from "./d1/auth";
 import { handlePlatformTools } from "./d1/platform-tools";
 import { handleCvAdmin } from "./cv-admin";
+import { handleD1Yoco } from './d1/yoco';
 import { canUseTemplate, chargeFeatureCredits, getFeatureQuote, handleMonetization } from "./d1/monetization";
 import puppeteer from "@cloudflare/puppeteer";
 import {
@@ -571,6 +572,8 @@ export default {
             "Authentication is temporarily unavailable. Please try again.",
           ));
         }
+        const yocoResponse = await handleD1Yoco(request, env);
+        if (yocoResponse) return withNativeCors(request, yocoResponse);
         const monetizationResponse = await handleMonetization(request, env);
         if (monetizationResponse) return withNativeCors(request, monetizationResponse);
         const adminResponse = await handleCvAdmin(request, env);

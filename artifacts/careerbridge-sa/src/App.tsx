@@ -50,6 +50,8 @@ import type {
 import NotFound from '@/pages/not-found';
 import { trackPageVisit } from '@/pages/admin/tracking';
 import PricingPage from '@/pages/pricing';
+import { PaidAccessProvider, fetchUnlockedJob, isJobUnlocked, requestPayment, usePaidAccess } from '@/lib/yoco';
+import { PaymentResultPage, YocoCheckoutHost } from '@/components/YocoCheckout';
 import ProgrammePage from '@/pages/programme';
 import CvDashboardPage from '@/pages/CvDashboard';
 import OfflineWorkstationPage from '@/pages/OfflineWorkstation';
@@ -133,15 +135,9 @@ const REPORT_KEY = 'careerbridge-report';
 const SELECTED_JOB_KEY = 'careerbridge-selected-job';
 
 function reportForCurrentViewer(report: DiagnosticReport): DiagnosticReport {
-  if (isAuthAdminUser()) return report;
-  return {
-    ...report,
-    relatedJobs: (report.relatedJobs || []).map((job, index) => job.match < 90 ? job : {
-      id: -(index + 1), title: 'Premium job match', company: '', location: '',
-      sector: '', salary: '', match: job.match, posted: '', tags: [],
-      source: '', url: '', description: '',
-    }),
-  };
+  // The authenticated API now redacts locked content without changing job IDs.
+  // Keep stable IDs so checkout and paid reveals refer to the saved vacancy.
+  return report;
 }
 
 function persistSelectedJob(job: JobMatch) {
@@ -153,7 +149,7 @@ function findJobFromSession(jobId: string): JobMatch | null {
     const selected = sessionStorage.getItem(SELECTED_JOB_KEY);
     if (selected) {
       const parsed = JSON.parse(selected) as JobMatch;
-      if (String(parsed.id) === jobId && (isAuthAdminUser() || parsed.match < 90)) return parsed;
+      if (String(parsed.id) === jobId) return parsed;
     }
   } catch {
     /* ignore */
@@ -1583,7 +1579,7 @@ function HeroProductVisual() {
             </div>
           ))}
           <div className="rounded-2xl border border-dashed border-primary/30 bg-secondary/50 px-4 py-3 text-xs leading-5 text-secondary-foreground">
-            After your profile and CV review, we show up to six current roles tailored to you. Candidates can open matches below 90%; administrators can review all matches.
+            After your CV review, view tailored roles. Matches below 50% are free; unlock higher-scoring matches for R20 or use seven-day Mega Access.
           </div>
         </div>
       </div>
@@ -2883,6 +2879,7 @@ function postedWithin(postedValue: string, range: string): boolean {
 }
 
 function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJob }: JobOpeningsSearchProps) {
+  const paidAccess = usePaidAccess();
   const jobs = normalizeJobResults(rawJobs);
   const [view, setView] = useState<'ai' | 'search'>('ai');
   const [keywordsDraft, setKeywordsDraft] = useState('');
@@ -2966,7 +2963,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
     if (!activeBaseJob || !detailKey || jobDetails[detailKey]) return;
     const source = activeBaseJob as JobListingSource;
     const href = directApplicationUrl(source);
-    if (!href || (view === 'ai' && activeBaseJob.match >= 90 && !premiumUnlocked)) return;
+    if (!href || (view === 'ai' && !isJobUnlocked(activeBaseJob, paidAccess))) return;
     let cancelled = false;
     setDetailLoading(true);
     setDetailNotice('');
@@ -3103,8 +3100,8 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
             <h3 className="text-sm font-bold text-slate-900">Best-fit roles for your CV</h3>
             <p className="mt-1 text-xs leading-5 text-slate-600">{report.jobSearch?.liveResults ? `Matches gathered for “${report.jobSearch.query}”.` : 'These recommendations are based on the latest CV review.'}</p>
           </div>
-          {jobs.length ? jobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={job.match >= 90 && !premiumUnlocked} onViewDetails={() => setActiveJobId(String(job.id))} />) : <div className="box-border w-full max-w-full rounded-xl border border-slate-200 bg-white p-4 text-center text-sm text-slate-500 sm:p-8">No job matches were returned with this CV review.</div>}
-          {!premiumUnlocked && jobs.some((job) => job.match >= 90) ? <p className="text-xs text-slate-500">Some high-scoring matches are reserved for administrators.</p> : null}
+          {jobs.length ? jobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={!isJobUnlocked(job, paidAccess)} onViewDetails={() => setActiveJobId(String(job.id))} />) : <div className="box-border w-full max-w-full rounded-xl border border-slate-200 bg-white p-4 text-center text-sm text-slate-500 sm:p-8">No job matches were returned with this CV review.</div>}
+          {jobs.some(job => !isJobUnlocked(job, paidAccess)) ? <p className="text-xs text-slate-500">Unlock 50%+ matches for R20 each, or get R80 Mega Access for 7 days.</p> : null}
         </div>
       ) : (
         <div id="jobs-panel-search" role="tabpanel" aria-labelledby="jobs-tab-search" className="space-y-5">
@@ -3175,7 +3172,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
         <section role="dialog" aria-modal="true" aria-labelledby="job-detail-title" className="flex h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:h-auto sm:max-h-[88dvh] sm:rounded-3xl">
           <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4"><h3 id="job-detail-title" className="text-sm font-bold text-slate-900">Job details</h3><button type="button" onClick={() => setActiveJobId(null)} aria-label="Close job details" className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"><X size={18} /></button></header>
           <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-            {view === 'ai' && activeJob.match >= 90 && !premiumUnlocked ? <p className="rounded-xl bg-slate-50 p-6 text-sm text-slate-600">This high-scoring result is available to administrators.</p> : <>
+            {view === 'ai' && !isJobUnlocked(activeJob, paidAccess) ? <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600"><p>Unlock this {activeJob.match}% match for R20, or get R80 Mega Access for 7 days.</p><button className="btn-primary mt-3" onClick={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: activeJob.id })}>Unlock Match for R20</button></div> : <>
               <JobListingDetails job={toJobListing(activeJob)} loading={detailLoading} />
               {detailNotice ? <p className="mt-3 text-xs text-slate-500" role="status">{detailNotice}</p> : null}
               <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => toggleSavedJob(activeJob)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">{savedJobs.some((saved) => String(saved.id) === String(activeJob.id)) ? 'Saved job' : 'Save job'}</button>{view === 'ai' ? <button type="button" onClick={() => onOpenJob(activeJob)} className="rounded-lg border border-blue-200 px-4 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50">Scan match</button> : null}</div>
@@ -3189,6 +3186,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
 }
 
 function AdviceAndNextStepsView({ report, jobs, premiumUnlocked, onImproveCv }: { report: DiagnosticReport; jobs: JobMatch[]; premiumUnlocked: boolean; onImproveCv: () => void }) {
+  const paidAccess = usePaidAccess();
   const topJobs = jobs.slice(0, 6);
   return (
     <div className="space-y-6">
@@ -3197,7 +3195,7 @@ function AdviceAndNextStepsView({ report, jobs, premiumUnlocked, onImproveCv }: 
         <h2 className="mt-1 text-lg font-semibold text-foreground">Recent job matches</h2>
         {report.jobSearch?.liveResults ? <p className="mt-1 text-xs text-muted-foreground">Live listings for “{report.jobSearch.query}” — open a role to apply on the board.</p> : null}
         {topJobs.length ? <ul className="mt-4 space-y-2">{topJobs.map((job) => {
-          const locked = job.match >= 90 && !premiumUnlocked;
+          const locked = !isJobUnlocked(job, paidAccess);
           const href = applyHref(job);
           return <li key={job.id} className="relative overflow-hidden rounded-2xl bg-secondary/50"><div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm ${locked ? 'select-none blur-[2.5px] pointer-events-none' : ''}`}>
             {href && !locked ? <a href={href} target="_blank" rel="noreferrer" onClick={() => persistSelectedJob(job)} className="min-w-0 flex-1 font-semibold text-foreground hover:text-primary">{job.title}{job.company ? <span className="font-normal text-muted-foreground"> — {job.company}</span> : null}<span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">{[job.source, job.posted && job.posted !== 'Date unavailable' ? `Posted ${job.posted}` : null].filter(Boolean).join(' — ')}</span></a> : <span className="min-w-0 flex-1 font-semibold text-foreground">{locked ? 'Premium job match' : job.title}{!locked && job.company ? <span className="font-normal text-muted-foreground"> — {job.company}</span> : null}</span>}
@@ -3229,7 +3227,7 @@ function JobsPage() {
     const stored = sessionStorage.getItem(REPORT_KEY);
     let cancelled = false;
     if (stored) {
-      try { setReport(reportForCurrentViewer(JSON.parse(stored) as DiagnosticReport)); return; } catch { /* Recover from the server below. */ }
+      try { setReport(reportForCurrentViewer(JSON.parse(stored) as DiagnosticReport)); } catch { /* Recover from the server below. */ }
     }
     void authFetch('/api/career/diagnostic/latest').then(async response => {
       if (!response.ok) return;
@@ -3315,14 +3313,15 @@ function JobsPage() {
       <p className="mt-5 text-center text-xs text-muted-foreground">
         {premiumUnlocked
           ? 'Administrator view includes all current matches.'
-          : 'Candidates can open matches below 90%. Matches of 90% or higher are reserved for administrators.'}
+          : 'Matches below 50% are free. Unlock higher-scoring matches for R20 each, or get seven-day Mega Access for R80.'}
       </p>
     </div>
   );
 }
 
 function JobCard({ job, premiumUnlocked = false }: { job: JobMatch; premiumUnlocked?: boolean }) {
-  const premiumLocked = job.match >= 90 && !premiumUnlocked;
+  const paidAccess = usePaidAccess();
+  const premiumLocked = !isJobUnlocked(job, paidAccess);
   const detailHref = `/jobs/${job.id}`;
   const externalApply = applyHref(job);
 
@@ -3420,8 +3419,9 @@ function JobCard({ job, premiumUnlocked = false }: { job: JobMatch; premiumUnloc
             </span>
             <p className="mt-3 text-sm font-semibold text-foreground">{job.match}% premium match</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              This match is available in the administrator view.
+              Unlock the full job specification and application link for R20, or get R80 Mega Access for 7 days.
             </p>
+            <button className="btn-primary mt-3" onClick={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: job.id })}>Unlock Match for R20</button>
           </div>
         </div>
       )}
@@ -3443,13 +3443,18 @@ function JobDetailPage() {
         setLocation('/jobs');
         return;
       }
-      if (found.match >= 90 && !isAdminUser()) {
+      let verified = found;
+      if (found.match >= 50 && (found as JobMatch & { isAiMatch?: boolean }).isAiMatch !== false) {
+        try { verified = await fetchUnlockedJob(found.id) as JobMatch; }
+        catch { requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: found.id }); setLocation('/jobs'); return; }
+      }
+      if (!verified) {
         setLocation('/jobs');
         return;
       }
       if (cancelled) return;
-      persistSelectedJob(found);
-      setJob(found);
+      persistSelectedJob(verified);
+      setJob(verified);
     })();
     return () => {
       cancelled = true;
@@ -3588,7 +3593,7 @@ function InterviewPage() {
         <div className="mb-6 rounded-2xl border border-border bg-secondary/50 px-5 py-4 text-sm">
           <p className="font-semibold text-foreground">Full interview tools unlock on Career Pro</p>
           <p className="mt-1 text-muted-foreground">
-            Or get them included for 3 months with the R2,000 Career Accelerator programme — no extra subscription required.
+            Get unlimited downloads and match reveals with R80 Mega Access for seven days.
           </p>
           <Link href="/pricing" className="mt-3 inline-flex items-center gap-1 font-bold text-primary" data-testid="link-interview-pricing">
             View pricing <ArrowRight size={14} />
@@ -3770,7 +3775,7 @@ function CoachingPage() {
       <PageHeading
         eyebrow="3-Month Career Transformation Programme"
         title="STOP SOUNDING LIKE EVERYONE ELSE."
-        description="A structured R2,000 once-off programme — not another AI subscription. Full platform access for 3 months, plus training that keeps your authentic professional voice."
+        description="Career coaching resources for existing programme members. The previous paid offering is retired."
         action={
           <Link href="/pricing" className="btn-primary" data-testid="link-coaching-pricing-cta">
             JOIN THE PROGRAMME <ArrowRight size={15} />
@@ -3802,7 +3807,7 @@ function CoachingPage() {
               ))}
             </div>
             <p className="mt-8 text-xs font-bold uppercase tracking-[0.12em] text-primary-foreground/90">
-              R2,000 once-off — 3 months — Full platform access
+              Previous offering retired — existing member records preserved
             </p>
           </div>
         </div>
@@ -3864,7 +3869,7 @@ function CoachingPage() {
           <div className="mt-5 rounded-2xl border border-primary/30 bg-secondary/50 px-4 py-3">
             <p className="text-sm font-semibold text-foreground">Stand-alone programme</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              R2,000 once-off — Full Free + Job Seeker + Career Pro access for 3 months
+              Explore R80 seven-day Mega Access on Pricing
             </p>
           </div>
           {apply.isError && (
@@ -4163,6 +4168,7 @@ function Router() {
       </RoutedErrorBoundary>
     );
   }
+  if (pathname === '/payment/success' || pathname === '/payment/cancel') return <AppShell><PaymentResultPage /></AppShell>;
   if (!isKnownAppPath(pathname)) {
     return <RoutedErrorBoundary><AppShell><NotFound /></AppShell></RoutedErrorBoundary>;
   }
@@ -4184,6 +4190,10 @@ function App() {
       if (!rawUrl) return;
       try {
         const deepLink = new URL(rawUrl);
+        if (deepLink.protocol === 'bonlist:' && deepLink.hostname === 'payment' && ['/success','/cancel'].includes(deepLink.pathname)) {
+          window.history.replaceState({}, '', `/payment${deepLink.pathname}${deepLink.search}`);
+          window.dispatchEvent(new PopStateEvent('popstate')); return;
+        }
         if (deepLink.protocol !== 'bonlist:' || deepLink.hostname !== 'auth' || deepLink.pathname !== '/callback') return;
         const params = new URLSearchParams(deepLink.searchParams);
         const target = params.has('mfaToken') || params.has('error') ? '/login' : '/auth/callback';
@@ -4226,12 +4236,13 @@ function App() {
         <AppUpdatePrompt />
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
           <SeoManager />
-          <AdProvider>
+          <PaidAccessProvider><AdProvider>
+            <YocoCheckoutHost />
             <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground" role="status">Loading BonList…</div>}>
               <Router />
             </Suspense>
             <CookieConsent />
-          </AdProvider>
+          </AdProvider></PaidAccessProvider>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

@@ -39,6 +39,10 @@ export type D1Env = MailEnv & {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   PAYMENT_WEBHOOK_SECRET?: string;
+  YOCO_SECRET_KEY?: string;
+  YOCO_PUBLIC_KEY?: string;
+  YOCO_WEBHOOK_SECRET?: string;
+  APP_BASE_URL?: string;
 };
 
 export type UserRow = {

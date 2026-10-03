@@ -15,6 +15,11 @@ const usePglite = !databaseUrl || databaseUrl === "pglite";
 async function ensureLocalSchema(
   db: ReturnType<typeof drizzlePglite>,
 ): Promise<void> {
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS yoco_orders (
+    id text PRIMARY KEY, user_id text NOT NULL, item_type text NOT NULL, target_id text NOT NULL,
+    amount integer NOT NULL, status text NOT NULL DEFAULT 'pending', mode text NOT NULL,
+    checkout_id text UNIQUE, payment_id text UNIQUE, paid_at text, expires_at text, created_at timestamptz NOT NULL DEFAULT now()
+  )`);
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS career_jobs (
       id SERIAL PRIMARY KEY,

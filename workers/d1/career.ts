@@ -21,6 +21,8 @@ import {
   type GeneratedCvDocument,
 } from "../../artifacts/api-server/src/lib/cv-builder";
 import { handleCvParseUpload } from "../cv-parse";
+import { d1PaymentAccess } from './yoco';
+import { protectReport } from '../../artifacts/api-server/src/lib/yoco';
 import { searchManualJobs, searchWithLocationFallback } from "../../artifacts/api-server/src/lib/job-search-service";
 
 type CareerProfileRow = {
@@ -837,7 +839,7 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
   report.id = Number(inserted.meta.last_row_id || 0);
   await env.DB.prepare('UPDATE cv_reports SET report_json = ? WHERE id = ? AND user_id = ?')
     .bind(JSON.stringify(report), report.id, user.id).run();
-  return json(report, 201);
+  return json(protectReport(report, await d1PaymentAccess(env, user)), 201);
 }
 
 async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Promise<Response> {
@@ -869,7 +871,7 @@ async function handleLatest(request: Request, env: D1Env, user: UserRow): Promis
     .first<{ id: number; report_json: string }>();
   if (!row) return error(404, "No CV review found yet");
   try {
-    return json({ ...(JSON.parse(row.report_json) as Record<string, unknown>), id: row.id });
+    return json(protectReport({ ...(JSON.parse(row.report_json) as Record<string, unknown>), id: row.id }, await d1PaymentAccess(env, user)));
   } catch {
     return error(500, "Saved CV review is invalid.");
   }

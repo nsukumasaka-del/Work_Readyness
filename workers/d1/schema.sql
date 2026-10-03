@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS career_programmes (
   end_date TEXT NOT NULL,
   completed_lessons_json TEXT NOT NULL DEFAULT '[]',
   current_lesson_id TEXT,
-  amount_paid INTEGER NOT NULL DEFAULT 2000,
+  amount_paid INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -238,3 +238,11 @@ INSERT OR IGNORE INTO premium_feature_catalog (feature_id, name, description, cr
   ('improve_cv', 'Advanced CV Improvement', 'A comprehensive improvement of wording, clarity, structure and impact without changing the facts.', 2),
   ('ats_review', 'Advanced ATS Review', 'A detailed readability and ATS analysis with practical recommendations.', 2),
   ('tailor_cv', 'Tailor My CV for a Job', 'Tailor an existing CV to a vacancy without fabricating experience, qualifications or skills.', 3);
+
+CREATE TABLE IF NOT EXISTS yoco_orders (
+ id TEXT PRIMARY KEY, user_id TEXT NOT NULL, item_type TEXT NOT NULL CHECK(item_type IN ('TEMPLATE_DOWNLOAD','JOB_MATCH_UNLOCK','MEGA_ACCESS')),
+ target_id TEXT NOT NULL DEFAULT '', amount INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+ checkout_id TEXT UNIQUE, payment_id TEXT UNIQUE, paid_at TEXT, expires_at TEXT, mode TEXT NOT NULL,
+ created_at TEXT NOT NULL DEFAULT (datetime('now')), FOREIGN KEY(user_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_yoco_orders_user ON yoco_orders(user_id, status);

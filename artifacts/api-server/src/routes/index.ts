@@ -4,7 +4,9 @@ import authRouter from "./auth";
 import careerRouter from "./career";
 import adminRouter from "./admin";
 
+import paymentsRouter from './payments';
 const router: IRouter = Router();
+router.use(paymentsRouter);
 
 router.use(healthRouter);
 router.use(authRouter);

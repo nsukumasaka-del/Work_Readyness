@@ -1,3 +1,5 @@
+import { d1PaymentAccess } from "./yoco";
+import { PAYMENT_PRODUCTS } from "../../artifacts/api-server/src/lib/yoco";
 import { getAuthenticatedUser, type D1Env, type UserRow } from "./auth";
 
 type PlanId = "free" | "job_seeker" | "career_pro";
@@ -67,7 +69,8 @@ const plans = [
 const programmeInfo = {
   name: "3-Month Career & Interview Coaching Programme",
   shortName: "Career Accelerator",
-  priceZar: 2000,
+  priceZar: 0, // Retired; not available for purchase.
+  retired: true,
   headline: "STOP SOUNDING LIKE EVERYONE ELSE.",
   tagline: "A 3-Month Career Transformation Programme.",
   badge:
@@ -263,7 +266,8 @@ async function entitlement(env: D1Env, user: UserRow) {
     : subscription?.status === "active"
       ? subscription.plan
       : "free";
-  const pro = programmeActive || plan === "career_pro";
+  const paidAccess = await d1PaymentAccess(env, user);
+  const pro = paidAccess.adminBypass || paidAccess.megaAccessActive || programmeActive || plan === "career_pro";
   const seeker = pro || plan === "job_seeker";
   const completed = completedLessons(programme || null);
   const programmePayload = programme
@@ -383,7 +387,7 @@ export async function handlePlatformTools(
   if (!supported.has(path)) return null;
   if (path === "/api/career/interview" && method === "GET") return interview();
   if (path === "/api/career/pricing" && method === "GET")
-    return json({ plans, programme: programmeInfo, curriculum });
+    return json({ products: PAYMENT_PRODUCTS, plans: plans.filter(p => p.id === "free"), programme: null });
   const user = await getAuthenticatedUser(request, env);
   if (!user) return json({ error: "Please sign in to continue." }, 401);
   const profile = await profileFor(env, user);
@@ -423,6 +427,7 @@ export async function handlePlatformTools(
     return json(await entitlement(env, user));
   if (path === "/api/career/subscribe" && method === "POST") {
     const plan = text(input.plan) as PlanId;
+    if (plan !== "free") return json({ error: "Legacy plans are retired. Use Yoco checkout." }, 410);
     if (!plans.some((item) => item.id === plan))
       return json({ error: "Choose a valid plan." }, 400);
     const current = await entitlement(env, user);
@@ -441,41 +446,7 @@ export async function handlePlatformTools(
       .run();
     return json({ ok: true, entitlement: await entitlement(env, user) });
   }
-  if (path === "/api/career/programme/purchase" && method === "POST") {
-    const current = await entitlement(env, user);
-    if (current?.programme?.status === "active")
-      return json(
-        {
-          error: "You already have an active Career Accelerator programme.",
-          entitlement: current,
-        },
-        409,
-      );
-    const start = new Date();
-    const end = addMonths(start, 3);
-    await env.DB.prepare(
-      "INSERT INTO career_programmes (user_id, profile_id, status, start_date, end_date, completed_lessons_json, current_lesson_id, amount_paid, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, '[]', ?, 2000, datetime('now'), datetime('now')) ON CONFLICT(user_id) DO UPDATE SET status = 'active', start_date = excluded.start_date, end_date = excluded.end_date, completed_lessons_json = '[]', current_lesson_id = excluded.current_lesson_id, amount_paid = 2000, updated_at = datetime('now')",
-    )
-      .bind(
-        user.id,
-        profile.id,
-        start.toISOString(),
-        end.toISOString(),
-        curriculum[0].id,
-      )
-      .run();
-    const next = await entitlement(env, user);
-    return json(
-      {
-        ok: true,
-        message:
-          "Programme activated. You now have full platform access for 3 months.",
-        programme: next?.programme,
-        entitlement: next,
-      },
-      201,
-    );
-  }
+  if (path === "/api/career/programme/purchase" && method === "POST") return json({ error: "This offering is retired. Use Mega Access via Yoco." }, 410);
   if (path === "/api/career/programme" && method === "GET") {
     const current = await entitlement(env, user);
     const completed = new Set(current?.programme?.completedLessons || []);

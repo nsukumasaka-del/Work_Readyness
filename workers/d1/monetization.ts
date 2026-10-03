@@ -1,4 +1,6 @@
 import { getAuthenticatedUser, type D1Env, type UserRow } from "./auth";
+import { d1PaymentAccess } from './yoco';
+import { canDownloadTemplate } from '../../artifacts/api-server/src/lib/yoco';
 
 export const FREE_TEMPLATE_IDS = new Set([
   "serif_classic", "corporate_blue", "analyst_clean", "double_column", "ivy_league",
@@ -28,15 +30,11 @@ async function creditBalance(env: D1Env, userId: string): Promise<number> {
 }
 
 export async function canUseTemplate(env: D1Env, user: UserRow, templateId: string): Promise<boolean> {
-  if (user.is_admin || FREE_TEMPLATE_IDS.has(templateId)) return true;
-  if (!PAID_TEMPLATE_IDS.has(templateId)) return false;
-  const owned = await env.DB.prepare(
-    "SELECT 1 AS owned FROM user_template_entitlements WHERE user_id = ? AND template_id = ? AND status = 'active' LIMIT 1",
-  ).bind(user.id, templateId).first<{ owned: number }>();
-  return Boolean(owned);
+  return canDownloadTemplate(await d1PaymentAccess(env, user), templateId);
 }
 
 async function status(env: D1Env, user: UserRow) {
+  const access = await d1PaymentAccess(env, user);
   const [owned, features, recent, balance] = await Promise.all([
     env.DB.prepare("SELECT template_id, unlocked_at FROM user_template_entitlements WHERE user_id = ? AND status = 'active' ORDER BY unlocked_at DESC")
       .bind(user.id).all<{ template_id: string; unlocked_at: string }>(),
@@ -47,12 +45,12 @@ async function status(env: D1Env, user: UserRow) {
     creditBalance(env, user.id),
   ]);
   return {
-    adminBypass: Boolean(user.is_admin),
+    ...access,
     credits: balance,
     creditPack: { priceZar: 50, credits: 5 },
-    ownedTemplateIds: owned.results.map((row) => row.template_id),
-    freeTemplateIds: [...FREE_TEMPLATE_IDS],
-    premiumTemplates: [...PAID_TEMPLATE_IDS].map((templateId) => ({ templateId, priceZar: 50, ownership: "lifetime" })),
+    ownedTemplateIds: [...new Set([...access.ownedTemplateIds, ...owned.results.map(row => row.template_id)])],
+    freeTemplateIds: [],
+    premiumTemplates: [...FREE_TEMPLATE_IDS, ...PAID_TEMPLATE_IDS].map((templateId) => ({ templateId, priceZar: 50, ownership: "lifetime" })),
     features: features.results.map((row) => ({
       id: row.feature_id, name: row.name, description: row.description, creditCost: row.credit_cost,
     })),
@@ -65,15 +63,17 @@ export async function getFeatureQuote(env: D1Env, user: UserRow, featureId: stri
     "SELECT feature_id, name, description, credit_cost FROM premium_feature_catalog WHERE feature_id = ? AND active = 1 LIMIT 1",
   ).bind(featureId).first<FeatureRow>();
   if (!feature) return null;
-  const balance = user.is_admin ? Number.MAX_SAFE_INTEGER : await creditBalance(env, user.id);
-  return { feature, balance, allowed: Boolean(user.is_admin) || balance >= feature.credit_cost, adminBypass: Boolean(user.is_admin) };
+  const access = await d1PaymentAccess(env, user);
+  const bypass = access.adminBypass || access.megaAccessActive;
+  const balance = bypass ? Number.MAX_SAFE_INTEGER : await creditBalance(env, user.id);
+  return { feature, balance, allowed: bypass || balance >= feature.credit_cost, adminBypass: bypass };
 }
 
 export async function chargeFeatureCredits(env: D1Env, user: UserRow, featureId: string, idempotencyKey: string) {
   const quote = await getFeatureQuote(env, user, featureId);
   if (!quote) return { ok: false as const, status: 404, error: "Unknown premium feature." };
   const { feature } = quote;
-  if (user.is_admin) return { ok: true as const, adminBypass: true, charged: 0, featureId, balance: quote.balance };
+  if (quote.adminBypass) return { ok: true as const, adminBypass: true, charged: 0, featureId, balance: quote.balance };
 
   const existing = await env.DB.prepare("SELECT balance_after FROM credit_transactions WHERE idempotency_key = ? AND user_id = ? LIMIT 1")
     .bind(idempotencyKey, user.id).first<{ balance_after: number }>();
@@ -159,7 +159,7 @@ async function verifyPayment(request: Request, env: D1Env) {
 export async function handleMonetization(request: Request, env: D1Env): Promise<Response | null> {
   const path = new URL(request.url).pathname.replace(/\/+$/, "");
   const method = request.method.toUpperCase();
-  if (path === "/api/career/payments/verify" && method === "POST") return verifyPayment(request, env);
+  if (path === "/api/career/payments/verify" && method === "POST") return json({ error: 'Use the signed Yoco webhook endpoint.' }, 410);
   if (!["/api/career/monetization", "/api/career/credits/spend"].includes(path)) return null;
   const user = await getAuthenticatedUser(request, env);
   if (!user) return json({ error: "Please sign in to continue." }, 401);

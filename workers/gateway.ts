@@ -71,16 +71,21 @@ async function handleCvPdfExport(request: Request, env: Env): Promise<Response> 
     const page = await browser.newPage();
     await page.setJavaScriptEnabled(false);
     await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 1 });
-    await page.setContent(html, { waitUntil: "networkidle0", timeout: 20_000 });
     await page.emulateMediaType("print");
+    await page.setContent(html, { waitUntil: "networkidle0", timeout: 30_000 });
     await page.evaluate(async () => {
-      if ("fonts" in document) await document.fonts.ready;
+      await document.fonts.ready;
+      if (Array.from(document.fonts).some(font => font.status === "error")) throw new Error("A CV font failed to load.");
+      await Promise.all(Array.from(document.images).map(async image => {
+        await image.decode();
+      }));
     });
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,
       preferCSSPageSize: true,
       displayHeaderFooter: false,
+      scale: 1,
       margin: { top: 0, right: 0, bottom: 0, left: 0 },
     });
     return new Response(pdf, {

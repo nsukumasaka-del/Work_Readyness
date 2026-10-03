@@ -90,7 +90,7 @@ import { getNativeCv, NATIVE_CV_STORE_UPDATED, saveNativeCv } from "@/lib/native
 import { isAndroidApp } from "@/lib/platform";
 import { EMPTY_MONETIZATION, fetchMonetizationStatus, templateAccess, type MonetizationStatus } from "@/lib/monetization";
 import { requestPayment } from '@/lib/yoco';
-import { exportCvVisualPdf, type CvPdfExportStage } from "@/utils/export-cv-visual-pdf";
+import { exportCvVisualPdf, measureCvPages, computeCvPageSpacers, type CvPdfExportStage } from "@/utils/export-cv-visual-pdf";
 import { sanitizeSkillBadge } from "@/utils/sanitizeSkills";
 import {
   buildGeneratedCv as buildGeneratedCvLocally,
@@ -1660,10 +1660,10 @@ const FONT_OPTIONS = [
   { id: "rubik", label: "Rubik (Modern Geometric)", family: "'Rubik', sans-serif" },
   { id: "sans", label: "Inter / Figtree (Clean UI)", family: "var(--font-sans), ui-sans-serif, system-ui, sans-serif" },
   { id: "merriweather", label: "Merriweather (Ivy League Serif)", family: "'Merriweather', Georgia, serif" },
-  { id: "garamond", label: "Garamond", family: "Garamond, 'Times New Roman', serif" },
+  { id: "garamond", label: "Garamond", family: "'EB Garamond', serif" },
   { id: "raleway", label: "Raleway (Sophisticated)", family: "'Raleway', sans-serif" },
   { id: "playfair", label: "Playfair Display (Executive Editorial)", family: "'Playfair Display', Georgia, serif" },
-  { id: "mono", label: "Technical Mono (System Stack)", family: "ui-monospace, SFMono-Regular, Menlo, monospace" },
+  { id: "mono", label: "Technical Mono", family: "'Roboto Mono', monospace" },
 ];
 
 const BACKGROUND_PATTERNS = [
@@ -1886,7 +1886,7 @@ function TemplateThumbnail({
   const certs = doc?.certifications?.length ? doc.certifications.slice(0, 1) : [{ name: "Professional Certification" }];
 
   const sectionLabel = (label: string) => {
-    if (isAnalystClean) return label.toUpperCase().split("").join(" ");
+    if (isAnalystClean) return label.toUpperCase();
     if (isSerifClassic || isCorporateBlue) return label.toUpperCase();
     return label;
   };
@@ -2157,85 +2157,7 @@ function mergeSpacersStable(
  * collapsed so results are stable (no measure→push→remeasure oscillation).
  */
 function computeA4Spacers(root: HTMLElement): Record<string, number> {
-  const pageH = (root.offsetWidth / 210) * 297;
-  if (!Number.isFinite(pageH) || pageH < 40) return {};
-
-  const styles = getComputedStyle(root);
-  const padY = parseFloat(styles.paddingTop) || 0;
-  const padBottom = parseFloat(styles.paddingBottom) || padY;
-  const usable = Math.max(40, pageH - padY - padBottom);
-  // Keep a clear band above the page cut so content never sits on the dashed guide
-  // Reserve a clear band at the physical page edge for the page guide and
-  // label; pushing the next block beyond this band prevents text colliding
-  // with the visual pagination overlay.
-  const edgeSafety = Math.max(padBottom + 16, Math.round(pageH * 0.06), 52);
-
-  const spacerEls = Array.from(root.querySelectorAll<HTMLElement>("[data-a4-spacer]"));
-  const prevSpacerStyles = spacerEls.map((s) => s.getAttribute("style"));
-  // Collapse spacers so we measure the natural (unpushed) layout once
-  for (const s of spacerEls) {
-    s.style.setProperty("height", "0px", "important");
-    s.style.setProperty("min-height", "0px", "important");
-    s.style.setProperty("margin", "0", "important");
-    s.style.setProperty("padding", "0", "important");
-    s.style.setProperty("overflow", "hidden", "important");
-  }
-
-  type Item = { id: string; naturalTop: number; height: number };
-  const groups = new Map<HTMLElement, Item[]>();
-
-  try {
-    for (const el of Array.from(root.querySelectorAll<HTMLElement>("[data-a4-id]"))) {
-      if (el.classList.contains("hidden") || el.classList.contains("no-print")) continue;
-      if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") continue;
-      const id = el.getAttribute("data-a4-id") || "";
-      if (!id) continue;
-      const parent = el.parentElement;
-      if (!parent) continue;
-
-      const { top, height } = offsetWithinRoot(el, root);
-      if (height <= 1) continue;
-
-      const list = groups.get(parent) || [];
-      list.push({ id, naturalTop: top, height });
-      groups.set(parent, list);
-    }
-  } finally {
-    spacerEls.forEach((s, i) => {
-      const prev = prevSpacerStyles[i];
-      if (prev == null || prev === "") s.removeAttribute("style");
-      else s.setAttribute("style", prev);
-    });
-  }
-
-  const result: Record<string, number> = {};
-
-  for (const items of groups.values()) {
-    items.sort((a, b) => a.naturalTop - b.naturalTop || a.id.localeCompare(b.id));
-    let cumulative = 0;
-
-    for (const item of items) {
-      // Blocks taller than one usable page must be allowed to flow across breaks
-      if (item.height > usable - 4) continue;
-
-      const top = item.naturalTop + cumulative;
-      const pageIndex = Math.max(0, Math.floor(top / pageH));
-      const hardEnd = (pageIndex + 1) * pageH;
-      const bottom = top + item.height;
-      const contentEnd = hardEnd - edgeSafety;
-
-      // Would cross the page cut / bottom margin while starting on this page
-      if (top < contentEnd && bottom > contentEnd) {
-        const push = Math.round(hardEnd + padY - top);
-        if (push > 4 && push < pageH) {
-          result[item.id] = push;
-          cumulative += push;
-        }
-      }
-    }
-  }
-
-  return result;
+  return computeCvPageSpacers(root);
 }
 
 function A4PageSpacer({ id, height }: { id: string; height: number }) {
@@ -5269,6 +5191,9 @@ export default function CvBuilderPage() {
       const templateName = TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "CV";
       const safeTemplateName = templateName.replace(/[^a-z0-9_-]/gi, "_");
       const filename = `${safeBaseName}_${safeTemplateName}`;
+      await document.fonts.ready;
+      setA4Spacers(computeCvPageSpacers(preview));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       await exportCvVisualPdf(preview.id || "bonlist-cv-document", filename, selectedTemplate, setPdfDownloadStage);
       setMessage("Your CV PDF download has started.");
       setTimeout(() => setMessage(""), 4000);
@@ -5621,7 +5546,7 @@ export default function CvBuilderPage() {
   useLayoutEffect(() => {
     const root = printRef.current;
     if (!root) return;
-    const pageHeight = root.offsetWidth * 297 / 210;
+    const pageHeight = measureCvPages(root).pageHeightPx;
     root.querySelectorAll<HTMLElement>("[data-managed-duplicate-page]").forEach((host) => {
       const sourceIndex = Number(host.dataset.managedDuplicatePage || 0);
       const clone = root.cloneNode(true) as HTMLElement;
@@ -5660,12 +5585,7 @@ export default function CvBuilderPage() {
     let lastApplied: Record<string, number> = {};
 
     const updateMetrics = () => {
-      const mm = el.offsetWidth / 210 || 96 / 25.4;
-      const pagePx = Math.max(1, 297 * mm);
-      const height = Math.max(el.scrollHeight, el.offsetHeight);
-      const managedHeight = el.querySelector<HTMLElement>("[data-managed-pages-container]")?.offsetHeight || 0;
-      const naturalHeight = Math.max(pagePx, height - managedHeight);
-      const naturalPages = Math.max(1, Math.ceil(naturalHeight / pagePx - 0.02));
+      const { pageHeightPx: pagePx, height, naturalHeight, naturalPages } = measureCvPages(el);
       const lead = managedPages.length ? Math.max(0, naturalPages * pagePx - naturalHeight) : 0;
       const pages = naturalPages + managedPages.length;
       setNaturalA4PageCount((prev) => (prev === naturalPages ? prev : naturalPages));
@@ -7076,7 +6996,7 @@ export default function CvBuilderPage() {
                     return (
                       <div className="mb-3 border-b border-dashed pb-1.5" style={{ borderColor: selectedColor.border }}>
                         <h2 {...headingEditProps} className="text-[11px] font-bold uppercase tracking-[0.28em]" style={{ color: selectedColor.primary }}>
-                          {displayTitle.split("").join(" ")}
+                          {displayTitle}
                         </h2>
                       </div>
                     );

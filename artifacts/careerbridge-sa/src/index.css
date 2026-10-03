@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;0,900;1,400;1,700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Raleway:wght@400;500;600;700&family=Rubik:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&family=Roboto:ital,wght@0,400;0,700;1,400&family=Roboto+Mono:wght@400;700&family=Figtree:wght@400;500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;0,900;1,400;1,700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Raleway:wght@400;500;600;700&family=Rubik:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap');
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @plugin "@tailwindcss/typography";
@@ -836,6 +836,16 @@
   white-space: pre-wrap !important;
   field-sizing: content;
   line-height: 1.45;
+}
+
+/* Letter spacing is visual styling, never spaces between heading characters. */
+#bonlist-cv-document h1,
+#bonlist-cv-document h2,
+#bonlist-cv-document h3,
+#bonlist-cv-document h4 {
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: manual;
 }
 
 #bonlist-cv-document input {

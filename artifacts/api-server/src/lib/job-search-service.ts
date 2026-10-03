@@ -1,5 +1,7 @@
 import { searchTrustedJobBoards, type SearchInput } from './job-board-search';
 import { calibrateJobListingScores, scoreJobListingsWithGemini, type JobScoringCandidate } from './ai/gemini-client';
+import { extractCvDataFromText } from './cv-builder';
+import { estimateCareerYears } from './career-alignment';
 
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').slice(0, 60) : [];
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
@@ -18,8 +20,9 @@ export async function searchWithLocationFallback(input: SearchInput, search = se
   let result = await search(input);
   let effectiveLocation = input.location || 'South Africa';
   let fallbackApplied = false;
-  if (!result.jobs.length) {
-    const broader = /johannesburg|pretoria|centurion|sandton|midrand/i.test(effectiveLocation) ? 'Gauteng' : 'South Africa';
+  const locations = /johannesburg|pretoria|centurion|sandton|midrand/i.test(effectiveLocation) ? ['Gauteng', 'South Africa'] : ['South Africa'];
+  for (const broader of locations) {
+    if (result.jobs.length) break;
     if (broader.toLowerCase() !== effectiveLocation.toLowerCase()) {
       result = await search({ ...input, location: broader });
       effectiveLocation = broader;
@@ -31,6 +34,32 @@ export async function searchWithLocationFallback(input: SearchInput, search = se
     ? 'Listings were found, but none met the evidence-based qualification requirements.'
     : 'No verified listings were returned. Try another role or area; some job boards may be temporarily unavailable.');
   return { ...result, effectiveLocation, fallbackApplied, searchNotice: notices.filter(Boolean).join(' ') };
+}
+
+export function normalizeJobRequest(value: unknown) {
+  const input = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return { keywords: (text(input.keywords) || text(input.query) || text(input.targetRole) || text(input.role)).slice(0, 120),
+    location: (text(input.location) || [text(input.city), text(input.province)].filter(Boolean).join(', ')).slice(0, 100),
+    cvText: (text(input.cvText) || text(input.text)).slice(0, 100_000) };
+}
+
+export async function searchCandidateJobs(input: Parameters<typeof searchManualJobs>[0] & { cvText?: string }, dependencies = { search: searchTrustedJobBoards, score: scoreJobListingsWithGemini }) {
+  let candidate = candidateFromReport(input.report);
+  if (input.cvText?.trim()) {
+    const cv = extractCvDataFromText(input.cvText, 'candidate.txt');
+    candidate = { targetRole: input.keywords || cv.personal.professionalTitle || '', summary: cv.summary,
+      experienceRoles: cv.experiences.map(item => item.role), skills: cv.skills, systems: cv.toolsAndSoftware,
+      credentials: [...cv.education.map(item => item.degree), ...cv.certifications.map(item => item.name)],
+      yearsExperience: estimateCareerYears(cv.experiences), location: input.location || cv.personal.location };
+  }
+  if (!candidate.experienceRoles?.length && !candidate.skills?.length && !candidate.credentials?.length) throw new Error('Upload a readable CV or complete a CV review before requesting matches.');
+  const result = await searchWithLocationFallback({ role: input.keywords || candidate.targetRole || 'Professional', location: input.location || candidate.location || 'South Africa',
+    mode: 'recommendations', limit: 6, experienceRoles: candidate.experienceRoles, expertise: [...candidate.skills || [], ...candidate.systems || []],
+    credentials: candidate.credentials, yearsExperience: candidate.yearsExperience, adzunaAppId: input.adzunaAppId, adzunaAppKey: input.adzunaAppKey }, dependencies.search);
+  let scored = null;
+  try { scored = await dependencies.score({ apiKey: input.apiKey, model: input.model, candidateProfile: candidate, jobs: result.jobs }); } catch { /* Keep real listings and strict deterministic scores. */ }
+  const jobs = calibrateJobListingScores(candidate, scored || result.jobs).filter(job => job.match >= 60).map(job => ({ ...job, isAiMatch: true }));
+  return { ...result, jobs, candidateProfile: candidate, liveResults: jobs.length > 0, scoring: scored ? 'gemini' : 'evidence-based-fallback', isFallback: !scored };
 }
 
 export async function searchManualJobs(input: {

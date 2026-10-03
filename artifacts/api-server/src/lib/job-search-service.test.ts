@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { candidateFromReport, searchManualJobs, searchWithLocationFallback } from './job-search-service';
+import { candidateFromReport, normalizeJobRequest, searchCandidateJobs, searchManualJobs, searchWithLocationFallback } from './job-search-service';
 import { normalizeJobSearchRole, type LiveJobListing } from './job-board-search';
 import { parseGeminiJsonObject } from './ai/json-output';
 
@@ -42,4 +42,43 @@ test('empty exact location broadens transparently while retaining recommendation
   assert.deepEqual(calls, ['Pretoria', 'Gauteng']);
   assert.equal(response.effectiveLocation, 'Gauteng');
   assert.equal(response.fallbackApplied, true);
+});
+
+test('empty province search continues nationally without inventing vacancies', async () => {
+  const calls: string[] = [];
+  const response = await searchWithLocationFallback({ role: 'Lawyer', location: 'Johannesburg' }, async input => {
+    calls.push(input.location!); return result([]);
+  });
+  assert.deepEqual(calls, ['Johannesburg', 'Gauteng', 'South Africa']);
+  assert.deepEqual(response.jobs, []);
+  assert.equal(response.effectiveLocation, 'South Africa');
+});
+
+test('public job payload aliases normalize null and object values', () => {
+  assert.deepEqual(normalizeJobRequest({ query: ' Freight Controller ', city: 'Johannesburg', province: 'Gauteng', cvText: null }), {
+    keywords: 'Freight Controller', location: 'Johannesburg, Gauteng', cvText: '',
+  });
+  assert.deepEqual(normalizeJobRequest(null), { keywords: '', location: '', cvText: '' });
+  assert.deepEqual(normalizeJobRequest({ query: {}, province: [] }), { keywords: '', location: '', cvText: '' });
+});
+
+test('AI rate limits preserve aligned real listings and filter unqualified engineering matches', async () => {
+  const report = { candidateProfile: { targetRole: 'Customer Service', experienceRoles: ['Customer Service Representative'], skills: ['CRM'], credentials: ['N3'] } };
+  const response = await searchCandidateJobs({ keywords: 'Mechanical Engineer', location: 'Gauteng', report }, {
+    search: async input => { assert.equal(input.mode, 'recommendations'); return result([job]); },
+    score: async () => { throw new Error('429'); },
+  });
+  assert.equal(response.isFallback, true);
+  assert.deepEqual(response.jobs, []);
+  const aligned = { ...job, id: 2, title: 'Customer Service Representative', sector: 'Customer Service', match: 80, description: 'Customer service enquiries and CRM support', tags: ['CRM'] };
+  const fallback = await searchCandidateJobs({ keywords: 'Customer Service', location: 'Gauteng', report }, {
+    search: async () => result([aligned]), score: async () => { throw new Error('Malformed JSON'); },
+  });
+  assert.equal(fallback.jobs.length, 1);
+  assert.equal(fallback.jobs[0].url, aligned.url);
+  assert.equal(fallback.jobs[0].isAiMatch, true);
+});
+
+test('AI matching requires CV evidence rather than trusting request user privileges', async () => {
+  await assert.rejects(searchCandidateJobs({ keywords: 'Lawyer', location: 'Gauteng', report: { user: { email: 'nsukumasaka@gmail.com' } } }), /Upload a readable CV/);
 });

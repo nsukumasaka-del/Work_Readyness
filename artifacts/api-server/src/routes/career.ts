@@ -15,9 +15,9 @@ import {
 import { db, adminUsersTable, applicationOutcomesTable, coachingApplicationsTable, diagnosticReportsTable, generatedCvsTable, jobsTable, profilesTable, programmesTable } from "@workspace/db";
 import { and, count, desc, eq, ne } from "drizzle-orm";
 import { fetchTrustedJobDetails, getTrustedBoardLabels } from "../lib/job-board-search";
-import { searchManualJobs, searchWithLocationFallback } from "../lib/job-search-service";
+import { normalizeJobRequest, searchCandidateJobs, searchManualJobs, searchWithLocationFallback } from "../lib/job-search-service";
 import { buildCareerAlignmentReport, estimateCareerYears, type CareerAlignmentReport } from "../lib/career-alignment";
-import { enrichCareerAdvisoryWithGemini, generateCvAssistantJson, generateSmokeyReply, reviewDiagnosticRoleFitWithGemini, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
+import { calibrateJobListingScores, scoreJobListingsWithGemini, enrichCareerAdvisoryWithGemini, generateCvAssistantJson, generateSmokeyReply, reviewDiagnosticRoleFitWithGemini, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
 import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
 import { nodePaymentAccess } from '../lib/yoco-store';
 import { protectReport } from '../lib/yoco';
@@ -979,6 +979,30 @@ router.patch("/career/profile", async (req, res) => {
   res.json(toProfileResponse(updated, profileCount));
 });
 
+router.all(['/jobs/search', '/jobs/match'], requireUser, async (req: AuthedUserRequest, res) => {
+  const isSearch = req.path.endsWith('/search');
+  if (req.method !== 'POST' && !(isSearch && req.method === 'GET')) { res.status(405).json({ success: false, error: 'Method not allowed.' }); return; }
+  const input = normalizeJobRequest(req.method === 'GET' ? req.query : req.body);
+  if (isSearch && !input.keywords) { res.json({ success: true, jobs: [], results: [] }); return; }
+  try {
+    const profile = req.userProfile!;
+    const [row] = await db.select().from(diagnosticReportsTable).where(eq(diagnosticReportsTable.profileId, profile.id)).orderBy(desc(diagnosticReportsTable.createdAt)).limit(1);
+    let report: Record<string, unknown> = {};
+    try { const parsed = JSON.parse(row?.reportJson || '{}'); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) report = parsed; } catch { /* Recover from invalid saved review. */ }
+    const settings = { ...input, report, apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL, adzunaAppId: process.env.ADZUNA_APP_ID, adzunaAppKey: process.env.ADZUNA_APP_KEY };
+    if (isSearch) { const result = await searchManualJobs(settings); res.json({ ...result, success: true, results: result.jobs }); return; }
+    const result = await searchCandidateJobs(settings);
+    const saved = { ...report, candidateProfile: result.candidateProfile, relatedJobs: result.jobs, jobSearch: { query: result.query, queriedBoards: result.queriedBoards, boardSearchLinks: result.boardSearchLinks, liveResults: result.liveResults, searchNotice: result.searchNotice } };
+    await db.insert(diagnosticReportsTable).values({ fileName: 'candidate.txt', profileId: profile.id, profileEmail: profile.email.toLowerCase(), targetRole: input.keywords || result.candidateProfile.targetRole, status: 'completed', authenticityScore: 0, atsScore: 0, flaggedPhrases: [], missingKeywords: [], prompts: [], reportJson: JSON.stringify(saved) });
+    const protectedReport = protectReport(saved, await nodePaymentAccess(profile));
+    res.json({ ...result, success: true, jobs: protectedReport.relatedJobs, matches: protectedReport.relatedJobs.map(job => ({ ...job, matchScore: job.match, applyUrl: job.url || '', summary: job.description || '', keyRequirements: job.tags || [] })) });
+  } catch (error) {
+    req.log.error({ err: error }, 'Job search/match failed');
+    const invalid = error instanceof Error && error.message.startsWith('Upload a readable CV');
+    res.status(invalid ? 400 : 503).json({ success: false, error: invalid ? error.message : 'Job search is temporarily unavailable. Please try again.', jobs: [], matches: [], results: [] });
+  }
+});
+
 router.post('/career/jobs/search', requireUser, async (req: AuthedUserRequest, res) => {
   try {
     const [row] = await db.select().from(diagnosticReportsTable).where(eq(diagnosticReportsTable.profileId, req.userProfile!.id)).orderBy(desc(diagnosticReportsTable.createdAt)).limit(1);
@@ -1104,11 +1128,15 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       adzunaAppKey: process.env.ADZUNA_APP_KEY,
     });
 
-    const relatedJobs = liveSearch.jobs;
+    const matchCandidate = { targetRole, summary: extractedCandidate?.summary || '', experienceRoles: extractedCandidate?.experiences.map(item => item.role) || [],
+      skills: extractedCandidate?.skills || [], systems: extractedCandidate?.toolsAndSoftware || [],
+      credentials: [...(extractedCandidate?.education || []).map(item => item.degree), ...(extractedCandidate?.certifications || []).map(item => item.name)], yearsExperience: estimateCareerYears(extractedCandidate?.experiences) };
+    const scoredJobs = await scoreJobListingsWithGemini({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL, candidateProfile: matchCandidate, jobs: liveSearch.jobs });
+    const relatedJobs = calibrateJobListingScores(matchCandidate, scoredJobs || liveSearch.jobs).filter(job => job.match >= 60);
     const jobSearch = {
       query: liveSearch.query,
       queriedBoards: liveSearch.queriedBoards,
-      liveResults: liveSearch.liveResults,
+      liveResults: relatedJobs.length > 0,
       boardSearchLinks: liveSearch.boardSearchLinks,
     };
     let careerAdvisory = extractedCandidate

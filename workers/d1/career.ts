@@ -23,7 +23,7 @@ import {
 import { handleCvParseUpload } from "../cv-parse";
 import { d1PaymentAccess } from './yoco';
 import { protectReport } from '../../artifacts/api-server/src/lib/yoco';
-import { searchManualJobs, searchWithLocationFallback } from "../../artifacts/api-server/src/lib/job-search-service";
+import { normalizeJobRequest, searchCandidateJobs, searchManualJobs, searchWithLocationFallback } from "../../artifacts/api-server/src/lib/job-search-service";
 
 type CareerProfileRow = {
   id: number;
@@ -788,6 +788,9 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
     yearsExperience: estimateCareerYears(data?.experiences),
     location: location || data?.personal.location || "South Africa",
   };
+  const scoredJobs = await scoreJobListingsWithGemini({ apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL, candidateProfile, jobs: jobSearch.jobs });
+  jobSearch.jobs = calibrateJobListingScores(candidateProfile, scoredJobs || jobSearch.jobs).filter(job => job.match >= 60);
+  jobSearch.liveResults = jobSearch.jobs.length > 0;
   const deterministicReport = buildReport(fileName, role, location, data, id);
   const geminiRoleReview = data ? await reviewDiagnosticRoleFitWithGemini({
     apiKey: env.GEMINI_API_KEY,
@@ -1031,6 +1034,33 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const method = request.method.toUpperCase();
+  if (path === '/api/jobs/search' || path === '/api/jobs/match') {
+    if (method !== 'POST' && !(path.endsWith('/search') && method === 'GET')) return error(405, 'Method not allowed.');
+    const user = await getAuthenticatedUser(request, env);
+    if (!user) return error(401, 'Please sign in to continue.');
+    const input = normalizeJobRequest(method === 'GET' ? Object.fromEntries(url.searchParams) : await body(request));
+    if (path.endsWith('/search') && !input.keywords) return json({ success: true, jobs: [], results: [] });
+    try {
+      const row = await env.DB.prepare('SELECT report_json FROM cv_reports WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 1').bind(user.id).first<{ report_json: string }>();
+      let report: Record<string, unknown> = {};
+      try { const parsed = JSON.parse(row?.report_json || '{}'); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) report = parsed; } catch { /* Recover from unreadable cached review. */ }
+      const settings = { ...input, report, apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL, adzunaAppId: env.ADZUNA_APP_ID, adzunaAppKey: env.ADZUNA_APP_KEY };
+      if (path.endsWith('/search')) {
+        const result = await searchManualJobs(settings);
+        return json({ ...result, success: true, results: result.jobs });
+      }
+      const result = await searchCandidateJobs(settings);
+      const saved = { ...report, candidateProfile: result.candidateProfile, relatedJobs: result.jobs, jobSearch: { query: result.query, queriedBoards: result.queriedBoards, boardSearchLinks: result.boardSearchLinks, liveResults: result.liveResults, searchNotice: result.searchNotice } };
+      // Persist raw owned matches before redaction so signed payment reveals can find them.
+      await env.DB.prepare("INSERT INTO cv_reports (user_id, report_json, created_at) VALUES (?, ?, datetime('now'))").bind(user.id, JSON.stringify(saved)).run();
+      const protectedReport = protectReport(saved, await d1PaymentAccess(env, user));
+      return json({ ...result, success: true, jobs: protectedReport.relatedJobs, matches: protectedReport.relatedJobs.map(job => ({ ...job, matchScore: job.match, applyUrl: job.url || '', summary: job.description || '', keyRequirements: job.tags || [] })) });
+    } catch (err) {
+      console.error('[jobs] Search/match failed', err);
+      const invalid = err instanceof Error && err.message.startsWith('Upload a readable CV');
+      return json({ success: false, error: invalid ? err.message : 'Job search is temporarily unavailable. Please try again.', jobs: [], matches: [], results: [] }, invalid ? 400 : 503);
+    }
+  }
   const nativePath =
     (method === "POST" && (path === "/api/career/profile" || path === "/api/career/cv/parse-upload" || path === "/api/career/diagnostic" || path === "/api/career/cv/generate")) ||
     (method === "POST" && path === "/api/career/cv/save") ||

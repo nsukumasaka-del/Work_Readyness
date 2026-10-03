@@ -12,5 +12,7 @@ export const nodePaymentStore: PaymentStore = {
 };
 export async function nodePaymentAccess(profile: { id: number; email: string }) {
   const [admin] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.email,profile.email.toLowerCase())).limit(1);
-  return paymentAccess({ id: String(profile.id), email: profile.email, isAdmin: Boolean(admin && admin.status === 'active') }, await nodePaymentStore.paid(String(profile.id)), process.env.PRIMARY_ADMIN_EMAIL);
+  const identity = { id: String(profile.id), email: profile.email, isAdmin: Boolean(admin && admin.status === 'active') };
+  const access = paymentAccess(identity, [], process.env.PRIMARY_ADMIN_EMAIL);
+  return access.adminBypass ? access : paymentAccess(identity, await nodePaymentStore.paid(String(profile.id)), process.env.PRIMARY_ADMIN_EMAIL);
 }

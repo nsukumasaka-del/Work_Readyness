@@ -8,6 +8,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { verifyProductionBuild } from "./verify-web-build.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = resolve(root, "artifacts/careerbridge-sa/dist/public");
@@ -52,6 +53,9 @@ if (!existsSync(resolve(outDir, "index.html"))) {
   console.error(`[bonlist] Build output missing: ${outDir}/index.html`);
   process.exit(1);
 }
+
+// Never publish source HTML or an entrypoint whose compiled assets are absent.
+verifyProductionBuild(outDir);
 
 const otaBundlePath = resolve(outDir, "ota/latest.zip");
 const otaManifestPath = resolve(outDir, "ota/manifest.json");

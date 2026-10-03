@@ -4002,6 +4002,7 @@ function ProtectedApp() {
             isAdmin?: boolean;
             adminToken?: string;
           };
+          if (!profile || typeof profile !== 'object' || Array.isArray(profile)) throw new Error('Invalid session response');
           if (profile.authenticated === false) {
             rejectedSession = true;
             lastError = new Error('Session expired');
@@ -4012,9 +4013,11 @@ function ProtectedApp() {
           if (hydratedToken) persistSessionToken(hydratedToken);
           const storedProfile = readProfile();
           if (!storedProfile || typeof storedProfile.email !== 'string' || storedProfile.email.toLowerCase() !== profile.email.toLowerCase()) {
-            sessionStorage.removeItem(REPORT_KEY);
-            sessionStorage.removeItem('bonlist-report');
-            sessionStorage.removeItem(SELECTED_JOB_KEY);
+            try {
+              sessionStorage.removeItem(REPORT_KEY);
+              sessionStorage.removeItem('bonlist-report');
+              sessionStorage.removeItem(SELECTED_JOB_KEY);
+            } catch { /* Session hydration must work even when browser storage is blocked. */ }
             queryClient.clear();
           }
           if (profile.isAdmin && profile.adminToken && getAdminToken() !== profile.adminToken) {

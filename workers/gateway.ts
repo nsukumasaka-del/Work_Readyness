@@ -604,6 +604,15 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
 
     if (contentType.includes("text/html")) {
+      // SPA navigation fallback is not a JavaScript/CSS asset. Returning HTML
+      // for a missing bundle prevents mounting and masks stale asset URLs.
+      if (url.pathname.startsWith("/assets/")) {
+        headers.set("Content-Type", "text/plain; charset=utf-8");
+        headers.set("Cache-Control", "no-store");
+        headers.delete("Content-Length");
+        headers.delete("Content-Encoding");
+        return new Response(request.method === "HEAD" ? null : "Asset not found. Please reload BonList.", { status: 404, headers });
+      }
       headers.delete("Content-Length");
       headers.delete("Content-Encoding");
       headers.delete("ETag");

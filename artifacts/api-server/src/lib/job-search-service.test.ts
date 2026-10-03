@@ -29,10 +29,12 @@ test('manual search keeps real low-fit openings when AI rate limits and does not
   assert.equal(response.jobs.length, 1);
   assert.ok(response.jobs[0].match <= 20);
   assert.equal(response.scoring, 'evidence-based-fallback');
+  assert.equal(response.jobs[0].isAiMatch, true, 'CV-scored manual results follow paid-access rules');
 });
 test('manual search works before CV review without asserting a fit score', async () => {
   const response = await searchManualJobs({ keywords: 'Engineer', location: 'Gauteng' }, { search: async () => result([job]), score: async () => { throw new Error('must not score'); } });
   assert.equal(response.jobs[0].fitAvailable, false);
+  assert.equal(response.jobs[0].isAiMatch, false, 'unscored manual results remain free');
 });
 test('empty exact location broadens transparently while retaining recommendation gating', async () => {
   const calls: string[] = [];
@@ -65,7 +67,7 @@ test('public job payload aliases normalize null and object values', () => {
 test('AI rate limits preserve aligned real listings and filter unqualified engineering matches', async () => {
   const report = { candidateProfile: { targetRole: 'Customer Service', experienceRoles: ['Customer Service Representative'], skills: ['CRM'], credentials: ['N3'] } };
   const response = await searchCandidateJobs({ keywords: 'Mechanical Engineer', location: 'Gauteng', report }, {
-    search: async input => { assert.equal(input.mode, 'recommendations'); return result([job]); },
+    search: async input => { assert.equal(input.mode, 'candidate-options'); return result([job]); },
     score: async () => { throw new Error('429'); },
   });
   assert.equal(response.isFallback, true);
@@ -83,4 +85,26 @@ test('AI rate limits preserve aligned real listings and filter unqualified engin
 
 test('AI matching requires CV evidence rather than trusting request user privileges', async () => {
   await assert.rejects(searchCandidateJobs({ keywords: 'Lawyer', location: 'Gauteng', report: { user: { email: 'nsukumasaka@gmail.com' } } }), /Upload a readable CV/);
+});
+
+test('partial city results broaden and merge up to ten distinct real listings', async () => {
+  const calls: string[] = [];
+  const response = await searchWithLocationFallback({ role: 'Customer Service', location: 'Johannesburg', limit: 10, mode: 'candidate-options' }, async input => {
+    calls.push(input.location!);
+    const count = input.location === 'Johannesburg' ? 3 : input.location === 'Gauteng' ? 7 : 12;
+    return result(Array.from({ length: count }, (_, index) => ({ ...job, id: index + 1, match: 40 + index, url: `https://www.pnet.co.za/jobs/${index + 1}` })));
+  });
+  assert.deepEqual(calls, ['Johannesburg', 'Gauteng', 'South Africa']);
+  assert.equal(response.jobs.length, 10);
+  assert.equal(new Set(response.jobs.map(job => job.url)).size, 10);
+});
+
+test('AI results retain lower-fit vacancies without inflating scores', async () => {
+  const candidateProfile = { targetRole: 'Customer Service', experienceRoles: ['Customer Service Representative'], skills: ['CRM'] };
+  const lower = { ...job, title: 'Customer Service Representative', sector: 'Customer Service', match: 40, description: 'CRM enquiries' };
+  const response = await searchCandidateJobs({ keywords: 'Customer Service', location: 'South Africa', report: { candidateProfile } }, {
+    search: async input => { assert.equal(input.limit, 10); return result([lower]); }, score: async () => null,
+  });
+  assert.equal(response.jobs.length, 1);
+  assert.equal(response.jobs[0].match, 40);
 });

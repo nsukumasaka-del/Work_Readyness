@@ -980,6 +980,14 @@ router.patch("/career/profile", async (req, res) => {
   res.json(toProfileResponse(updated, profileCount));
 });
 
+async function protectManualSearch(profile: { id: number; email: string }, result: Awaited<ReturnType<typeof searchManualJobs>>, report: unknown) {
+  if (!result.jobs.some(job => job.fitAvailable)) return result;
+  const previous = report && typeof report === 'object' && !Array.isArray(report) ? report as Record<string, unknown> : {};
+  const saved = { ...previous, relatedJobs: result.jobs };
+  await db.insert(diagnosticReportsTable).values({ fileName: 'job-search', profileId: profile.id, profileEmail: profile.email.toLowerCase(), targetRole: typeof previous.targetRole === 'string' ? previous.targetRole : '', status: 'completed', authenticityScore: 0, atsScore: 0, flaggedPhrases: [], missingKeywords: [], prompts: [], reportJson: JSON.stringify(saved) });
+  return { ...result, jobs: protectReport(saved, await nodePaymentAccess(profile)).relatedJobs };
+}
+
 router.all(['/jobs/search', '/jobs/match'], requireUser, async (req: AuthedUserRequest, res) => {
   const isSearch = req.path.endsWith('/search');
   if (req.method !== 'POST' && !(isSearch && req.method === 'GET')) { res.status(405).json({ success: false, error: 'Method not allowed.' }); return; }
@@ -991,7 +999,7 @@ router.all(['/jobs/search', '/jobs/match'], requireUser, async (req: AuthedUserR
     let report: Record<string, unknown> = {};
     try { const parsed = JSON.parse(row?.reportJson || '{}'); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) report = parsed; } catch { /* Recover from invalid saved review. */ }
     const settings = { ...input, report, apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL, adzunaAppId: process.env.ADZUNA_APP_ID, adzunaAppKey: process.env.ADZUNA_APP_KEY };
-    if (isSearch) { const result = await searchManualJobs(settings); res.json({ ...result, success: true, results: result.jobs }); return; }
+    if (isSearch) { const result = await protectManualSearch(profile, await searchManualJobs(settings), report); res.json({ ...result, success: true, count: result.jobs.length, results: result.jobs }); return; }
     const result = await searchCandidateJobs(settings);
     const saved = { ...report, roleSuggestions: result.roleSuggestions, candidateProfile: result.candidateProfile, relatedJobs: result.jobs, jobSearch: { query: result.query, queriedBoards: result.queriedBoards, boardSearchLinks: result.boardSearchLinks, liveResults: result.liveResults, searchNotice: result.searchNotice } };
     await db.insert(diagnosticReportsTable).values({ fileName: 'candidate.txt', profileId: profile.id, profileEmail: profile.email.toLowerCase(), targetRole: input.keywords || result.candidateProfile.targetRole, status: 'completed', authenticityScore: 0, atsScore: 0, flaggedPhrases: [], missingKeywords: [], prompts: [], reportJson: JSON.stringify(saved) });
@@ -1010,9 +1018,10 @@ router.post('/career/jobs/search', requireUser, async (req: AuthedUserRequest, r
     let report: unknown;
     try { report = row?.reportJson ? JSON.parse(row.reportJson) : undefined; } catch { /* Search remains available without a readable review. */ }
     const string = (value: unknown) => typeof value === 'string' ? value : '';
-    res.json(await searchManualJobs({ keywords: string(req.body?.keywords), location: string(req.body?.location), report,
+    const result = await searchManualJobs({ keywords: string(req.body?.keywords), location: string(req.body?.location), report,
       industry: string(req.body?.industry), postedRange: string(req.body?.postedRange), apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL,
-      adzunaAppId: process.env.ADZUNA_APP_ID, adzunaAppKey: process.env.ADZUNA_APP_KEY }));
+      adzunaAppId: process.env.ADZUNA_APP_ID, adzunaAppKey: process.env.ADZUNA_APP_KEY });
+    res.json(await protectManualSearch(req.userProfile!, result, report));
   } catch { res.status(400).json({ error: 'Job search could not be completed. Enter a job title and try again.' }); }
 });
 
@@ -1109,11 +1118,12 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       }
     }
 
-    const MATCH_LIMIT = 6;
+    const MATCH_LIMIT = 10;
     const liveSearch = await searchWithLocationFallback({
       role: targetRole,
       location: locationLabel,
       limit: MATCH_LIMIT,
+      mode: 'candidate-options',
       experienceRoles: extractedCandidate?.experiences.map((item) => item.role) ?? [],
       expertise: [
         ...(extractedCandidate?.skills ?? []),
@@ -1133,7 +1143,7 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       skills: extractedCandidate?.skills || [], systems: extractedCandidate?.toolsAndSoftware || [],
       credentials: [...(extractedCandidate?.education || []).map(item => item.degree), ...(extractedCandidate?.certifications || []).map(item => item.name)], yearsExperience: estimateCareerYears(extractedCandidate?.experiences) };
     const scoredJobs = await scoreJobListingsWithGemini({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL, candidateProfile: matchCandidate, jobs: liveSearch.jobs });
-    const relatedJobs = calibrateJobListingScores(matchCandidate, scoredJobs || liveSearch.jobs).filter(job => job.match >= 60);
+    const relatedJobs = calibrateJobListingScores(matchCandidate, scoredJobs || liveSearch.jobs).filter(job => job.match >= 35).slice(0, MATCH_LIMIT);
     const jobSearch = {
       query: liveSearch.query,
       queriedBoards: liveSearch.queriedBoards,

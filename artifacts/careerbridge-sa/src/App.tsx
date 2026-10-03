@@ -2883,7 +2883,19 @@ function postedWithin(postedValue: string, range: string): boolean {
 
 function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJob }: JobOpeningsSearchProps) {
   const paidAccess = usePaidAccess();
-  const jobs = normalizeJobResults(rawJobs);
+  const [revealedMatches, setRevealedMatches] = useState<Record<string, JobListingSource>>({});
+  const jobs = normalizeJobResults(rawJobs).map(job => revealedMatches[String(job.id)] || job);
+  useEffect(() => {
+    let cancelled = false;
+    for (const job of normalizeJobResults(rawJobs)) {
+      if (!(job as JobListingSource & { locked?: boolean }).locked || !isJobUnlocked(job, paidAccess)) continue;
+      void fetchUnlockedJob(job.id).then(value => {
+        const revealed = normalizeJobResults([value])[0];
+        if (!cancelled && revealed) setRevealedMatches(current => ({ ...current, [String(job.id)]: revealed }));
+      }).catch(() => { /* Keep server-redacted content when reveal is unavailable. */ });
+    }
+    return () => { cancelled = true; };
+  }, [rawJobs, paidAccess]);
   const [view, setView] = useState<'ai' | 'search'>('ai');
   const [keywordsDraft, setKeywordsDraft] = useState('');
   const [keywords, setKeywords] = useState('');
@@ -2897,6 +2909,17 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailNotice, setDetailNotice] = useState('');
   const [searchResults, setSearchResults] = useState<JobMatch[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    for (const job of normalizeJobResults(searchResults)) {
+      if (!(job as JobListingSource & { locked?: boolean }).locked || !isJobUnlocked(job, paidAccess)) continue;
+      void fetchUnlockedJob(job.id).then(value => {
+        const revealed = normalizeJobResults([value])[0];
+        if (!cancelled && revealed) setRevealedMatches(current => ({ ...current, [String(job.id)]: revealed }));
+      }).catch(() => { /* Keep server-redacted content if verification fails. */ });
+    }
+    return () => { cancelled = true; };
+  }, [searchResults, paidAccess]);
   const [hasSearched, setHasSearched] = useState(false);
   const [searchedBoardLabels, setSearchedBoardLabels] = useState<string[]>([]);
   const [searchScoring, setSearchScoring] = useState('');
@@ -2912,7 +2935,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
 
   // SEARCH is intentionally isolated from the diagnostic's cached relatedJobs.
   // Cached matches are shown only in the AI JOB MATCHES tab above.
-  const searchSourceJobs = searchResults;
+  const searchSourceJobs = searchResults.map(job => revealedMatches[String(job.id)] || job);
   const keywordMatches = (searchable: string) => {
     const terms = keywords.toLowerCase().split(/\s+/).filter(Boolean);
     if (!terms.length) return true;
@@ -2966,7 +2989,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
     if (!activeBaseJob || !detailKey || jobDetails[detailKey]) return;
     const source = activeBaseJob as JobListingSource;
     const href = directApplicationUrl(source);
-    if (!href || (view === 'ai' && !isJobUnlocked(activeBaseJob, paidAccess))) return;
+    if (!href || !isJobUnlocked(activeBaseJob, paidAccess)) return;
     let cancelled = false;
     setDetailLoading(true);
     setDetailNotice('');
@@ -3101,7 +3124,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
         <div id="jobs-panel-ai" role="tabpanel" aria-labelledby="jobs-tab-ai" className="mx-auto w-full max-w-4xl space-y-4">
           <MatchCountBanner jobs={jobs} role={report.targetRole} />
           <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-            <h3 className="text-sm font-bold text-slate-900">Best-fit roles for your CV</h3>
+            <h3 className="text-sm font-bold text-slate-900">CV-matched vacancies</h3>
             <p className="mt-1 text-xs leading-5 text-slate-600">{report.jobSearch?.liveResults ? `Matches gathered for “${report.jobSearch.query}”.` : 'These recommendations are based on the latest CV review.'}</p>
           </div>
           {jobs.length ? jobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={!isJobUnlocked(job, paidAccess)} onViewDetails={() => setActiveJobId(String(job.id))} />) : <SuggestedRoles report={report} />}
@@ -3162,7 +3185,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
             {hasSearched ? <MatchCountBanner jobs={filteredJobs} role={keywords} /> : null}
             {showingSoftFilterFallback ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">No openings matched all selected industry/date filters. Showing related listings with those optional filters relaxed.</p> : null}
             {!hasSearched ? <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center"><p className="text-sm font-semibold text-slate-800">Search live job-board openings</p><p className="mt-1 text-xs text-slate-500">Enter a role and location, then search to get current listings from the configured boards.</p></div> : filteredJobs.length ? <div className="flex flex-col gap-4">
-              {filteredJobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} onViewDetails={() => setActiveJobId(String(job.id))} />)}
+              {filteredJobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={!isJobUnlocked(job, paidAccess)} onViewDetails={() => setActiveJobId(String(job.id))} />)}
             </div> : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center">
                 <p className="text-sm font-semibold text-slate-800">No openings found matching all strict filters.</p>
                 <p className="mt-1 text-xs text-slate-500">Try a broader role or location. We only show real job-board listings, not generated examples.</p>
@@ -3176,7 +3199,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
         <section role="dialog" aria-modal="true" aria-labelledby="job-detail-title" className="flex h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:h-auto sm:max-h-[88dvh] sm:rounded-3xl">
           <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4"><h3 id="job-detail-title" className="text-sm font-bold text-slate-900">Job details</h3><button type="button" onClick={() => setActiveJobId(null)} aria-label="Close job details" className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"><X size={18} /></button></header>
           <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-            {view === 'ai' && !isJobUnlocked(activeJob, paidAccess) ? <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600"><p>Unlock this {activeJob.match}% match for R20, or get R80 Mega Access for 7 days.</p><button className="btn-primary mt-3" onClick={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: activeJob.id })}>Unlock Match for R20</button></div> : <>
+            {!isJobUnlocked(activeJob, paidAccess) ? <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600"><p>Unlock this {activeJob.match}% match for R20, or get R80 Mega Access for 7 days.</p><button className="btn-primary mt-3" onClick={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: activeJob.id })}>Unlock Match for R20</button></div> : <>
               <JobListingDetails job={toJobListing(activeJob)} loading={detailLoading} />
               {detailNotice ? <p className="mt-3 text-xs text-slate-500" role="status">{detailNotice}</p> : null}
               <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => toggleSavedJob(activeJob)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">{savedJobs.some((saved) => String(saved.id) === String(activeJob.id)) ? 'Saved job' : 'Save job'}</button>{view === 'ai' ? <button type="button" onClick={() => onOpenJob(activeJob)} className="rounded-lg border border-blue-200 px-4 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50">Scan match</button> : null}</div>
@@ -3191,7 +3214,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
 
 function AdviceAndNextStepsView({ report, jobs, premiumUnlocked, onImproveCv }: { report: DiagnosticReport; jobs: JobMatch[]; premiumUnlocked: boolean; onImproveCv: () => void }) {
   const paidAccess = usePaidAccess();
-  const topJobs = jobs.slice(0, 6);
+  const topJobs = jobs.slice(0, 10);
   return (
     <div className="space-y-6">
       <section className="box-border w-full max-w-full rounded-3xl border border-border bg-card p-4 sm:p-6 md:p-7">
@@ -3259,7 +3282,7 @@ function JobsPage() {
     );
   }
 
-  const matches = normalizeJobResults(report.relatedJobs).slice(0, 6);
+  const matches = normalizeJobResults(report.relatedJobs).slice(0, 10);
   const premiumUnlocked = isAdminUser();
 
   return (
@@ -3327,7 +3350,7 @@ function JobCard({ job, premiumUnlocked = false }: { job: JobMatch; premiumUnloc
       }`}
       data-testid={`card-job-${job.id}`}
     >
-      <span className="pointer-events-none absolute right-4 top-4 z-20 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold tabular-nums text-emerald-800">{job.match}% Match</span>
+      <span className="pointer-events-none absolute right-4 top-4 z-20 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold tabular-nums text-emerald-800">⚡ {job.match}% Match</span>
       <div
         className={`grid gap-5 p-5 pt-14 md:grid-cols-[1fr_auto] md:items-center ${
           premiumLocked ? 'select-none blur-[3px] pointer-events-none' : ''

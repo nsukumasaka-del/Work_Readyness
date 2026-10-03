@@ -17,6 +17,8 @@ export type JobListingSource = JobMatch & {
 export type JobDetailsPayload = Pick<JobListingSource, 'fullDescription' | 'requirements' | 'responsibilities' | 'skills'>;
 
 export interface JobListing {
+  salary?: string;
+  fitBreakdown?: { skills: number; titleDomain: number; seniority: number; location: number };
   id: string;
   title: string;
   company: string;
@@ -67,6 +69,8 @@ export function toJobListing(source: JobMatch): JobListing {
     skills: job.skills?.length ? job.skills : (job.tags || []).filter((tag) => !/trusted board|jobmail|pnet|linkedin|indeed/i.test(tag)),
     matchScore: job.fitAvailable === false ? undefined : job.match,
     matchReasoning: job.matchReasoning || job.matchRationale,
+    salary: job.salary,
+    fitBreakdown: job.fitBreakdown,
   };
 }
 

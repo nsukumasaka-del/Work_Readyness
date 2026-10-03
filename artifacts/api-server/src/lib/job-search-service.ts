@@ -21,15 +21,20 @@ export async function searchWithLocationFallback(input: SearchInput, search = se
   let result = await search(input);
   let effectiveLocation = input.location || 'South Africa';
   let fallbackApplied = false;
+  const requested = input.limit ?? 1;
+  const combined = new Map(result.jobs.map(job => [job.url || String(job.id), job]));
   const locations = /johannesburg|pretoria|centurion|sandton|midrand/i.test(effectiveLocation) ? ['Gauteng', 'South Africa'] : ['South Africa'];
   for (const broader of locations) {
-    if (result.jobs.length) break;
+    if (combined.size >= requested) break;
     if (broader.toLowerCase() !== effectiveLocation.toLowerCase()) {
       result = await search({ ...input, location: broader });
+      for (const job of result.jobs) if (!combined.has(job.url || String(job.id))) combined.set(job.url || String(job.id), job);
       effectiveLocation = broader;
       fallbackApplied = true;
     }
   }
+  result.jobs = [...combined.values()].sort((a, b) => b.match - a.match).slice(0, input.limit ?? 10);
+  result.liveResults = result.jobs.length > 0;
   const notices = [fallbackApplied ? `Search broadened to ${effectiveLocation}.` : ''];
   if (!result.jobs.length) notices.push(result.fetchedCount && input.mode !== 'search'
     ? 'Listings were found, but none met the evidence-based qualification requirements.'
@@ -55,11 +60,11 @@ export async function searchCandidateJobs(input: Parameters<typeof searchManualJ
   }
   if (!candidate.experienceRoles?.length && !candidate.skills?.length && !candidate.credentials?.length) throw new Error('Upload a readable CV or complete a CV review before requesting matches.');
   const result = await searchWithLocationFallback({ role: input.keywords || candidate.targetRole || 'Professional', location: input.location || candidate.location || 'South Africa',
-    mode: 'recommendations', limit: 6, experienceRoles: candidate.experienceRoles, expertise: [...candidate.skills || [], ...candidate.systems || []],
+    mode: 'candidate-options', limit: 10, experienceRoles: candidate.experienceRoles, expertise: [...candidate.skills || [], ...candidate.systems || []],
     credentials: candidate.credentials, yearsExperience: candidate.yearsExperience, adzunaAppId: input.adzunaAppId, adzunaAppKey: input.adzunaAppKey }, dependencies.search);
   let scored = null;
   try { scored = await dependencies.score({ apiKey: input.apiKey, model: input.model, candidateProfile: candidate, jobs: result.jobs }); } catch { /* Keep real listings and strict deterministic scores. */ }
-  const jobs = calibrateJobListingScores(candidate, scored || result.jobs).filter(job => job.match >= 60).map(job => ({ ...job, isAiMatch: true }));
+  const jobs = calibrateJobListingScores(candidate, scored || result.jobs).filter(job => job.match >= 35).slice(0, 10).map(job => ({ ...job, isAiMatch: true }));
   return { ...result, jobs, roleSuggestions: candidateRoleSuggestions({ ...candidate, targetRole: input.keywords || candidate.targetRole, location: input.location || candidate.location }), candidateProfile: candidate, liveResults: jobs.length > 0, scoring: scored ? 'gemini' : 'evidence-based-fallback', isFallback: !scored };
 }
 
@@ -71,7 +76,7 @@ export async function searchManualJobs(input: {
   const role = input.keywords.trim().slice(0, 120) || candidate.targetRole;
   if (!role) throw new Error('Enter a job title to search.');
   const result = await searchWithLocationFallback({
-    role, location: input.location.trim().slice(0, 100) || candidate.location || 'South Africa', mode: 'search', limit: 18,
+    role, location: input.location.trim().slice(0, 100) || candidate.location || 'South Africa', mode: 'search', limit: 10,
     experienceRoles: candidate.experienceRoles, expertise: [...candidate.skills || [], ...candidate.systems || []],
     credentials: candidate.credentials, yearsExperience: candidate.yearsExperience,
     adzunaAppId: input.adzunaAppId, adzunaAppKey: input.adzunaAppKey,
@@ -83,6 +88,6 @@ export async function searchManualJobs(input: {
       searchPreferences: { industry: input.industry, postedRange: input.postedRange } }); } catch { /* Keep real vacancies when AI is unavailable. */ }
   }
   const jobs = (fitAvailable ? calibrateJobListingScores(candidate, scored || result.jobs) : result.jobs)
-    .map(job => ({ ...job, fitAvailable, isAiMatch: false }));
+    .map(job => ({ ...job, fitAvailable, isAiMatch: fitAvailable }));
   return { ...result, jobs, liveResults: jobs.length > 0, scoring: scored ? 'gemini' : 'evidence-based-fallback' };
 }

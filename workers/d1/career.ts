@@ -755,7 +755,8 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
   const jobSearch = await searchWithLocationFallback({
     role: searchRole,
     location: searchLocation,
-    limit: 6,
+    limit: 10,
+    mode: 'candidate-options',
     experienceRoles: data?.experiences.map((entry) => entry.role).filter(Boolean) || [],
     expertise: [
       ...(data?.skills || []),
@@ -790,7 +791,7 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
     location: location || data?.personal.location || "South Africa",
   };
   const scoredJobs = await scoreJobListingsWithGemini({ apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL, candidateProfile, jobs: jobSearch.jobs });
-  jobSearch.jobs = calibrateJobListingScores(candidateProfile, scoredJobs || jobSearch.jobs).filter(job => job.match >= 60);
+  jobSearch.jobs = calibrateJobListingScores(candidateProfile, scoredJobs || jobSearch.jobs).filter(job => job.match >= 35).slice(0, 10);
   jobSearch.liveResults = jobSearch.jobs.length > 0;
   const deterministicReport = buildReport(fileName, role, location, data, id);
   const geminiRoleReview = data ? await reviewDiagnosticRoleFitWithGemini({
@@ -853,10 +854,20 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
   let report: unknown;
   try { report = row ? JSON.parse(row.report_json) : undefined; } catch { /* Manual search does not require a saved review. */ }
   try {
-    return json(await searchManualJobs({ keywords: clean(input.keywords), location: clean(input.location), report,
+    const result = await searchManualJobs({ keywords: clean(input.keywords), location: clean(input.location), report,
       industry: clean(input.industry), postedRange: clean(input.postedRange), apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL,
-      adzunaAppId: env.ADZUNA_APP_ID, adzunaAppKey: env.ADZUNA_APP_KEY }));
+      adzunaAppId: env.ADZUNA_APP_ID, adzunaAppKey: env.ADZUNA_APP_KEY });
+    return json(await protectManualSearch(env, user, result, report));
   } catch (err) { return error(400, err instanceof Error ? err.message : 'Job search could not be completed.'); }
+}
+
+async function protectManualSearch(env: D1Env, user: UserRow, result: Awaited<ReturnType<typeof searchManualJobs>>, report: unknown) {
+  if (!result.jobs.some(job => job.fitAvailable)) return result;
+  const previous = report && typeof report === 'object' && !Array.isArray(report) ? report as Record<string, unknown> : {};
+  const saved = { ...previous, relatedJobs: result.jobs };
+  await env.DB.prepare("INSERT INTO cv_reports (user_id, report_json, created_at) VALUES (?, ?, datetime('now'))").bind(user.id, JSON.stringify(saved)).run();
+  const protectedReport = protectReport(saved, await d1PaymentAccess(env, user));
+  return { ...result, jobs: protectedReport.relatedJobs };
 }
 
 async function handleJobDetails(request: Request): Promise<Response> {
@@ -1049,7 +1060,8 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
       const settings = { ...input, report, apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL, adzunaAppId: env.ADZUNA_APP_ID, adzunaAppKey: env.ADZUNA_APP_KEY };
       if (path.endsWith('/search')) {
         const result = await searchManualJobs(settings);
-        return json({ ...result, success: true, results: result.jobs });
+        const protectedResult = await protectManualSearch(env, user, result, report);
+        return json({ ...protectedResult, success: true, count: protectedResult.jobs.length, results: protectedResult.jobs });
       }
       const result = await searchCandidateJobs(settings);
       const saved = { ...report, roleSuggestions: result.roleSuggestions, candidateProfile: result.candidateProfile, relatedJobs: result.jobs, jobSearch: { query: result.query, queriedBoards: result.queriedBoards, boardSearchLinks: result.boardSearchLinks, liveResults: result.liveResults, searchNotice: result.searchNotice } };

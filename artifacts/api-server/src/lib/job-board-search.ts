@@ -36,7 +36,7 @@ export type SearchInput = {
   adzunaAppKey?: string;
   /** Query all trusted sources instead of using fallback boards only when sparse. */
   includeAllBoards?: boolean;
-  mode?: "recommendations" | "search";
+  mode?: "recommendations" | "candidate-options" | "search";
 };
 
 const BROWSER_UA =
@@ -989,7 +989,7 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
       const match = fit.score;
       // Best-fit recommendations must satisfy at least 60% of the evidence-based
       // role, skill, seniority, credential, and location criteria.
-      if (input.mode !== "search" && match < 60) continue;
+      if (input.mode !== "search" && match < (input.mode === 'candidate-options' ? 35 : 60)) continue;
       if (input.mode === "search") {
         const terms = jobTerms(role);
         const listingTerms = new Set(jobTerms(`${job.title} ${job.description}`));
@@ -1019,7 +1019,7 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   const priorityJobs = rankJobs([...deduped.values()]).slice(0, limit);
   // Start with the highest-priority boards and avoid a second scrape fan-out
   // when that first pass already produced a useful set of listings.
-  const minimumUsefulResults = Math.min(limit, 6);
+  const minimumUsefulResults = Math.min(limit, 10);
   if (input.includeAllBoards || priorityJobs.length < minimumUsefulResults) {
     const fallbackBoards = TRUSTED_BOARDS.filter((board) =>
       !["Indeed SA", "PNet", "LinkedIn", "Job Placements"].includes(board.label));

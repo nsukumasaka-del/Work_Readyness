@@ -1,5 +1,7 @@
-import { ChevronRight, ExternalLink, MapPin } from 'lucide-react';
+import { ExternalLink, MapPin } from 'lucide-react';
+import React from 'react';
 import type { JobListing } from '@/types/job';
+import { JobCardActions } from './JobCardActions';
 
 export function JobListingCard({ job, onViewDetails, locked = false }: {
   job: JobListing;
@@ -7,11 +9,10 @@ export function JobListingCard({ job, onViewDetails, locked = false }: {
   locked?: boolean;
 }) {
   return (
-    <article className="relative box-border w-full min-w-0 max-w-full overflow-hidden [overflow-wrap:anywhere] rounded-2xl border border-slate-200/80 bg-white p-4 pt-14 shadow-sm transition hover:border-blue-200 hover:shadow-md sm:p-6 sm:pt-14">
-      <span className="absolute right-4 top-4 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold tabular-nums text-emerald-800" aria-label={typeof job.matchScore === 'number' ? `${job.matchScore}% Match` : 'Match not assessed'}>{typeof job.matchScore === 'number' && Number.isFinite(job.matchScore) ? `${Math.round(Math.max(0, Math.min(100, job.matchScore)))}% Match` : 'Match not assessed'}</span>
-      <div className="flex min-w-0 gap-3 sm:gap-4">
+    <article className="relative box-border flex w-full min-w-0 max-w-full flex-col gap-4 overflow-hidden [overflow-wrap:anywhere] rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md sm:flex-row sm:p-6">
+      <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
         <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-950 text-lg font-bold text-white sm:h-14 sm:w-14 sm:rounded-2xl">
-          {job.logoUrl ? <img src={job.logoUrl} alt="" className="h-full w-full object-contain" /> : <span aria-hidden="true" className="text-sm font-black tracking-tight">{job.sourceBoard.split(/\s+/).length > 1 ? job.sourceBoard.split(/\s+/).map((part) => part[0]).join('').slice(0, 3).toUpperCase() : job.sourceBoard.slice(0, 3).toUpperCase()}</span>}
+          {!locked && job.logoUrl ? <img src={job.logoUrl} alt="" className="h-full w-full object-contain" /> : <span aria-hidden="true" className="text-sm font-black tracking-tight">{locked ? '?' : (job.company || job.sourceBoard).slice(0, 1).toUpperCase()}</span>}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -26,20 +27,12 @@ export function JobListingCard({ job, onViewDetails, locked = false }: {
                 {job.postedDate && job.postedDate !== 'Date unavailable' ? <span className="text-slate-400">{job.postedDate}</span> : null}
               </p>
             </div>
-            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
-              {!locked && job.sourceBoard ? <span className="rounded-md bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-700">{job.sourceBoard}</span> : null}
-            </div>
           </div>
           {!locked && job.shortSnippet ? <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">{job.shortSnippet}</p> : null}
           {!locked && job.skills.length ? <div className="mt-3 flex flex-wrap gap-1.5">{job.skills.slice(0, 6).map((skill) => <span key={skill} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-600">{skill}</span>)}</div> : null}
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
-            <button type="button" onClick={onViewDetails} className="inline-flex min-h-9 items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900">
-              {locked ? 'Unlock Match for R20' : 'View details'} <ChevronRight size={15} />
-            </button>
-            {!locked && job.applicationUrl ? <a href={job.applicationUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800">Apply on job board <ExternalLink size={13} /></a> : null}
-          </div>
         </div>
       </div>
+      <JobCardActions job={job} locked={locked} onViewDetails={onViewDetails} />
     </article>
   );
 }

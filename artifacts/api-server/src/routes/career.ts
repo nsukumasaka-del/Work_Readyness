@@ -996,7 +996,7 @@ router.all(['/jobs/search', '/jobs/match'], requireUser, async (req: AuthedUserR
     const saved = { ...report, roleSuggestions: result.roleSuggestions, candidateProfile: result.candidateProfile, relatedJobs: result.jobs, jobSearch: { query: result.query, queriedBoards: result.queriedBoards, boardSearchLinks: result.boardSearchLinks, liveResults: result.liveResults, searchNotice: result.searchNotice } };
     await db.insert(diagnosticReportsTable).values({ fileName: 'candidate.txt', profileId: profile.id, profileEmail: profile.email.toLowerCase(), targetRole: input.keywords || result.candidateProfile.targetRole, status: 'completed', authenticityScore: 0, atsScore: 0, flaggedPhrases: [], missingKeywords: [], prompts: [], reportJson: JSON.stringify(saved) });
     const protectedReport = protectReport(saved, await nodePaymentAccess(profile));
-    res.json({ ...result, success: true, jobs: protectedReport.relatedJobs, matches: protectedReport.relatedJobs.map(job => ({ ...job, matchScore: job.match, applyUrl: job.url || '', summary: job.description || '', keyRequirements: job.tags || [] })) });
+    res.json({ ...result, success: true, count: protectedReport.relatedJobs.length, jobs: protectedReport.relatedJobs, matches: protectedReport.relatedJobs.map(job => ({ ...job, matchScore: job.match, applyUrl: job.url || '', summary: job.description || '', keyRequirements: job.tags || [] })) });
   } catch (error) {
     req.log.error({ err: error }, 'Job search/match failed');
     const invalid = error instanceof Error && error.message.startsWith('Upload a readable CV');

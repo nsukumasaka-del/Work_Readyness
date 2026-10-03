@@ -1,6 +1,8 @@
 import type { JobMatch } from '@workspace/api-client-react';
 
 export type JobListingSource = JobMatch & {
+  matchReasoning?: string;
+  matchRationale?: string;
   fitAvailable?: boolean;
   shortSnippet?: string;
   fullDescription?: string;
@@ -30,6 +32,7 @@ export interface JobListing {
   responsibilities: string[];
   skills: string[];
   matchScore?: number;
+  matchReasoning?: string;
 }
 
 export function directApplicationUrl(job: { applicationUrl?: string; url?: string }): string | undefined {
@@ -63,6 +66,7 @@ export function toJobListing(source: JobMatch): JobListing {
     responsibilities: job.responsibilities || [],
     skills: job.skills?.length ? job.skills : (job.tags || []).filter((tag) => !/trusted board|jobmail|pnet|linkedin|indeed/i.test(tag)),
     matchScore: job.fitAvailable === false ? undefined : job.match,
+    matchReasoning: job.matchReasoning || job.matchRationale,
   };
 }
 
@@ -77,6 +81,7 @@ export function normalizeJobResults(value: unknown): JobListingSource[] {
       sector: string('sector'), salary: string('salary'), posted: string('posted'), source: string('source', 'Job board'),
       url: string('url'), description: string('description'), fullDescription: string('fullDescription'), shortSnippet: string('shortSnippet'),
       applicationUrl: string('applicationUrl'), logoUrl: string('logoUrl'), employmentType: string('employmentType'), jobType: string('jobType'), remoteOption: string('remoteOption'),
+      matchReasoning: string('matchReasoning') || string('matchRationale'), matchRationale: string('matchRationale'),
       match: typeof item.match === 'number' && Number.isFinite(item.match) ? Math.max(0, Math.min(100, item.match)) : 0,
       tags: strings('tags'), skills: strings('skills'), requirements: strings('requirements'), responsibilities: strings('responsibilities'),
     } as JobListingSource];

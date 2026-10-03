@@ -246,7 +246,13 @@ export function calibrateJobListingScores(
   candidate: JobScoringCandidate,
   jobs: LiveJobListing[],
 ): LiveJobListing[] {
-  return jobs.map((job) => ({ ...job, match: Math.min(job.match, strictListingScoreCeiling(candidate, job)) }));
+  return jobs.map((job) => {
+    const ceiling = strictListingScoreCeiling(candidate, job);
+    const match = Math.min(job.match, ceiling);
+    const evidence = [...candidate.experienceRoles || [], ...candidate.skills || []].slice(0, 6).join(', ');
+    const explanation = job.matchReasoning || job.matchRationale || `Evidence-based score: ${match}%. CV evidence considered: ${evidence || 'limited documented experience and skills'}. Domain, qualifications and seniority limit this score to ${ceiling}%. This is a heuristic assessment, not a hiring guarantee.`;
+    return { ...job, match, matchReasoning: explanation };
+  });
 }
 
 /** Score actual board listings against the CV profile on the server. */
@@ -261,7 +267,7 @@ export async function scoreJobListingsWithGemini(input: {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     const scoring = generateGeminiJson<{
-      scores: Array<{ id: number; overallScore: number; atsFitScore: number; authenticityScore: number; isMatch: boolean; matchReason?: string; gaps?: string[] }>;
+      scores: Array<{ id: number; overallScore: number; atsFitScore: number; authenticityScore: number; isMatch: boolean; matchReason?: string; matchReasoning?: string; gaps?: string[] }>;
     }>({
       apiKey: input.apiKey,
       model: input.model,
@@ -280,13 +286,13 @@ CRITICAL QUALIFICATION AND SENIORITY GATES:
 
 Do not award compensating points for communication, teamwork, administration, formatting, location, or generic transferable skills when core professional requirements are absent. Search preferences affect ordering only, never competency fit. Never invent qualifications or requirements. A customer-service or logistics CV assessed against a Technical Manager - Solar/Engineering role must score below 40.
 
-Return exactly {scores:[{id:number,overallScore:number,atsFitScore:number,authenticityScore:number,isMatch:boolean,matchReason:string,gaps:string[]}]} with one entry per listing. All scores must be integers from 0 to 100. authenticityScore assesses whether the CV evidence is internally supportable, not job fit. Keep matchReason under 35 words and list concrete missing requirements.`,
+Return exactly {scores:[{id:number,overallScore:number,atsFitScore:number,authenticityScore:number,isMatch:boolean,matchReasoning:string,gaps:string[]}]} with one entry per listing. All scores must be integers from 0 to 100. authenticityScore assesses whether the CV evidence is internally supportable, not job fit. In matchReasoning explain the assigned percentage in 60-100 words: cite actual CV evidence, corresponding listing requirements, missing hard skills or credentials, and applied domain or seniority penalties. Do not invent years of experience or claimed keyword-overlap percentages.`,
       evidence: {
         candidate: input.candidateProfile,
         searchPreferences: input.searchPreferences || {},
         listings: input.jobs.map(({ id, title, company, location, sector, description, tags, source }) => ({ id, title, company, location, sector, description: description.slice(0, 1200), tags, source })),
       },
-      maxOutputTokens: 1_800,
+      maxOutputTokens: Math.min(6_000, Math.max(1_800, input.jobs.length * 250)),
       timeoutMs: 8_000,
     });
     const result = await Promise.race([
@@ -306,11 +312,11 @@ Return exactly {scores:[{id:number,overallScore:number,atsFitScore:number,authen
       if (!score) return job;
       const ceiling = strictListingScoreCeiling(input.candidateProfile, job);
       const calibratedScore = Math.min(ceiling, Math.round(Math.min(score.overallScore, score.atsFitScore)));
-      const rationale = typeof score.matchReason === "string" ? score.matchReason.trim().slice(0, 240) : "";
+      const rationale = typeof score.matchReasoning === 'string' ? score.matchReasoning.trim().slice(0, 1400) : typeof score.matchReason === "string" ? score.matchReason.trim().slice(0, 1400) : "";
       return {
         ...job,
         match: Math.max(0, Math.min(100, calibratedScore)),
-        ...(rationale ? { matchRationale: rationale } : {}),
+        ...(rationale ? { matchRationale: rationale, matchReasoning: `${rationale}${calibratedScore < Math.min(score.overallScore, score.atsFitScore) ? ` Server qualification cap applied: final score ${calibratedScore}%.` : ''}` } : {}),
       } as LiveJobListing;
     });
   } catch (error) {

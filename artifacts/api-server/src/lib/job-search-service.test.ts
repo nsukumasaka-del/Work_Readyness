@@ -78,6 +78,7 @@ test('AI rate limits preserve aligned real listings and filter unqualified engin
   assert.equal(fallback.jobs.length, 1);
   assert.equal(fallback.jobs[0].url, aligned.url);
   assert.equal(fallback.jobs[0].isAiMatch, true);
+  assert.match(fallback.jobs[0].matchReasoning || '', /Evidence-based score/);
 });
 
 test('AI matching requires CV evidence rather than trusting request user privileges', async () => {

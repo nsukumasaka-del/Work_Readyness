@@ -1,4 +1,6 @@
 export type LiveJobListing = {
+  matchReasoning?: string;
+  matchRationale?: string;
   id: number;
   title: string;
   company: string;

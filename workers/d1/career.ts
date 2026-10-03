@@ -1056,7 +1056,7 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
       // Persist raw owned matches before redaction so signed payment reveals can find them.
       await env.DB.prepare("INSERT INTO cv_reports (user_id, report_json, created_at) VALUES (?, ?, datetime('now'))").bind(user.id, JSON.stringify(saved)).run();
       const protectedReport = protectReport(saved, await d1PaymentAccess(env, user));
-      return json({ ...result, success: true, jobs: protectedReport.relatedJobs, matches: protectedReport.relatedJobs.map(job => ({ ...job, matchScore: job.match, applyUrl: job.url || '', summary: job.description || '', keyRequirements: job.tags || [] })) });
+      return json({ ...result, success: true, count: protectedReport.relatedJobs.length, jobs: protectedReport.relatedJobs, matches: protectedReport.relatedJobs.map(job => ({ ...job, matchScore: job.match, applyUrl: job.url || '', summary: job.description || '', keyRequirements: job.tags || [] })) });
     } catch (err) {
       console.error('[jobs] Search/match failed', err);
       const invalid = err instanceof Error && err.message.startsWith('Upload a readable CV');

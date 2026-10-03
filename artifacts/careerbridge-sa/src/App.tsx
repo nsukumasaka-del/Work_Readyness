@@ -6,6 +6,7 @@ import { App as CapacitorApp } from '@capacitor/app';
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { SuggestedRoles } from '@/components/jobs/SuggestedRoles';
+import { MatchCountBanner } from '@/components/jobs/MatchCountBanner';
 import { normalizeDiagnosticReport } from '@/lib/diagnostic-data';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -3098,6 +3099,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
 
       {view === 'ai' ? (
         <div id="jobs-panel-ai" role="tabpanel" aria-labelledby="jobs-tab-ai" className="mx-auto w-full max-w-4xl space-y-4">
+          <MatchCountBanner jobs={jobs} role={report.targetRole} />
           <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
             <h3 className="text-sm font-bold text-slate-900">Best-fit roles for your CV</h3>
             <p className="mt-1 text-xs leading-5 text-slate-600">{report.jobSearch?.liveResults ? `Matches gathered for “${report.jobSearch.query}”.` : 'These recommendations are based on the latest CV review.'}</p>
@@ -3157,7 +3159,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
           </div>
 
           <div ref={searchResultsRef} className="mx-auto w-full max-w-4xl scroll-mt-24 space-y-4">
-            {hasSearched ? <p className="text-sm font-semibold text-slate-700">{filteredJobs.length} job opening{filteredJobs.length === 1 ? '' : 's'} found</p> : null}
+            {hasSearched ? <MatchCountBanner jobs={filteredJobs} role={keywords} /> : null}
             {showingSoftFilterFallback ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">No openings matched all selected industry/date filters. Showing related listings with those optional filters relaxed.</p> : null}
             {!hasSearched ? <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center"><p className="text-sm font-semibold text-slate-800">Search live job-board openings</p><p className="mt-1 text-xs text-slate-500">Enter a role and location, then search to get current listings from the configured boards.</p></div> : filteredJobs.length ? <div className="flex flex-col gap-4">
               {filteredJobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} onViewDetails={() => setActiveJobId(String(job.id))} />)}

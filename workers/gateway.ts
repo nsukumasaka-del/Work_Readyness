@@ -630,7 +630,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     });
 }
 
-export const workerGateway = {
+export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const path = new URL(request.url).pathname;
     const isApi = path === "/api" || path.startsWith("/api/");
@@ -652,5 +652,3 @@ export const workerGateway = {
     }
   },
 };
-
-export default workerGateway;

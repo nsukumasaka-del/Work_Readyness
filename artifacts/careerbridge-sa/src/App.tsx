@@ -5,6 +5,7 @@ import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { ErrorBoundary } from '@/components/error-boundary';
+import { normalizeDiagnosticReport } from '@/lib/diagnostic-data';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import {
@@ -137,7 +138,7 @@ const SELECTED_JOB_KEY = 'careerbridge-selected-job';
 function reportForCurrentViewer(report: DiagnosticReport): DiagnosticReport {
   // The authenticated API now redacts locked content without changing job IDs.
   // Keep stable IDs so checkout and paid reveals refer to the saved vacancy.
-  return report;
+  return normalizeDiagnosticReport(report);
 }
 
 function persistSelectedJob(job: JobMatch) {
@@ -2443,7 +2444,7 @@ function DiagnosticPage() {
         } catch {
           // ignore
         }
-        if (!cancelled) setReport(payload);
+        if (!cancelled) setReport(reportForCurrentViewer(payload));
       } catch {
         if (!cancelled) setReport(null);
       } finally {
@@ -3991,22 +3992,22 @@ function ProtectedApp() {
             lastError = new Error('Session expired');
             continue;
           }
-          if (!profile.id || !profile.email) throw new Error('Invalid session response');
+          if (!profile || !profile.id || typeof profile.email !== 'string' || !profile.email.trim()) throw new Error('Invalid session response');
           const hydratedToken = profile.sessionToken || profile.token;
           if (hydratedToken) persistSessionToken(hydratedToken);
           const storedProfile = readProfile();
-          if (!storedProfile || storedProfile.email.toLowerCase() !== profile.email.toLowerCase()) {
+          if (!storedProfile || typeof storedProfile.email !== 'string' || storedProfile.email.toLowerCase() !== profile.email.toLowerCase()) {
             sessionStorage.removeItem(REPORT_KEY);
             sessionStorage.removeItem('bonlist-report');
             sessionStorage.removeItem(SELECTED_JOB_KEY);
             queryClient.clear();
           }
-          persistProfile(profile);
           if (profile.isAdmin && profile.adminToken && getAdminToken() !== profile.adminToken) {
             persistAdminAccess(profile.adminToken, true);
           } else if (profile.isAdmin === false && isAuthAdminUser()) {
             persistAdminAccess(undefined, false);
           }
+          persistProfile(profile);
           if (current) setAccess({ location, check, status: 'allowed' });
           return;
         } catch (error) {

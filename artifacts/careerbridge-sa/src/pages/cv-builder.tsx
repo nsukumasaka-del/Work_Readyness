@@ -668,7 +668,7 @@ type CanvasHistorySnapshot = {
 };
 
 function normalizeCvResponse(response: GeneratedCvResponse): GeneratedCvResponse {
-  if (!response?.document) return response;
+  if (!response?.document || typeof response.document !== 'object' || Array.isArray(response.document)) throw new Error('The saved CV could not be loaded. Please try again.');
   return { ...response, document: sanitizeCvDocument(response.document) };
 }
 
@@ -4500,7 +4500,7 @@ export default function CvBuilderPage() {
       for (const p of data.proposals) drafts[p.id] = p.after;
       setImproveDrafts(drafts);
       setImproveScope(scope);
-      void fetchMonetizationStatus().then((next) => { setMonetization(next); window.dispatchEvent(new Event("bonlist-monetization-updated")); });
+      void fetchMonetizationStatus().then((next) => { setMonetization(next); window.dispatchEvent(new Event("bonlist-monetization-updated")); }).catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not improve CV");
     } finally {
@@ -4813,7 +4813,7 @@ export default function CvBuilderPage() {
       if (resTailor.ok) {
         const data = (await resTailor.json()) as JobMatchReport;
         setTailoringReport(data);
-        void fetchMonetizationStatus().then((next) => { setMonetization(next); window.dispatchEvent(new Event("bonlist-monetization-updated")); });
+        void fetchMonetizationStatus().then((next) => { setMonetization(next); window.dispatchEvent(new Event("bonlist-monetization-updated")); }).catch(() => undefined);
       } else {
         const failure = await resTailor.json().catch(() => ({})) as { error?: string };
         throw new Error(failure.error || "Could not tailor this CV.");

@@ -1,5 +1,6 @@
 import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from 'react';
 import { authFetch } from './auth-session';
+import { normalizeAccess } from './safe-data';
 export type PurchaseType = 'TEMPLATE_DOWNLOAD' | 'JOB_MATCH_UNLOCK' | 'MEGA_ACCESS';
 export type Purchase = { itemType: PurchaseType; targetId?: string | number; downloadFormat?: 'print' | 'doc' | 'html' | 'txt'; onVerified?: () => void };
 export type PaidAccess = { adminBypass: boolean; megaAccessActive: boolean; megaAccessUntil: string | null; ownedTemplateIds: string[]; unlockedJobIds: string[] };
@@ -12,11 +13,12 @@ function usePaidAccessState() {
   const [access, setAccess] = useState(EMPTY_ACCESS);
   useEffect(() => {
     let cancelled = false;
-    const refresh = () => { void authFetch('/api/career/monetization', { cache: 'no-store' }).then(async response => {
+    let generation = 0;
+    const refresh = () => { const current = ++generation; void authFetch('/api/career/monetization', { cache: 'no-store' }).then(async response => {
       if (!response.ok) throw new Error();
       const value = await response.json();
-      if (!cancelled) setAccess({ ...EMPTY_ACCESS, ...value });
-    }).catch(() => { if (!cancelled) setAccess(EMPTY_ACCESS); }); };
+      if (!cancelled && current === generation) setAccess(normalizeAccess(value));
+    }).catch(() => { if (!cancelled && current === generation) setAccess(EMPTY_ACCESS); }); };
     refresh();
     window.addEventListener('bonlist-monetization-updated', refresh);
     window.addEventListener('focus', refresh);

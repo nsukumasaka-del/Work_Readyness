@@ -91,7 +91,7 @@ export async function handleYoco(request: Request, store: PaymentStore, user: Pa
     return json({ received: true });
   }
   if (!user) return json({ error: 'Please sign in to continue.' }, 401);
-  const access = paymentAccess(user, isPrimaryAdmin(user, env.PRIMARY_ADMIN_EMAIL) ? [] : await store.paid(user.id), env.PRIMARY_ADMIN_EMAIL);
+  const access = paymentAccess(user, await store.paid(user.id), env.PRIMARY_ADMIN_EMAIL);
   if (path.endsWith('/access') && request.method === 'GET') return json({ ...access, products: PAYMENT_PRODUCTS });
   if (path.endsWith('/verify') && ['GET', 'POST'].includes(request.method)) {
     const input = request.method === 'POST' ? await request.json().catch(() => ({})) as Record<string, unknown> : {};

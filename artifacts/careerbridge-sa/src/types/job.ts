@@ -76,6 +76,7 @@ export function normalizeJobResults(value: unknown): JobListingSource[] {
       title: item.title, company: string('company', 'Employer not specified'), location: string('location'),
       sector: string('sector'), salary: string('salary'), posted: string('posted'), source: string('source', 'Job board'),
       url: string('url'), description: string('description'), fullDescription: string('fullDescription'), shortSnippet: string('shortSnippet'),
+      applicationUrl: string('applicationUrl'), logoUrl: string('logoUrl'), employmentType: string('employmentType'), jobType: string('jobType'), remoteOption: string('remoteOption'),
       match: typeof item.match === 'number' && Number.isFinite(item.match) ? Math.max(0, Math.min(100, item.match)) : 0,
       tags: strings('tags'), skills: strings('skills'), requirements: strings('requirements'), responsibilities: strings('responsibilities'),
     } as JobListingSource];

@@ -1,4 +1,5 @@
 import { authFetch } from "@/lib/auth-session";
+import { normalizeAccess, objectData, objectList, stringList } from './safe-data';
 
 export type MonetizationStatus = {
   adminBypass: boolean;
@@ -29,7 +30,16 @@ export const EMPTY_MONETIZATION: MonetizationStatus = {
 export async function fetchMonetizationStatus(): Promise<MonetizationStatus> {
   const response = await authFetch("/api/career/monetization", { cache: "no-store" });
   if (!response.ok) throw new Error("Could not load template ownership and credits.");
-  return await response.json() as MonetizationStatus;
+  const data = objectData(await response.json());
+  if (data.success === false || typeof data.error === 'string') throw new Error('Could not load template ownership and credits.');
+  return {
+    ...EMPTY_MONETIZATION, ...normalizeAccess(data),
+    credits: typeof data.credits === 'number' && Number.isFinite(data.credits) ? Math.max(0, data.credits) : 0,
+    freeTemplateIds: stringList(data.freeTemplateIds),
+    premiumTemplates: objectList(data.premiumTemplates).filter(item => typeof item.templateId === 'string').map(item => ({ templateId: item.templateId as string, priceZar: 50, ownership: 'lifetime' })),
+    features: objectList(data.features).filter(item => typeof item.id === 'string').map(item => ({ id: item.id as string, name: typeof item.name === 'string' ? item.name : '', description: typeof item.description === 'string' ? item.description : '', creditCost: typeof item.creditCost === 'number' ? item.creditCost : 0 })),
+    recentTransactions: objectList(data.recentTransactions),
+  };
 }
 
 export function templateAccess(status: MonetizationStatus, templateId: string) {

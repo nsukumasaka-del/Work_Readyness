@@ -2,6 +2,7 @@ import { searchTrustedJobBoards, type SearchInput } from './job-board-search';
 import { calibrateJobListingScores, scoreJobListingsWithGemini, type JobScoringCandidate } from './ai/gemini-client';
 import { extractCvDataFromText } from './cv-builder';
 import { estimateCareerYears } from './career-alignment';
+import { candidateRoleSuggestions } from './candidate-role-suggestions';
 
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').slice(0, 60) : [];
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
@@ -59,7 +60,7 @@ export async function searchCandidateJobs(input: Parameters<typeof searchManualJ
   let scored = null;
   try { scored = await dependencies.score({ apiKey: input.apiKey, model: input.model, candidateProfile: candidate, jobs: result.jobs }); } catch { /* Keep real listings and strict deterministic scores. */ }
   const jobs = calibrateJobListingScores(candidate, scored || result.jobs).filter(job => job.match >= 60).map(job => ({ ...job, isAiMatch: true }));
-  return { ...result, jobs, candidateProfile: candidate, liveResults: jobs.length > 0, scoring: scored ? 'gemini' : 'evidence-based-fallback', isFallback: !scored };
+  return { ...result, jobs, roleSuggestions: candidateRoleSuggestions({ ...candidate, targetRole: input.keywords || candidate.targetRole, location: input.location || candidate.location }), candidateProfile: candidate, liveResults: jobs.length > 0, scoring: scored ? 'gemini' : 'evidence-based-fallback', isFallback: !scored };
 }
 
 export async function searchManualJobs(input: {

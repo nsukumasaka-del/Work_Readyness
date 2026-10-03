@@ -5,6 +5,7 @@ import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { ErrorBoundary } from '@/components/error-boundary';
+import { SuggestedRoles } from '@/components/jobs/SuggestedRoles';
 import { normalizeDiagnosticReport } from '@/lib/diagnostic-data';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -3101,7 +3102,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
             <h3 className="text-sm font-bold text-slate-900">Best-fit roles for your CV</h3>
             <p className="mt-1 text-xs leading-5 text-slate-600">{report.jobSearch?.liveResults ? `Matches gathered for “${report.jobSearch.query}”.` : 'These recommendations are based on the latest CV review.'}</p>
           </div>
-          {jobs.length ? jobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={!isJobUnlocked(job, paidAccess)} onViewDetails={() => setActiveJobId(String(job.id))} />) : <div className="box-border w-full max-w-full rounded-xl border border-slate-200 bg-white p-4 text-center text-sm text-slate-500 sm:p-8">No job matches were returned with this CV review.</div>}
+          {jobs.length ? jobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={!isJobUnlocked(job, paidAccess)} onViewDetails={() => setActiveJobId(String(job.id))} />) : <SuggestedRoles report={report} />}
           {jobs.some(job => !isJobUnlocked(job, paidAccess)) ? <p className="text-xs text-slate-500">Unlock 50%+ matches for R20 each, or get R80 Mega Access for 7 days.</p> : null}
         </div>
       ) : (
@@ -3288,16 +3289,7 @@ function JobsPage() {
         </div>
       ) : null}
       {matches.length === 0 ? (
-        <div className="rounded-3xl border border-border bg-card px-6 py-16 text-center">
-          <BriefcaseBusiness className="mx-auto text-primary" size={32} />
-          <h2 className="display mt-4 text-2xl font-semibold text-foreground">No job listings found</h2>
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-            Change your preferred location to an area where this role is more commonly listed, then run a new CV review.
-          </p>
-          <Link href="/#cv-check" className="btn-primary mt-5" data-testid="link-jobs-to-upload">
-            Change location and review CV <ArrowRight size={15} />
-          </Link>
-        </div>
+        <SuggestedRoles report={report} />
       ) : (
         <div className="space-y-3">
           {matches.length < 6 ? (
@@ -3333,8 +3325,9 @@ function JobCard({ job, premiumUnlocked = false }: { job: JobMatch; premiumUnloc
       }`}
       data-testid={`card-job-${job.id}`}
     >
+      <span className="pointer-events-none absolute right-4 top-4 z-20 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold tabular-nums text-emerald-800">{job.match}% Match</span>
       <div
-        className={`grid gap-5 p-5 md:grid-cols-[1fr_auto] md:items-center ${
+        className={`grid gap-5 p-5 pt-14 md:grid-cols-[1fr_auto] md:items-center ${
           premiumLocked ? 'select-none blur-[3px] pointer-events-none' : ''
         }`}
       >
@@ -3352,9 +3345,6 @@ function JobCard({ job, premiumUnlocked = false }: { job: JobMatch; premiumUnloc
               >
                 {job.title}
               </Link>
-              <span className="rounded-md bg-secondary px-2 py-0.5 text-[11px] font-bold text-primary">
-                {job.match}% fit
-              </span>
               {job.source && (
                 <span className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                   {job.source}

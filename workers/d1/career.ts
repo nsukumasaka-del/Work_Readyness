@@ -21,6 +21,7 @@ import {
   type GeneratedCvDocument,
 } from "../../artifacts/api-server/src/lib/cv-builder";
 import { handleCvParseUpload } from "../cv-parse";
+import { candidateRoleSuggestions } from '../../artifacts/api-server/src/lib/candidate-role-suggestions';
 import { d1PaymentAccess } from './yoco';
 import { protectReport } from '../../artifacts/api-server/src/lib/yoco';
 import { normalizeJobRequest, searchCandidateJobs, searchManualJobs, searchWithLocationFallback } from "../../artifacts/api-server/src/lib/job-search-service";
@@ -828,6 +829,7 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
       },
     } : {}),
     relatedJobs: jobSearch.jobs,
+    roleSuggestions: candidateRoleSuggestions(candidateProfile),
     candidateProfile,
     ...(careerAdvisory ? { careerAdvisory } : {}),
     jobSearch: {
@@ -1050,7 +1052,7 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
         return json({ ...result, success: true, results: result.jobs });
       }
       const result = await searchCandidateJobs(settings);
-      const saved = { ...report, candidateProfile: result.candidateProfile, relatedJobs: result.jobs, jobSearch: { query: result.query, queriedBoards: result.queriedBoards, boardSearchLinks: result.boardSearchLinks, liveResults: result.liveResults, searchNotice: result.searchNotice } };
+      const saved = { ...report, roleSuggestions: result.roleSuggestions, candidateProfile: result.candidateProfile, relatedJobs: result.jobs, jobSearch: { query: result.query, queriedBoards: result.queriedBoards, boardSearchLinks: result.boardSearchLinks, liveResults: result.liveResults, searchNotice: result.searchNotice } };
       // Persist raw owned matches before redaction so signed payment reveals can find them.
       await env.DB.prepare("INSERT INTO cv_reports (user_id, report_json, created_at) VALUES (?, ?, datetime('now'))").bind(user.id, JSON.stringify(saved)).run();
       const protectedReport = protectReport(saved, await d1PaymentAccess(env, user));
@@ -1058,7 +1060,7 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
     } catch (err) {
       console.error('[jobs] Search/match failed', err);
       const invalid = err instanceof Error && err.message.startsWith('Upload a readable CV');
-      return json({ success: false, error: invalid ? err.message : 'Job search is temporarily unavailable. Please try again.', jobs: [], matches: [], results: [] }, invalid ? 400 : 503);
+      return json({ success: false, error: invalid ? err.message : 'Job search is temporarily unavailable. Please try again.', jobs: [], matches: [], results: [], roleSuggestions: candidateRoleSuggestions({ targetRole: input.keywords, location: input.location }) }, invalid ? 400 : 503);
     }
   }
   const nativePath =

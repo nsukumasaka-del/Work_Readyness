@@ -21,6 +21,7 @@ import { calibrateJobListingScores, scoreJobListingsWithGemini, enrichCareerAdvi
 import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
 import { nodePaymentAccess } from '../lib/yoco-store';
 import { protectReport } from '../lib/yoco';
+import { candidateRoleSuggestions } from '../lib/candidate-role-suggestions';
 import { ensurePrimaryAdmin } from "../lib/admin-auth";
 import { createAdminNotification } from "../lib/admin-ops";
 import { clientIp, consumeRateLimit } from "../lib/rate-limit";
@@ -992,14 +993,14 @@ router.all(['/jobs/search', '/jobs/match'], requireUser, async (req: AuthedUserR
     const settings = { ...input, report, apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL, adzunaAppId: process.env.ADZUNA_APP_ID, adzunaAppKey: process.env.ADZUNA_APP_KEY };
     if (isSearch) { const result = await searchManualJobs(settings); res.json({ ...result, success: true, results: result.jobs }); return; }
     const result = await searchCandidateJobs(settings);
-    const saved = { ...report, candidateProfile: result.candidateProfile, relatedJobs: result.jobs, jobSearch: { query: result.query, queriedBoards: result.queriedBoards, boardSearchLinks: result.boardSearchLinks, liveResults: result.liveResults, searchNotice: result.searchNotice } };
+    const saved = { ...report, roleSuggestions: result.roleSuggestions, candidateProfile: result.candidateProfile, relatedJobs: result.jobs, jobSearch: { query: result.query, queriedBoards: result.queriedBoards, boardSearchLinks: result.boardSearchLinks, liveResults: result.liveResults, searchNotice: result.searchNotice } };
     await db.insert(diagnosticReportsTable).values({ fileName: 'candidate.txt', profileId: profile.id, profileEmail: profile.email.toLowerCase(), targetRole: input.keywords || result.candidateProfile.targetRole, status: 'completed', authenticityScore: 0, atsScore: 0, flaggedPhrases: [], missingKeywords: [], prompts: [], reportJson: JSON.stringify(saved) });
     const protectedReport = protectReport(saved, await nodePaymentAccess(profile));
     res.json({ ...result, success: true, jobs: protectedReport.relatedJobs, matches: protectedReport.relatedJobs.map(job => ({ ...job, matchScore: job.match, applyUrl: job.url || '', summary: job.description || '', keyRequirements: job.tags || [] })) });
   } catch (error) {
     req.log.error({ err: error }, 'Job search/match failed');
     const invalid = error instanceof Error && error.message.startsWith('Upload a readable CV');
-    res.status(invalid ? 400 : 503).json({ success: false, error: invalid ? error.message : 'Job search is temporarily unavailable. Please try again.', jobs: [], matches: [], results: [] });
+    res.status(invalid ? 400 : 503).json({ success: false, error: invalid ? error.message : 'Job search is temporarily unavailable. Please try again.', jobs: [], matches: [], results: [], roleSuggestions: candidateRoleSuggestions({ targetRole: input.keywords, location: input.location }) });
   }
 });
 
@@ -1214,7 +1215,7 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       })
       .returning();
 
-    const data = { ...CreateDiagnosticResponse.parse({ ...draftPayload, id: report.id, fileName: report.fileName }), candidateProfile: {
+    const data = { ...CreateDiagnosticResponse.parse({ ...draftPayload, id: report.id, fileName: report.fileName }), roleSuggestions: candidateRoleSuggestions({ ...matchCandidate, location: locationLabel }), candidateProfile: {
       targetRole, location: locationLabel, summary: extractedCandidate?.summary || '',
       experienceRoles: extractedCandidate?.experiences.map(item => item.role) || [],
       skills: extractedCandidate?.skills || [], systems: extractedCandidate?.toolsAndSoftware || [],

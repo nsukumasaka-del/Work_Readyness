@@ -70,6 +70,7 @@ test('AI rate limits preserve aligned real listings and filter unqualified engin
   });
   assert.equal(response.isFallback, true);
   assert.deepEqual(response.jobs, []);
+  assert.ok(response.roleSuggestions.length > 0);
   const aligned = { ...job, id: 2, title: 'Customer Service Representative', sector: 'Customer Service', match: 80, description: 'Customer service enquiries and CRM support', tags: ['CRM'] };
   const fallback = await searchCandidateJobs({ keywords: 'Customer Service', location: 'Gauteng', report }, {
     search: async () => result([aligned]), score: async () => { throw new Error('Malformed JSON'); },

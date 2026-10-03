@@ -7673,16 +7673,17 @@ export default function CvBuilderPage() {
                     ) : (
                       <div className="space-y-1">
                         {(cv.document.references || []).map((ref, rIdx) => (
-                          <input
+                          <AutoGrowTextarea
                             key={rIdx}
-                            type="text"
                             value={ref}
                             onChange={(e) => {
                               const refs = [...(cv.document.references || [])];
                               refs[rIdx] = e.target.value;
                               updateDocumentField("references", refs);
                             }}
-                            className="w-full bg-transparent text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
+                            data-a4-id={`reference-${rIdx}`}
+                            className="block w-full min-w-0 max-w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent text-xs leading-snug text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
+                            style={{ overflowWrap: "anywhere" }}
                             placeholder="Referee details or 'Available upon request'"
                           />
                         ))}

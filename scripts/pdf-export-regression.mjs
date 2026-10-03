@@ -24,6 +24,19 @@ try {
     const entries = Array.from({ length: 42 }, (_, i) => '<li data-a4-id="bullet-' + i + '"><textarea data-test="bullet-' + i + '">Negotiated carrier rates and managed customer enquiries with accurate reporting.</textarea></li>').join("");
     await page.setContent('<style>body{margin:0;font-family:Arial}#cv{box-sizing:border-box;width:210mm;min-height:297mm;padding:40px;border:1px solid #ddd}h1{margin:0 0 8px}h2{font-size:14px;letter-spacing:.28em;margin:0 0 12px}.grid{display:grid;grid-template-columns:' + (columns === 2 ? 'minmax(0,35fr) minmax(0,65fr)' : '1fr') + ';gap:24px}.col{min-width:0}ul{padding-left:20px}li{padding-bottom:8px}textarea{box-sizing:border-box;width:100%;padding:0;border:0;resize:none;font:14px/1.45 Arial;overflow:hidden;display:block}input{font:14px/1.45 Arial;width:100%;border:0}.no-print{position:absolute} @media print {.grid{display:block!important}.col{width:90px!important}h2{word-break:break-all!important}}</style><article id="cv"><button class="no-print" data-preview-only="true">Edit controls</button><h1>Candidate Name</h1><input value="Customer Service | Administration Officer"><div class="grid" data-test="grid"><aside class="col"><h2 data-test="heading">EDUCATION</h2><p>Technical Certificate</p><h2>SKILLS</h2><p>Customer service and logistics</p></aside><section class="col"><h2>EXPERIENCE</h2><ul>' + entries + '</ul></section></div></article>');
     await page.evaluate(() => document.querySelectorAll("textarea").forEach(el => { el.style.height = "auto"; el.style.height = el.scrollHeight + "px"; }));
+    await page.evaluate(() => {
+      const sidebar = document.querySelector('aside.col');
+      const filler = document.createElement('div'); filler.style.height = '1200px'; sidebar.append(filler);
+      const heading = document.createElement('h2'); heading.textContent = 'REFERENCES'; sidebar.append(heading);
+      for (const [index, text] of ['Jacky van Rooyan - Team Leader, DSV Road Freight Operations', 'Smangaliso Thwala - Team Leader, Menzies Aviation Customer Services'].entries()) {
+        const field = document.createElement('textarea'); field.value = text; field.dataset.a4Id = 'reference-' + index; field.dataset.testReference = 'true';
+        field.style.overflowWrap = 'anywhere'; sidebar.append(field); field.style.height = field.scrollHeight + 'px';
+        assertReferenceHeight(field);
+      }
+      function assertReferenceHeight(field) {
+        if (field.scrollHeight > field.clientHeight + 1) throw new Error('Reference text is clipped in preview');
+      }
+    });
     if (process.env.PDF_TEST_FONT) {
       await page.route("https://fixture.invalid/font.ttf", route => route.fulfill({ body: readFileSync(process.env.PDF_TEST_FONT), contentType: "font/ttf", headers: { "Access-Control-Allow-Origin": "*" } }));
       await page.route("https://fixture.invalid/fonts.css?weights=400;700", route => route.fulfill({ body: "@font-face{font-family:FixtureFont;src:url('https://fixture.invalid/font.ttf')}", contentType: "text/css", headers: { "Access-Control-Allow-Origin": "*" } }));
@@ -96,6 +109,12 @@ try {
     assert.notEqual(metrics.sidebarBackground, 'rgba(0, 0, 0, 0)', 'Sidebar background lost');
     assert.equal(metrics.scrollClipping, 'visible', 'Nested scroller still clips document content');
     assert(metrics.pages > 1, "Fixture should cover multiple pages");
+    const referenceLayout = await exportPage.evaluate(() => {
+      const source = document.querySelector('.a4-capture-source');
+      return [...source.querySelectorAll('[data-export-text-control]')].filter(el => el.textContent.includes('Team Leader')).map(el => ({ top: el.getBoundingClientRect().top, clipped: el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1 }));
+    });
+    assert.equal(referenceLayout.length, 2);
+    assert(referenceLayout.every(ref => ref.top > 1123 && !ref.clipped), 'Later-page references clipped or not wrapped');
     await exportPage.pdf({ path: resolve(output, "columns-" + columns + ".pdf"), format: "A4", printBackground: true, preferCSSPageSize: true, margin: { top: 0, bottom: 0, left: 0, right: 0 } });
     if (process.env.PDF_TEST_PYTHON) {
       const result = spawnSync(process.env.PDF_TEST_PYTHON, ["-c", "import sys,pdfplumber; from pypdf import PdfReader; r=PdfReader(sys.argv[1]); texts=[p.extract_text() or '' for p in r.pages]; count=''.join(texts).count('Negotiated carrier rates'); assert count==42,(count,[len(t) for t in texts]); assert 'END OF DOCUMENT' in texts[-1], 'Final content cut off'; assert len(r.pages)==int(sys.argv[2]); assert all(t.strip() for t in texts), 'Blank continuation page'; doc=pdfplumber.open(sys.argv[1]); colors=[c.get('non_stroking_color') for p in doc.pages for c in p.chars]; assert any(isinstance(c,(list,tuple)) and len(c)==3 and max(c)-min(c)>0.1 for c in colors), 'PDF text colours became monochrome'; doc.close(); print('PDF integrity: 42 bullets, final content, coloured text, no blank pages')", resolve(output, "columns-" + columns + ".pdf"), String(metrics.pages)], { encoding: "utf8" });
@@ -103,6 +122,11 @@ try {
       console.log(result.stdout.trim());
     }
     await exportPage.screenshot({ path: resolve(output, "columns-" + columns + ".png"), fullPage: true });
+    if (process.env.PDF_TEST_PYTHON) {
+      const refs = spawnSync(process.env.PDF_TEST_PYTHON, ['-c', "import sys; from pypdf import PdfReader; pages=[p.extract_text() or '' for p in PdfReader(sys.argv[1]).pages]; text=' '.join(' '.join(pages[1:]).split()); assert 'DSV Road Freight Operations' in text; assert 'Menzies Aviation Customer Services' in text; print('Both complete references verified on continuation pages')", resolve(output, 'columns-' + columns + '.pdf')], { encoding: 'utf8' });
+      if (refs.status !== 0) throw new Error(refs.stderr || refs.stdout);
+      console.log(refs.stdout.trim());
+    }
     const rendered = spawnSync(process.env.PDF_TEST_PDFTOPPM || 'pdftoppm', ['-scale-to', '1000', '-png', resolve(output, 'columns-' + columns + '.pdf'), resolve(output, 'rendered-columns-' + columns)], { encoding: 'utf8' });
     if (rendered.error || rendered.status !== 0) throw new Error(rendered.error?.message || rendered.stderr || 'PDF raster verification failed');
     console.log(JSON.stringify({ columns, ...metrics }));

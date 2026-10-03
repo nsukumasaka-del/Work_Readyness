@@ -62,7 +62,13 @@ function removeStoredValue(key: string): void {
 export function readProfile(): UserProfile | null {
   try {
     const stored = readStoredValue(PROFILE_KEY);
-    return stored ? (JSON.parse(stored) as UserProfile) : null;
+    if (!stored) return null;
+    const profile: unknown = JSON.parse(stored);
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return null;
+    const candidate = profile as Record<string, unknown>;
+    if (typeof candidate.email !== 'string' || !candidate.email.trim() || !candidate.id ||
+      (typeof candidate.id !== 'string' && typeof candidate.id !== 'number')) return null;
+    return candidate as unknown as UserProfile;
   } catch {
     return null;
   }

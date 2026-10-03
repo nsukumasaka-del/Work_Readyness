@@ -37,6 +37,7 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
   const fontStyles = await captureFontStyles(original);
   const clone = original.cloneNode(true) as HTMLElement;
   await inlineComputedStyles(original, clone);
+  expandScrollableContent(original, clone);
   clone.removeAttribute("inert");
   clone.classList.remove("cv-inline-edit-mode");
   clone.querySelectorAll("script, iframe, object, embed").forEach((element) => element.remove());
@@ -67,16 +68,18 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
     const staticText = createStaticTextControl(source, text);
     target.replaceWith(staticText);
   });
+  clone.querySelectorAll(".no-print, [data-preview-only='true'], .cv-page-guides, .cv-page-badge").forEach(element => element.remove());
 
   // The editor is one continuous A4-width document with measured spacers.
   // Keep that exact layout intact and expose one A4-height slice per page.
   // Rebuilding its grid or pruning sections loses content at page boundaries.
-  const paginatedPages = captureA4PageFrames(original, clone);
+  const pageCount = measureExpandedSnapshot(original, clone);
+  const paginatedPages = captureA4PageFrames(original, clone, pageCount);
 
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${fontStyles}
     <style>
       @page { size: A4 portrait; margin: 0; }
-      html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; color: #0f172a; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; color: #0f172a; color-scheme: only light; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
       body { width: 210mm; }
       #bonlist-cv-document {
         display: block !important; position: static !important;
@@ -101,6 +104,7 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
         border-color: transparent !important; border-radius: 0 !important; box-shadow: none !important;
         background-color: var(--a4-capture-background-color) !important;
         background-image: var(--a4-capture-background-image) !important;
+        height: auto !important; max-height: none !important;
         overflow: visible !important;
       }
       #bonlist-cv-document .no-print, #bonlist-cv-document [data-preview-only='true'],
@@ -118,6 +122,7 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
 /** Inline computed declarations so the Worker renderer retains the exact
  * responsive layout and Tailwind appearance even if it cannot fetch app CSS. */
 async function inlineComputedStyles(sourceRoot: HTMLElement, cloneRoot: HTMLElement): Promise<void> {
+  const resolveColor = createColorResolver();
   const sourceElements = [sourceRoot, ...Array.from(sourceRoot.querySelectorAll<HTMLElement>("*"))];
   const cloneElements = [cloneRoot, ...Array.from(cloneRoot.querySelectorAll<HTMLElement>("*"))];
   for (let index = 0; index < sourceElements.length; index += 1) {
@@ -139,9 +144,86 @@ async function inlineComputedStyles(sourceRoot: HTMLElement, cloneRoot: HTMLElem
         target.style.setProperty(property, value.includes("url(") ? absolutizeCssUrls(value) : value);
       }
     }
+    lockPaintStyles(computed, target, resolveColor);
+    if (source instanceof HTMLImageElement && target instanceof HTMLImageElement) {
+      target.src = source.currentSrc || source.src;
+      target.removeAttribute("srcset");
+      target.removeAttribute("sizes");
+      target.loading = "eager";
+    }
     if ((index + 1) % 32 === 0) {
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
     }
+  }
+}
+
+/** Convert modern CSS colours to sRGB in the source browser, not in a canvas
+ * screenshot. Chromium still prints selectable vector text and backgrounds. */
+function createColorResolver(): (value: string) => string {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  const cache = new Map<string, string>();
+  return value => {
+    if (!context || !value || !CSS.supports("color", value)) return value;
+    const saved = cache.get(value);
+    if (saved) return saved;
+    context.clearRect(0, 0, 1, 1);
+    context.fillStyle = value;
+    context.fillRect(0, 0, 1, 1);
+    const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data;
+    const result = alpha === 255 ? `rgb(${red}, ${green}, ${blue})` : `rgba(${red}, ${green}, ${blue}, ${alpha / 255})`;
+    cache.set(value, result);
+    return result;
+  };
+}
+
+function lockPaintStyles(computed: CSSStyleDeclaration, target: HTMLElement, resolve = createColorResolver()) {
+  for (const property of ["color", "background-color", "border-top-color", "border-right-color", "border-bottom-color", "border-left-color", "text-decoration-color", "-webkit-text-fill-color", "fill", "stroke"]) {
+    const value = computed.getPropertyValue(property);
+    if (value) target.style.setProperty(property, resolve(value === "currentcolor" ? computed.color : value), "important");
+  }
+  target.style.setProperty("-webkit-print-color-adjust", "exact", "important");
+  target.style.setProperty("print-color-adjust", "exact", "important");
+  target.style.setProperty("forced-color-adjust", "none", "important");
+  target.style.setProperty("color-scheme", "only light");
+}
+
+/** Open only document scrollers, not deliberately clipped managed-page slices
+ * or hidden sections. Never alter the user's live DOM or preview zoom. */
+function expandScrollableContent(sourceRoot: HTMLElement, cloneRoot: HTMLElement) {
+  const sources = [sourceRoot, ...sourceRoot.querySelectorAll<HTMLElement>("*")];
+  const targets = [cloneRoot, ...cloneRoot.querySelectorAll<HTMLElement>("*")];
+  sources.forEach((source, index) => {
+    const target = targets[index];
+    if (!target || source.closest("[data-managed-page], [data-managed-duplicate-page]")) return;
+    const style = getComputedStyle(source);
+    if (style.display === "none" || /^(INPUT|TEXTAREA|SELECT|IMG|SVG)$/.test(source.tagName)) return;
+    if (source !== sourceRoot && !(source.scrollHeight > source.clientHeight + 1 && /hidden|auto|scroll|clip/.test(style.overflowY))) return;
+    target.style.setProperty("height", "auto", "important");
+    target.style.setProperty("max-height", "none", "important");
+    target.style.setProperty("overflow", "visible", "important");
+  });
+}
+
+function measureExpandedSnapshot(source: HTMLElement, clone: HTMLElement): number {
+  const savedId = clone.getAttribute("id");
+  const savedStyle = clone.getAttribute("style");
+  const host = document.createElement("div");
+  host.style.cssText = "position:absolute;left:-100000px;top:0;visibility:hidden;pointer-events:none;contain:layout style";
+  clone.id = "bonlist-cv-export-measure";
+  clone.style.setProperty("width", getComputedStyle(source).width, "important");
+  clone.style.setProperty("max-width", getComputedStyle(source).width, "important");
+  clone.style.setProperty("position", "relative", "important");
+  clone.style.setProperty("transform", "none", "important");
+  clone.style.setProperty("margin", "0", "important");
+  host.append(clone);
+  document.body.append(host);
+  try { return measureCvPages(clone).pageCount; }
+  finally {
+    clone.remove(); host.remove();
+    if (savedId === null) clone.removeAttribute("id"); else clone.id = savedId;
+    if (savedStyle === null) clone.removeAttribute("style"); else clone.setAttribute("style", savedStyle);
   }
 }
 
@@ -190,6 +272,7 @@ function createStaticTextControl(source: HTMLInputElement | HTMLTextAreaElement 
   if (source instanceof HTMLTextAreaElement && computed.display !== "none") {
     output.style.setProperty("display", "block");
   }
+  lockPaintStyles(computed, output);
   return output;
 }
 
@@ -215,10 +298,9 @@ async function readExportError(response: Response): Promise<string> {
 /** Keep the editor's single continuous grid and its measured A4 spacers.
  * Each fixed page clips a full copy at the corresponding 297 mm interval, so
  * neither column is rebuilt and no trailing sections can be pruned away. */
-function captureA4PageFrames(source: HTMLElement, cleanedClone: HTMLElement): HTMLElement[] {
+function captureA4PageFrames(source: HTMLElement, cleanedClone: HTMLElement, pageCount: number): HTMLElement[] {
   // offsetWidth rounds to whole pixels; that drift cuts text on later pages.
   const sourceStyle = getComputedStyle(source);
-  const { pageCount } = measureCvPages(source);
   // Trailing paper padding is not another page of CV content. Explicit
   // managed blank pages remain part of scrollHeight and are still preserved.
   const pages: HTMLElement[] = [];

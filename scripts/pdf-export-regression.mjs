@@ -44,7 +44,18 @@ try {
       width: getComputedStyle(document.getElementById("cv")).width,
       grid: getComputedStyle(document.querySelector(".grid")).gridTemplateColumns,
     }));
+    // Reproduce a short viewport, nested scroller and modern colour syntax.
+    // The exporter must capture the document, not either clipping boundary.
+    await page.addStyleTag({ content: '#cv{--brand-color:oklch(0.6 0.18 250);--panel-color:hsl(195 65% 92%);color-scheme:dark}h1{color:var(--brand-color)}h2{color:hsl(195 70% 35%)}aside.col{background-color:var(--panel-color);border-left:3px solid var(--brand-color)}' });
+    await page.evaluate(() => {
+      const root = document.getElementById('cv');
+      const last = document.createElement('p'); last.textContent = 'END OF DOCUMENT - References Available'; root.querySelector('section.col').append(last);
+      root.style.height = '500px'; root.style.maxHeight = '500px'; root.style.overflow = 'hidden';
+      root.querySelector('section.col').style.maxHeight = '480px'; root.querySelector('section.col').style.overflow = 'auto';
+    });
+    const originalStyles = await page.evaluate(() => ({ root: document.getElementById('cv').getAttribute('style'), section: document.querySelector('section.col').getAttribute('style') }));
     const html = await page.evaluate(() => CvPdfSnapshot.createCvPdfSnapshot("cv"));
+    assert.deepEqual(await page.evaluate(() => ({ root: document.getElementById('cv').getAttribute('style'), section: document.querySelector('section.col').getAttribute('style') })), originalStyles, 'Export mutated the live canvas');
     writeFileSync(resolve(output, "columns-" + columns + ".html"), html);
     assert(!html.includes("Edit controls"));
     assert(!html.includes("@media print"));
@@ -64,6 +75,11 @@ try {
       const textRects = [...range.getClientRects()];
       const controls = [...source.querySelectorAll("[data-export-text-control]")];
       return { width: getComputedStyle(source).width, grid: getComputedStyle(source.querySelector('[data-test="grid"]')).gridTemplateColumns,
+        nameColor: getComputedStyle(source.querySelector('h1')).color,
+        headingColor: getComputedStyle(heading).color,
+        sidebarBackground: getComputedStyle(source.querySelector('aside.col')).backgroundColor,
+        textFill: getComputedStyle(heading).webkitTextFillColor,
+        scrollClipping: getComputedStyle(source.querySelector('section.col')).overflowY,
         headingLines: textRects.length, headingHeight: rect.height,
         overflow: controls.filter(el => el.scrollHeight > el.clientHeight + 1).length,
         frames: [...document.querySelectorAll(".a4-page-frame")].map(el => ({ height: el.getBoundingClientRect().height, overflow: getComputedStyle(el).overflow })),
@@ -74,14 +90,21 @@ try {
     assert.equal(metrics.grid, before.grid, "Columns changed during print");
     assert.equal(metrics.headingLines, 1, "EDUCATION split mid-word");
     assert.equal(metrics.overflow, 0, "Text overflows fixed control height");
+    assert.match(metrics.nameColor, /^rgb\(/, 'OKLCH heading colour was not baked into sRGB');
+    assert.notEqual(metrics.nameColor, 'rgb(0, 0, 0)', 'Name colour became black');
+    assert.notEqual(metrics.headingColor, 'rgb(0, 0, 0)', 'Section colour became black');
+    assert.notEqual(metrics.sidebarBackground, 'rgba(0, 0, 0, 0)', 'Sidebar background lost');
+    assert.equal(metrics.scrollClipping, 'visible', 'Nested scroller still clips document content');
     assert(metrics.pages > 1, "Fixture should cover multiple pages");
     await exportPage.pdf({ path: resolve(output, "columns-" + columns + ".pdf"), format: "A4", printBackground: true, preferCSSPageSize: true, margin: { top: 0, bottom: 0, left: 0, right: 0 } });
     if (process.env.PDF_TEST_PYTHON) {
-      const result = spawnSync(process.env.PDF_TEST_PYTHON, ["-c", "import sys; from pypdf import PdfReader; r=PdfReader(sys.argv[1]); texts=[p.extract_text() or '' for p in r.pages]; count=''.join(texts).count('Negotiated carrier rates'); assert count==42,(count,[len(t) for t in texts]); assert len(r.pages)==int(sys.argv[2]); assert all(t.strip() for t in texts), 'Blank continuation page'; print('PDF text integrity: 42 bullets, no blank pages')", resolve(output, "columns-" + columns + ".pdf"), String(metrics.pages)], { encoding: "utf8" });
+      const result = spawnSync(process.env.PDF_TEST_PYTHON, ["-c", "import sys,pdfplumber; from pypdf import PdfReader; r=PdfReader(sys.argv[1]); texts=[p.extract_text() or '' for p in r.pages]; count=''.join(texts).count('Negotiated carrier rates'); assert count==42,(count,[len(t) for t in texts]); assert 'END OF DOCUMENT' in texts[-1], 'Final content cut off'; assert len(r.pages)==int(sys.argv[2]); assert all(t.strip() for t in texts), 'Blank continuation page'; doc=pdfplumber.open(sys.argv[1]); colors=[c.get('non_stroking_color') for p in doc.pages for c in p.chars]; assert any(isinstance(c,(list,tuple)) and len(c)==3 and max(c)-min(c)>0.1 for c in colors), 'PDF text colours became monochrome'; doc.close(); print('PDF integrity: 42 bullets, final content, coloured text, no blank pages')", resolve(output, "columns-" + columns + ".pdf"), String(metrics.pages)], { encoding: "utf8" });
       if (result.status !== 0) throw new Error(result.stderr || result.stdout || "PDF text integrity failed");
       console.log(result.stdout.trim());
     }
     await exportPage.screenshot({ path: resolve(output, "columns-" + columns + ".png"), fullPage: true });
+    const rendered = spawnSync(process.env.PDF_TEST_PDFTOPPM || 'pdftoppm', ['-scale-to', '1000', '-png', resolve(output, 'columns-' + columns + '.pdf'), resolve(output, 'rendered-columns-' + columns)], { encoding: 'utf8' });
+    if (rendered.error || rendered.status !== 0) throw new Error(rendered.error?.message || rendered.stderr || 'PDF raster verification failed');
     console.log(JSON.stringify({ columns, ...metrics }));
     await page.close(); await exportPage.close();
   }

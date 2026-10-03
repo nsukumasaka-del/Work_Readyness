@@ -3,15 +3,16 @@ import React from 'react';
 import type { JobListing } from '@/types/job';
 import { JobCardActions } from './JobCardActions';
 
-export function JobListingCard({ job, onViewDetails, locked = false }: {
+export function JobListingCard({ job, onViewDetails, onUnlock, locked = false }: {
   job: JobListing;
   onViewDetails: () => void;
+  onUnlock?: () => void;
   locked?: boolean;
 }) {
   return (
-    <article className="relative box-border flex w-full min-w-0 max-w-full flex-col gap-4 overflow-hidden [overflow-wrap:anywhere] rounded-2xl border border-slate-200/80 bg-white p-4 pt-14 shadow-sm transition hover:border-blue-200 hover:shadow-md sm:flex-row sm:p-6 sm:pt-14">
-      <span className="absolute right-4 top-4 z-10 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold tabular-nums text-emerald-800">{typeof job.matchScore === 'number' ? `⚡ ${job.matchScore}% Match` : 'Match not assessed'}</span>
-      <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
+    <article className="relative box-border w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md sm:p-6">
+      <button type="button" onClick={onViewDetails} aria-label="View details and match reasoning" className={`absolute right-4 top-4 z-10 min-h-9 rounded-full border px-3 py-1 text-xs font-semibold tabular-nums transition hover:shadow-sm focus-visible:outline-2 focus-visible:outline-blue-600 sm:right-6 sm:top-6 ${typeof job.matchScore === 'number' && job.matchScore >= 75 ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : typeof job.matchScore === 'number' && job.matchScore >= 50 ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-slate-200 bg-slate-100 text-slate-700'}`}>{typeof job.matchScore === 'number' ? `${job.matchScore}% Match Rate` : 'Match not assessed'}</button>
+      <header className="flex min-w-0 gap-3 pt-11 sm:gap-4 sm:pr-40 sm:pt-0">
         <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-950 text-lg font-bold text-white sm:h-14 sm:w-14 sm:rounded-2xl">
           {!locked && job.logoUrl ? <img src={job.logoUrl} alt="" className="h-full w-full object-contain" /> : <span aria-hidden="true" className="text-sm font-black tracking-tight">{locked ? '?' : (job.company || job.sourceBoard).slice(0, 1).toUpperCase()}</span>}
         </div>
@@ -29,11 +30,15 @@ export function JobListingCard({ job, onViewDetails, locked = false }: {
               </p>
             </div>
           </div>
-          {locked ? <p aria-hidden="true" className="mt-3 select-none blur-[3px] text-sm text-slate-500">Unlock to view the complete job description and application details.</p> : job.shortSnippet ? <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">{job.shortSnippet}</p> : null}
-          {!locked && job.skills.length ? <div className="mt-3 flex flex-wrap gap-1.5">{job.skills.slice(0, 6).map((skill) => <span key={skill} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-600">{skill}</span>)}</div> : null}
         </div>
+      </header>
+      <div className="mt-4 grid min-w-0 gap-4 md:grid-cols-[minmax(0,1fr)_10rem] md:gap-6">
+        <div className="min-w-0 [overflow-wrap:anywhere]">
+          {locked ? <p aria-hidden="true" className="select-none blur-[3px] text-sm leading-6 text-slate-500">Unlock to view the complete job description and application details.</p> : job.shortSnippet ? <p className="line-clamp-4 text-sm leading-6 text-slate-600" style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 4, overflow: 'hidden' }}>{job.shortSnippet}</p> : null}
+          {!locked && job.skills.length ? <div className="mt-3 flex flex-wrap gap-1.5">{job.skills.slice(0, 8).map((skill, index) => <span key={`${skill}-${index}`} className="max-w-full break-words rounded-md bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">{skill}</span>)}</div> : null}
+        </div>
+        <JobCardActions job={job} locked={locked} onViewDetails={onViewDetails} onUnlock={onUnlock} />
       </div>
-      <JobCardActions job={job} locked={locked} onViewDetails={onViewDetails} />
     </article>
   );
 }

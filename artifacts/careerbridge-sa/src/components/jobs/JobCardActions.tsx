@@ -2,28 +2,26 @@ import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import type { JobListing } from '../../types/job';
 
-export function JobCardActions({ job, locked, onViewDetails }: { job: JobListing; locked: boolean; onViewDetails: () => void }) {
-  const [panel, setPanel] = useState<'reason' | 'letter' | null>(null);
+export function JobCardActions({ job, locked, onViewDetails, onUnlock }: { job: JobListing; locked: boolean; onViewDetails: () => void; onUnlock?: () => void }) {
+  const [letterOpen, setLetterOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState('');
-  const [letter, setLetter] = useState(`Dear Hiring Team,\n\nI would like to apply for the ${job.title} position at ${job.company}. Please find my CV attached for your consideration.\n\n[Add a specific example from your experience that meets the advertised requirements.]\n\nKind regards,\n[Your name]`);
-  return <aside className="flex min-w-0 flex-col items-start gap-2 border-t border-slate-100 pt-4 sm:w-44 sm:shrink-0 sm:items-end sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
+  const draft = () => `Dear Hiring Team,\n\nI would like to apply for the ${job.title} position at ${job.company}. Please find my CV attached for your consideration.\n\n[Add a specific example from your experience that meets the advertised requirements.]\n\nKind regards,\n[Your name]`;
+  const [letter, setLetter] = useState('');
+  return <aside className="grid min-w-0 grid-cols-2 gap-2 border-t border-slate-100 pt-3 md:flex md:flex-col md:border-l md:border-t-0 md:pl-4 md:pt-0">
     <span className="max-w-full break-words rounded bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-700">{locked ? 'Verified listing' : job.sourceBoard}</span>
-    <button type="button" onClick={onViewDetails} className="min-h-9 text-xs font-semibold text-blue-700">View details &gt;</button>
-    {locked ? <button type="button" onClick={onViewDetails} className="min-h-9 rounded bg-blue-600 px-3 py-2 text-xs font-bold text-white">🔒 Unlock Match for R20</button> : null}
-    <button type="button" onClick={() => locked ? onViewDetails() : setPanel('reason')} className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold tabular-nums text-emerald-800" aria-label="View job match reasoning">{typeof job.matchScore === 'number' ? `${job.matchScore}% Job Match` : 'Match not assessed'} ⓘ</button>
-    <button type="button" disabled={locked} onClick={() => setPanel('letter')} className="min-h-9 rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">Cover Letter</button>
-    {!locked && job.applicationUrl ? <a href={job.applicationUrl} target="_blank" rel="noopener noreferrer" className="min-h-9 rounded bg-slate-950 px-3 py-2 text-xs font-bold text-white">Apply on job board ↗</a> : null}
-    <button type="button" disabled title="Automatic application submission is not connected yet." className="min-h-9 rounded bg-indigo-600 px-3 py-2 text-xs font-bold text-white opacity-50">Auto Apply PRO+</button>
-    <span className="text-[10px] text-slate-500">Auto Apply not connected</span>
-    <Dialog open={panel !== null} onOpenChange={open => { if (!open) { setPanel(null); setCopyStatus(''); } }}>
+    <button type="button" onClick={onViewDetails} className="min-h-10 text-xs font-semibold text-indigo-700 hover:text-indigo-900">View details ›</button>
+    {locked ? <button type="button" onClick={onUnlock || onViewDetails} className="col-span-2 min-h-10 rounded-lg border border-amber-300 bg-amber-400 px-3 py-2 text-xs font-bold text-amber-950 hover:bg-amber-500">Unlock Match for R20</button> : null}
+    {!locked ? <button type="button" onClick={() => { setLetter(draft()); setCopyStatus(''); setLetterOpen(true); }} className="min-h-10 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Cover Letter</button> : null}
+    {!locked && job.applicationUrl ? <a href={job.applicationUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center justify-center rounded-lg bg-slate-950 px-3 py-2 text-center text-xs font-bold text-white hover:bg-slate-800">Apply on job board ↗</a> : null}
+    <Dialog open={letterOpen && !locked} onOpenChange={open => { setLetterOpen(open); if (!open) setCopyStatus(''); }}>
       <DialogContent className="max-h-[85dvh] w-[calc(100%_-_2rem)] max-w-lg overflow-y-auto">
-        <DialogHeader><DialogTitle>{panel === 'letter' ? 'Cover letter draft' : 'Why this match score?'}</DialogTitle><DialogDescription>{panel === 'letter' ? 'Personalise this draft with factual examples before using it. Nothing is submitted automatically.' : job.title}</DialogDescription></DialogHeader>
-        {panel === 'reason' ? <p className="whitespace-pre-wrap break-words text-sm leading-6">{job.matchReasoning || (typeof job.matchScore === 'number' ? 'This saved match does not include a detailed explanation. Run a new CV review to refresh its reasoning.' : 'Upload and review your CV to assess this listing against your documented qualifications.')}</p> : <>
+        <DialogHeader><DialogTitle>Cover letter draft</DialogTitle><DialogDescription>Personalise this draft with factual examples before using it. Nothing is submitted automatically.</DialogDescription></DialogHeader>
+        <>
           <label className="text-xs font-semibold" htmlFor={`letter-${job.id}`}>Your cover letter</label>
           <textarea id={`letter-${job.id}`} value={letter} onChange={event => setLetter(event.target.value)} className="min-h-64 w-full rounded border border-slate-200 p-3 text-sm" />
           <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(letter); setCopyStatus('Copied.'); } catch { setCopyStatus('Select the draft and copy it manually.'); } }} className="rounded bg-slate-950 p-2 text-sm text-white">Copy draft</button>
           <p role="status" className="text-xs">{copyStatus}</p>
-        </>}
+        </>
       </DialogContent>
     </Dialog>
   </aside>;

@@ -10,21 +10,35 @@ const job: JobListing = { id: '1', title: 'Clerk', company: 'Employer', location
 
 test('shared card contains original content and right action stack', () => {
   const html = renderToStaticMarkup(createElement(JobListingCard, { job, onViewDetails() {} }));
-  for (const text of ['Employer', 'Clerk', 'Remote', 'Gauteng', 'Today', 'Office tasks', 'Excel', 'PNet', 'View details', '88% Job Match', 'Cover Letter', 'Auto Apply PRO+', 'Auto Apply not connected']) assert.ok(html.includes(text), text);
+  for (const text of ['Employer', 'Clerk', 'Remote', 'Gauteng', 'Today', 'Office tasks', 'Excel', 'PNet', 'View details', '88% Match Rate', 'Cover Letter']) assert.ok(html.includes(text), text);
   assert.match(html, /<aside/);
   assert.match(html, /absolute right-4 top-4/);
-  assert.match(html, /88% Match/);
+  assert.equal((html.match(/88%/g) || []).length, 1, 'exactly one score pill per card');
+  assert.match(html, /aria-label="View details and match reasoning"/);
+  assert.match(html, /line-clamp-4/);
+  assert.doesNotMatch(html, /⚡|Auto Apply|ⓘ/);
 });
 
 test('locked card retains score but does not expose employer, snippet or apply URL', () => {
   const html = renderToStaticMarkup(createElement(JobListingCard, { job, locked: true, onViewDetails() {} }));
-  assert.match(html, /88% Job Match/);
+  assert.match(html, /88% Match Rate/);
   assert.match(html, /Unlock Match for R20/);
   assert.ok(!html.includes(job.applicationUrl!));
   assert.ok(!html.includes('Office tasks'));
   assert.ok(!html.includes('>Employer<'));
   assert.match(html, /blur-\[3px\]/);
   assert.match(html, /View details/);
+});
+
+test('rating colours reflect fit without creating a score for unscored searches', () => {
+  for (const [score, colour] of [[40, 'bg-slate-100'], [53, 'bg-blue-50'], [88, 'bg-emerald-50']] as const) {
+    const html = renderToStaticMarkup(createElement(JobListingCard, { job: { ...job, matchScore: score }, onViewDetails() {} }));
+    assert.match(html, new RegExp(`${score}% Match Rate`));
+    assert.ok(html.includes(colour));
+  }
+  const unscored = renderToStaticMarkup(createElement(JobListingCard, { job: { ...job, matchScore: undefined }, onViewDetails() {} }));
+  assert.equal((unscored.match(/Match not assessed/g) || []).length, 1);
+  assert.doesNotMatch(unscored, /\d+%/);
 });
 
 test('detail content includes salary, requirements and score reasoning', () => {

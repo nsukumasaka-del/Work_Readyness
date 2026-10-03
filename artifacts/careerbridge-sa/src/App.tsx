@@ -80,6 +80,7 @@ import {
   useUnreadJobMatches,
 } from '@/lib/job-match-notifications';
 import { JobListingCard, JobListingDetails } from '@/components/jobs/JobListingCard';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { SeoManager } from '@/components/SeoManager';
 import { isKnownAppPath } from '@/lib/seo-policy';
 import { CookieConsent } from '@/components/CookieConsent';
@@ -3127,7 +3128,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
             <h3 className="text-sm font-bold text-slate-900">CV-matched vacancies</h3>
             <p className="mt-1 text-xs leading-5 text-slate-600">{report.jobSearch?.liveResults ? `Matches gathered for “${report.jobSearch.query}”.` : 'These recommendations are based on the latest CV review.'}</p>
           </div>
-          {jobs.length ? jobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={!isJobUnlocked(job, paidAccess)} onViewDetails={() => setActiveJobId(String(job.id))} />) : <SuggestedRoles report={report} />}
+          {jobs.length ? jobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={!isJobUnlocked(job, paidAccess)} onUnlock={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: job.id })} onViewDetails={() => setActiveJobId(String(job.id))} />) : <SuggestedRoles report={report} />}
           {jobs.some(job => !isJobUnlocked(job, paidAccess)) ? <p className="text-xs text-slate-500">Unlock 50%+ matches for R20 each, or get R80 Mega Access for 7 days.</p> : null}
         </div>
       ) : (
@@ -3185,7 +3186,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
             {hasSearched ? <MatchCountBanner jobs={filteredJobs} role={keywords} /> : null}
             {showingSoftFilterFallback ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">No openings matched all selected industry/date filters. Showing related listings with those optional filters relaxed.</p> : null}
             {!hasSearched ? <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center"><p className="text-sm font-semibold text-slate-800">Search live job-board openings</p><p className="mt-1 text-xs text-slate-500">Enter a role and location, then search to get current listings from the configured boards.</p></div> : filteredJobs.length ? <div className="flex flex-col gap-4">
-              {filteredJobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={!isJobUnlocked(job, paidAccess)} onViewDetails={() => setActiveJobId(String(job.id))} />)}
+              {filteredJobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={!isJobUnlocked(job, paidAccess)} onUnlock={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: job.id })} onViewDetails={() => setActiveJobId(String(job.id))} />)}
             </div> : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center">
                 <p className="text-sm font-semibold text-slate-800">No openings found matching all strict filters.</p>
                 <p className="mt-1 text-xs text-slate-500">Try a broader role or location. We only show real job-board listings, not generated examples.</p>
@@ -3337,111 +3338,50 @@ function JobsPage() {
   );
 }
 
-function JobCard({ job, premiumUnlocked = false }: { job: JobMatch; premiumUnlocked?: boolean }) {
+function JobCard({ job }: { job: JobMatch; premiumUnlocked?: boolean }) {
   const paidAccess = usePaidAccess();
-  const premiumLocked = !isJobUnlocked(job, paidAccess);
-  const detailHref = `/jobs/${job.id}`;
-  const externalApply = applyHref(job);
-
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [revealed, setRevealed] = useState<JobListingSource | null>(null);
+  const [details, setDetails] = useState<JobDetailsPayload | null>(null);
+  const [loading, setLoading] = useState(false);
+  const locked = !isJobUnlocked(job, paidAccess);
+  const visibleJob = revealed?.id === job.id && !locked ? revealed : job;
+  const href = directApplicationUrl(visibleJob);
+  useEffect(() => {
+    let cancelled = false;
+    if (!locked && (job as JobListingSource & { locked?: boolean }).locked) {
+      void fetchUnlockedJob(job.id).then(value => {
+        const result = normalizeJobResults([value])[0];
+        if (!cancelled && result) setRevealed(result);
+      }).catch(() => { /* Never reveal details without server verification. */ });
+    }
+    return () => { cancelled = true; };
+  }, [job, locked, paidAccess]);
+  useEffect(() => {
+    if (!detailOpen || locked || !href) return;
+    let cancelled = false;
+    setLoading(true);
+    void authFetch('/api/career/jobs/details', { method: 'POST', body: JSON.stringify({ url: href }) })
+      .then(async response => { if (!response.ok) throw new Error('Details unavailable'); return readApiJson(response); })
+      .then(payload => {
+        const result = normalizeJobResults([{ ...job, ...payload }])[0];
+        if (!cancelled && result) setDetails({ fullDescription: result.fullDescription, requirements: result.requirements, responsibilities: result.responsibilities, skills: result.skills });
+      }).catch(() => { /* The saved listing and original board link remain available. */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [detailOpen, locked, href, job]);
   return (
-    <article
-      className={`relative overflow-hidden rounded-2xl border border-border bg-card transition-all ${
-        premiumLocked ? '' : 'hover:border-primary/35 hover:shadow-sm'
-      }`}
-      data-testid={`card-job-${job.id}`}
-    >
-      <span className="pointer-events-none absolute right-4 top-4 z-20 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold tabular-nums text-emerald-800">⚡ {job.match}% Match</span>
-      <div
-        className={`grid gap-5 p-5 pt-14 md:grid-cols-[1fr_auto] md:items-center ${
-          premiumLocked ? 'select-none blur-[3px] pointer-events-none' : ''
-        }`}
-      >
-        <div className="flex gap-4">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-secondary text-primary">
-            <span className="display text-lg font-semibold">{job.company.charAt(0)}</span>
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <Link
-                href={detailHref}
-                onClick={() => persistSelectedJob(job)}
-                className="text-base font-semibold text-foreground hover:text-primary"
-                data-testid={`link-job-detail-${job.id}`}
-              >
-                {job.title}
-              </Link>
-              {job.source && (
-                <span className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  {job.source}
-                </span>
-              )}
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">{job.company} — {job.sector}</p>
-            <p className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
-              <MapPin size={14} className="text-primary" />
-              {job.location}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {job.tags.map((tag) => (
-                <span key={tag} className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="flex flex-col gap-2 border-t border-border pt-4 md:items-end md:border-t-0 md:pt-0">
-          <div className="md:text-right">
-            <p className="text-sm font-semibold text-foreground">{job.salary}</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">{job.posted === 'Date unavailable' ? 'Posting date unavailable' : `Posted ${job.posted}`}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 md:justify-end">
-            <Link
-              href={detailHref}
-              onClick={() => persistSelectedJob(job)}
-              className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-bold text-foreground hover:border-primary/40"
-              data-testid={`button-view-spec-${job.id}`}
-            >
-              View job spec
-            </Link>
-            {externalApply ? (
-              <a
-                href={externalApply}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground"
-                data-testid={`button-apply-job-${job.id}`}
-              >
-                Apply <ExternalLink size={13} />
-              </a>
-            ) : (
-              <button
-                className="inline-flex items-center gap-1 text-xs font-bold text-primary"
-                onClick={() => navigator.clipboard?.writeText(`${job.title} at ${job.company}`)}
-                data-testid={`button-save-job-${job.id}`}
-              >
-                Save role <HeartHandshake size={13} />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {premiumLocked && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/55 px-5 backdrop-blur-[1px]">
-          <div className="max-w-sm rounded-2xl border border-border bg-card/95 p-5 text-center shadow-md">
-            <span className="mx-auto grid h-10 w-10 place-items-center rounded-xl bg-secondary text-primary">
-              <Lock size={18} />
-            </span>
-            <p className="mt-3 text-sm font-semibold text-foreground">{job.match}% premium match</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Unlock the full job specification and application link for R20, or get R80 Mega Access for 7 days.
-            </p>
-            <button className="btn-primary mt-3" onClick={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: job.id })}>Unlock Match for R20</button>
-          </div>
-        </div>
-      )}
-    </article>
+    <div data-testid={`card-job-${job.id}`}>
+      <JobListingCard job={toJobListing(visibleJob)} locked={locked}
+        onUnlock={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: job.id })}
+        onViewDetails={() => setDetailOpen(true)} />
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-h-[85dvh] w-[calc(100%_-_2rem)] max-w-3xl overflow-y-auto">
+          <DialogHeader><DialogTitle>Job details</DialogTitle><DialogDescription>{locked ? 'Unlock this match to view the employer and application details.' : 'Full job specification and evidence-based match reasoning.'}</DialogDescription></DialogHeader>
+          {locked ? <div className="space-y-3 text-sm"><p>Unlock this match for R20, or use R80 Mega Access for seven days.</p><button type="button" className="btn-primary" onClick={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: job.id })}>Unlock Match for R20</button></div> : <JobListingDetails job={toJobListing({ ...visibleJob, ...details })} loading={loading} />}
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 

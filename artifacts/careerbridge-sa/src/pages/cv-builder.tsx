@@ -82,7 +82,7 @@ import {
   Zap,
 } from "lucide-react";
 import { readStoredProfile } from "@/lib/entitlements";
-import { authFetch, readProfile as readAuthProfile } from "@/lib/auth-session";
+import { authFetch, friendlyClientError, readProfile as readAuthProfile } from "@/lib/auth-session";
 import { ensureCvProfile } from "@/lib/cv-profile";
 import { calculateCvCompletion } from "@/lib/cv-completion";
 import { buildParseUploadBody, parseUploadErrorMessage, readFileAsDataUrl } from "@/lib/cv-parse-upload";
@@ -5264,7 +5264,7 @@ export default function CvBuilderPage() {
       if (templateAccess(next, selectedTemplate).canExport) return true;
       requestPayment({ itemType: 'TEMPLATE_DOWNLOAD', targetId: selectedTemplate, downloadFormat: action,
         onVerified: () => { void triggerPreFlightAudit(action); } });
-    } catch { setError('Sign in and reconnect to check your download access.'); }
+    } catch (error) { setError(friendlyClientError(error, 'Download access could not be checked. Please try again.')); }
     return false;
   };
   const handleDirectDownload = (action: "print" | "html" | "txt" | "doc") => {

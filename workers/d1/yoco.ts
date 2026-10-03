@@ -13,7 +13,12 @@ export function d1PaymentStore(env: D1Env): PaymentStore {
   };
 }
 export async function d1PaymentAccess(env: D1Env, user: UserRow) {
-  const access = paymentAccess({ id: user.id, email: user.email, isAdmin: Boolean(user.is_admin) }, await d1PaymentStore(env).paid(user.id), env.PRIMARY_ADMIN_EMAIL);
+  const identity = { id: user.id, email: user.email, isAdmin: Boolean(user.is_admin) };
+  const adminAccess = paymentAccess(identity, [], env.PRIMARY_ADMIN_EMAIL);
+  // Identity comes from a verified server session, never browser profile storage.
+  // Administrators do not depend on checkout-table availability.
+  if (adminAccess.adminBypass) return adminAccess;
+  const access = paymentAccess(identity, await d1PaymentStore(env).paid(user.id), env.PRIMARY_ADMIN_EMAIL);
   const legacy = await env.DB.prepare("SELECT template_id FROM user_template_entitlements WHERE user_id = ? AND status = 'active'").bind(user.id).all<{ template_id: string }>();
   access.ownedTemplateIds = [...new Set([...access.ownedTemplateIds, ...legacy.results.map(row => row.template_id)])];
   return access;

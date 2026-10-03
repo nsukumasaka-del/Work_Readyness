@@ -130,9 +130,10 @@ export function persistSessionToken(token?: string, rememberMe = true) {
 }
 
 export async function completeAuthSession(payload: AuthSessionPayload, rememberMe = true) {
-  persistProfile(payload);
   persistSessionToken(payload.sessionToken, rememberMe);
   persistAdminAccess(payload.adminToken, Boolean(payload.isAdmin));
+  // Profile listeners immediately fetch entitlements; publish only after auth is ready.
+  persistProfile(payload);
   if (payload.showSecurityNudge) {
     writeStoredValue(NUDGE_KEY, '1');
   }
@@ -187,7 +188,7 @@ export async function readApiJson(response: Response): Promise<Record<string, an
   try {
     payload = JSON.parse(text) as Record<string, any>;
   } catch {
-    throw new Error('We could not reach the BonList service. Please try again.');
+    throw new Error(`BonList returned an invalid service response (HTTP ${response.status}). Please try again shortly.`);
   }
   if (response.status === 503 && typeof payload.error === 'string') {
     throw new Error(payload.error);

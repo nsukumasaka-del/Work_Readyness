@@ -35,6 +35,12 @@ export async function canUseTemplate(env: D1Env, user: UserRow, templateId: stri
 
 async function status(env: D1Env, user: UserRow) {
   const access = await d1PaymentAccess(env, user);
+  if (access.adminBypass) return {
+    ...access, credits: Number.MAX_SAFE_INTEGER,
+    creditPack: { priceZar: 50, credits: 5 }, freeTemplateIds: [],
+    premiumTemplates: [...FREE_TEMPLATE_IDS, ...PAID_TEMPLATE_IDS].map(templateId => ({ templateId, priceZar: 50, ownership: "lifetime" })),
+    features: [], recentTransactions: [],
+  };
   const [owned, features, recent, balance] = await Promise.all([
     env.DB.prepare("SELECT template_id, unlocked_at FROM user_template_entitlements WHERE user_id = ? AND status = 'active' ORDER BY unlocked_at DESC")
       .bind(user.id).all<{ template_id: string; unlocked_at: string }>(),

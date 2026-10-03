@@ -310,6 +310,7 @@ const NATIVE_WEBVIEW_ORIGINS = new Set([
 ]);
 
 function isNativeWebviewOrigin(origin: string): boolean {
+  if (origin === "https://www.bonlist.site" || origin === "https://bonlist.site") return true;
   if (NATIVE_WEBVIEW_ORIGINS.has(origin)) return true;
   try {
     const parsed = new URL(origin);
@@ -475,8 +476,7 @@ async function hasValidOtaBundle(env: Env, url: URL): Promise<boolean> {
   return offset === 4 && signature[0] === 0x50 && signature[1] === 0x4b && [0x03, 0x05, 0x07].includes(signature[2]!) && [0x04, 0x06, 0x08].includes(signature[3]!);
 }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+async function handleRequest(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if ((url.hostname === "bonlist.site" || url.hostname === "www.bonlist.site") && (url.protocol !== "https:" || url.hostname === "bonlist.site")) {
@@ -628,5 +628,29 @@ export default {
       statusText: assetResponse.statusText,
       headers,
     });
+}
+
+export const workerGateway = {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    const isApi = path === "/api" || path.startsWith("/api/");
+    // Preflight must run before method-specific handlers, including PDF export.
+    if (isApi && request.method === "OPTIONS") {
+      return withNativeCors(request, new Response(null, { status: 204 }));
+    }
+    try {
+      return await handleRequest(request, env);
+    } catch (error) {
+      if (!isApi) throw error;
+      console.error("[api] Request failed", request.method, path, error);
+      return withNativeCors(request, Response.json({
+        success: false,
+        error: "Service temporarily unavailable. Please try again.",
+        message: "Service temporarily unavailable. Please try again.",
+        fallback: false,
+      }, { status: 503, headers: { "Cache-Control": "no-store" } }));
+    }
   },
 };
+
+export default workerGateway;

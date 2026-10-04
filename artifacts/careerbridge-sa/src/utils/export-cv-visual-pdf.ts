@@ -210,7 +210,7 @@ function measureExpandedSnapshot(source: HTMLElement, clone: HTMLElement): numbe
   const savedId = clone.getAttribute("id");
   const savedStyle = clone.getAttribute("style");
   const host = document.createElement("div");
-  host.style.cssText = "position:absolute;left:-100000px;top:0;visibility:hidden;pointer-events:none;contain:layout style";
+  host.style.cssText = "position:absolute;left:-100000px;top:0;opacity:0;pointer-events:none;contain:layout style";
   clone.id = "bonlist-cv-export-measure";
   clone.style.setProperty("width", getComputedStyle(source).width, "important");
   clone.style.setProperty("max-width", getComputedStyle(source).width, "important");
@@ -334,7 +334,23 @@ export function measureCvPages(source: HTMLElement) {
   const pageHeightPx = 297 * 96 / 25.4;
   const height = Math.max(source.scrollHeight, source.offsetHeight);
   const managedHeight = source.querySelector<HTMLElement>("[data-managed-pages-container]")?.offsetHeight || 0;
-  const naturalHeight = Math.max(pageHeightPx, height - managedHeight - parseFloat(style.paddingBottom || "0"));
+  // Translated/positioned blocks can extend into the trailing paper padding.
+  // scrollHeight includes those bounds, but subtracting padding from it can
+  // discard the final lines. Measure painted content independently of flow.
+  const rootRect = source.getBoundingClientRect();
+  const scale = rootRect.width / parseFloat(style.width) || 1;
+  let contentBottom = 0;
+  for (const element of source.querySelectorAll<HTMLElement>("*")) {
+    if (element.closest(".no-print, [data-preview-only='true'], .cv-page-guides, .cv-page-badge, [data-managed-pages-container], [data-a4-spacer]")) continue;
+    // Container backgrounds stretch with the paper; only leaf content and
+    // editable fields establish the last visible CV line.
+    if (element.childElementCount && !element.matches("input, textarea, select")) continue;
+    const rect = element.getBoundingClientRect();
+    const computed = getComputedStyle(element);
+    if (!rect.width || !rect.height || computed.visibility === "hidden" || computed.display === "none") continue;
+    contentBottom = Math.max(contentBottom, (rect.bottom - rootRect.top) / scale);
+  }
+  const naturalHeight = Math.max(pageHeightPx, contentBottom, height - managedHeight - parseFloat(style.paddingBottom || "0"));
   const naturalPages = Math.max(1, Math.ceil((naturalHeight - 1) / pageHeightPx));
   const managedCount = source.querySelectorAll("[data-managed-page]").length;
   return { pageHeightPx, naturalHeight, naturalPages, pageCount: naturalPages + managedCount, height };

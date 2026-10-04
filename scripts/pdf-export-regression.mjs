@@ -19,6 +19,19 @@ const compiled = await build({
 });
 const browser = await chromium.launch({ headless: true, ...(process.env.PDF_TEST_BROWSER ? { executablePath: process.env.PDF_TEST_BROWSER } : {}) });
 try {
+  // A moved block ends just beyond page 1, inside the root's bottom padding.
+  // Both the badge and export must include page 2 without changing placement.
+  const moved = await browser.newPage();
+  await moved.setContent('<style>#moved{width:794px;min-height:1123px;box-sizing:border-box;padding:40px}#refs{width:240px;transform:translate(400px,1060px)}p{margin:0;line-height:24px}</style><article id="moved"><section id="refs"><p>REFERENCES</p><p>Jacky van Rooyan - DSV Road Freight</p><p>Smangaliso Thwala - Menzies Aviation</p></section></article>');
+  await moved.addScriptTag({ content: compiled.outputFiles[0].text });
+  const movedBefore = await moved.evaluate(() => ({ pages: CvPdfSnapshot.measureCvPages(document.getElementById('moved')).pageCount, top: document.getElementById('refs').getBoundingClientRect().top, left: document.getElementById('refs').getBoundingClientRect().left }));
+  assert.equal(movedBefore.pages, 2, 'Dragged references beyond page 1 omitted from page count');
+  const movedHtml = await moved.evaluate(() => CvPdfSnapshot.createCvPdfSnapshot('moved'));
+  await moved.setContent(movedHtml);
+  const movedAfter = await moved.evaluate(() => { const ref = document.querySelector('.a4-capture-source #refs'); return { pages: document.querySelectorAll('.a4-page-frame').length, top: ref.getBoundingClientRect().top, left: ref.getBoundingClientRect().left }; });
+  assert.equal(movedAfter.pages, 2);
+  assert(Math.abs(movedBefore.top - 8 - movedAfter.top) < 1 && Math.abs(movedBefore.left - 8 - movedAfter.left) < 1, 'Moved reference coordinates changed during export');
+  await moved.close();
   for (const columns of [1, 2]) {
     const page = await browser.newPage({ viewport: { width: 1200, height: 1400 } });
     const entries = Array.from({ length: 42 }, (_, i) => '<li data-a4-id="bullet-' + i + '"><textarea data-test="bullet-' + i + '">Negotiated carrier rates and managed customer enquiries with accurate reporting.</textarea></li>').join("");

@@ -9,6 +9,9 @@ const { chromium } = runtime ? require(resolve(runtime, "playwright")) : require
 const { build } = require("../artifacts/api-server/node_modules/esbuild");
 const output = resolve("tmp/pdfs");
 mkdirSync(output, { recursive: true });
+// Real app coverage is primary when an app URL is supplied; the synthetic
+// fixtures below remain fast, focused rendering unit regressions.
+if (process.env.PDF_TEST_APP_URL) await import('./pdf-builder-integration.mjs');
 const compiled = await build({
   entryPoints: ["artifacts/careerbridge-sa/src/utils/export-cv-visual-pdf.ts"],
   bundle: true, write: false, format: "iife", globalName: "CvPdfSnapshot",

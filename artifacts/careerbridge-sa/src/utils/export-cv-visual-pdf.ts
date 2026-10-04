@@ -11,6 +11,12 @@ export async function exportCvVisualPdf(
 ): Promise<void> {
   onStageChange?.("preparing");
   const html = await createCvPdfSnapshot(previewElementId);
+  // Explicit, temporary opt-in only: CV HTML contains personal information.
+  // Never send this diagnostic payload to analytics or log it by default.
+  if (new URLSearchParams(window.location.search).get("debugCvPdf") === "1") {
+    console.warn("[CV PDF debug] The following local console payload contains CV personal data. Remove debugCvPdf=1 when finished.");
+    console.debug("[CV PDF snapshot HTML]", html);
+  }
   const safeName = filename.replace(/\.pdf$/i, "").replace(/[^a-z0-9._-]+/gi, "-") || "BonList-CV";
   onStageChange?.("rendering");
   const response = await authFetch("/api/career/cv/export-pdf", {
@@ -65,7 +71,7 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
     const text = source instanceof HTMLSelectElement
       ? source.selectedOptions[0]?.textContent || ""
       : source.value;
-    const staticText = createStaticTextControl(source, text);
+    const staticText = createStaticTextControl(source, text, target.style.cssText);
     target.replaceWith(staticText);
   });
   clone.querySelectorAll(".no-print, [data-preview-only='true'], .cv-page-guides, .cv-page-badge").forEach(element => element.remove());
@@ -97,6 +103,15 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
         break-after: page !important; page-break-after: always !important;
       }
       #bonlist-cv-document .a4-page-frame:last-child { break-after: auto !important; page-break-after: auto !important; }
+      /* Pagination is already settled and sliced by the client. Chromium must
+         not apply copied section/heading print-break rules a second time. */
+      #bonlist-cv-document .a4-capture-source,
+      #bonlist-cv-document .a4-capture-source * {
+        break-before: auto !important; break-after: auto !important;
+        break-inside: auto !important;
+        page-break-before: auto !important; page-break-after: auto !important;
+        page-break-inside: auto !important; -webkit-column-break-inside: auto !important;
+      }
       #bonlist-cv-document .a4-page-frame .a4-capture-source {
         position: absolute !important; top: 0 !important; left: 0 !important;
         width: var(--a4-capture-width) !important; max-width: var(--a4-capture-width) !important;
@@ -219,7 +234,27 @@ function measureExpandedSnapshot(source: HTMLElement, clone: HTMLElement): numbe
   clone.style.setProperty("margin", "0", "important");
   host.append(clone);
   document.body.append(host);
-  try { return measureCvPages(clone).pageCount; }
+  try {
+    // Static text can have a different inline baseline from native controls.
+    // Preserve each settled block's screen coordinates, including nested
+    // entries, without changing the live DOM or rebuilding either column.
+    const sourceRect = source.getBoundingClientRect();
+    const scale = sourceRect.width / parseFloat(getComputedStyle(source).width) || 1;
+    for (const block of source.querySelectorAll<HTMLElement>("[data-a4-id]")) {
+      if (block.closest(".no-print, [data-preview-only='true'], [data-managed-pages-container]") || !block.getClientRects().length) continue;
+      const target = clone.querySelector<HTMLElement>(`[data-a4-id="${CSS.escape(block.dataset.a4Id!)}"]`);
+      if (!target) continue;
+      const original = block.getBoundingClientRect(), measured = target.getBoundingClientRect(), root = clone.getBoundingClientRect();
+      const dx = (original.left - sourceRect.left) / scale - (measured.left - root.left);
+      const dy = (original.top - sourceRect.top) / scale - (measured.top - root.top);
+      if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) continue;
+      const transform = getComputedStyle(target).transform;
+      const matrix = new DOMMatrixReadOnly(transform === "none" ? undefined : transform).toFloat64Array();
+      matrix[12] += dx; matrix[13] += dy;
+      target.style.setProperty("transform", new DOMMatrixReadOnly(Array.from(matrix)).toString(), "important");
+    }
+    return measureCvPages(clone).pageCount;
+  }
   finally {
     clone.remove(); host.remove();
     if (savedId === null) clone.removeAttribute("id"); else clone.id = savedId;
@@ -237,9 +272,11 @@ function absolutizeCssUrls(value: string): string {
   });
 }
 
-function createStaticTextControl(source: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, text: string): HTMLElement {
+function createStaticTextControl(source: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, text: string, snapshotStyle = ""): HTMLElement {
   const computed = window.getComputedStyle(source);
   const output = document.createElement(source instanceof HTMLTextAreaElement ? "div" : "span");
+  output.style.cssText = snapshotStyle;
+  if (source.dataset.a4Id) output.dataset.a4Id = source.dataset.a4Id;
   output.className = source.className;
   output.textContent = text;
   output.setAttribute("data-export-text-control", "true");
@@ -259,7 +296,7 @@ function createStaticTextControl(source: HTMLInputElement | HTMLTextAreaElement 
   });
   output.style.setProperty("white-space", source instanceof HTMLTextAreaElement ? "pre-wrap" : computed.whiteSpace || "pre-wrap");
   output.style.setProperty("word-break", "normal");
-  output.style.setProperty("overflow-wrap", "break-word");
+  output.style.setProperty("overflow-wrap", computed.overflowWrap === "anywhere" ? "anywhere" : "break-word");
   output.style.setProperty("height", "auto");
   output.style.setProperty("min-height", computed.height);
   output.style.setProperty("max-height", "none");
@@ -373,6 +410,17 @@ export function computeCvPageSpacers(root: HTMLElement): Record<string, number> 
     existing.forEach(el => { el.style.height = "0px"; el.style.minHeight = "0px"; });
     for (const el of Array.from(root.querySelectorAll<HTMLElement>("[data-a4-id]"))) {
       if (el.closest(".no-print, [data-preview-only='true'], [data-managed-pages-container]") || el.offsetParent === null) continue;
+      // Free-positioned cards own their placement. Adding an automatic spacer
+      // based on the translated bounds moves them a second time after a drag.
+      let manuallyPositioned = false;
+      for (let parent: HTMLElement | null = el; parent && parent !== root; parent = parent.parentElement) {
+        const transform = getComputedStyle(parent).transform;
+        if (transform !== "none") {
+          const matrix = new DOMMatrixReadOnly(transform);
+          if (Math.abs(matrix.m41) > 0.01 || Math.abs(matrix.m42) > 0.01) { manuallyPositioned = true; break; }
+        }
+      }
+      if (manuallyPositioned) continue;
       const id = el.dataset.a4Id;
       if (!id) continue;
       const rootRect = root.getBoundingClientRect();

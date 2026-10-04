@@ -12,11 +12,12 @@ The preview is captured at its unscaled A4 CSS width; zoom and mobile breakpoint
 - Expand root and overflowing document scroll containers only in the clone. Measure the full off-screen clone after converting editable controls, so viewport heights cannot cut off continuation pages. Preserve intentionally clipped managed-page slices.
 - Embed the relevant font-face files. Font-download failures stop export rather than silently changing typography. Inter, Roboto, Garamond and Mono choices use portable web fonts.
 - Convert editable controls to selectable text with the same width, typography, minimum height and positioning. Never force arbitrary mid-word breaks or fixed text heights.
-- Retain the full captured control typography and anchor `[data-a4-id]` blocks to their live, unzoomed coordinates after control conversion. Native input baselines must not shift subsequent sections in the print snapshot.
+- Retain full captured control typography. Anchor only explicitly moved blocks to live, unzoomed coordinates; ordinary blocks must grow in flow when static text is taller than a native control. Recompute keep-together spacers in the clone only, never in the live canvas.
 - Section headings contain actual words, not spaces between individual characters.
 - Preview and export share A4 page metrics and DOM-order spacer measurement. Nested blocks account for earlier moves, and trailing paper padding is not a new page.
 - Slice the continuous two-column canvas with translated content inside exact 210mm x 297mm frames. Chromium receives zero print margins, background printing and scale 1.
 - Wait for fonts, images and layout commits before printing. Remove editor controls and editable bindings from the snapshot.
+- Load every used font weight/style explicitly before `document.fonts.ready`, then allow two animation frames for layout. Preview textareas refit after font loading. Worker rendering waits for network idle, the same font barrier, decoded images and a settled layout.
 
 ## Regression harness
 

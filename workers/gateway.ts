@@ -74,11 +74,20 @@ async function handleCvPdfExport(request: Request, env: Env): Promise<Response> 
     await page.emulateMediaType("print");
     await page.setContent(html, { waitUntil: "networkidle0", timeout: 30_000 });
     await page.evaluate(async () => {
+      const fonts = new Map<string, string>();
+      for (const element of document.querySelectorAll<HTMLElement>("#bonlist-cv-document *")) {
+        const style = getComputedStyle(element);
+        if (style.display === "none") continue;
+        const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        if (!fonts.has(font)) fonts.set(font, element.textContent || "CV");
+      }
+      await Promise.all([...fonts].map(([font, text]) => document.fonts.load(font, text)));
       await document.fonts.ready;
       if (Array.from(document.fonts).some(font => font.status === "error")) throw new Error("A CV font failed to load.");
       await Promise.all(Array.from(document.images).map(async image => {
         await image.decode();
       }));
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     });
     const pdf = await page.pdf({
       format: "A4",

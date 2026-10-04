@@ -205,6 +205,14 @@ function AutoGrowTextarea({
   }, [value]);
 
   useEffect(() => {
+    let active = true;
+    const fitAfterFonts = () => { if (active) fitTextareaHeight(ref.current); };
+    void document.fonts.ready.then(fitAfterFonts);
+    document.fonts.addEventListener("loadingdone", fitAfterFonts);
+    return () => { active = false; document.fonts.removeEventListener("loadingdone", fitAfterFonts); };
+  }, []);
+
+  useEffect(() => {
     const el = ref.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(() => fitTextareaHeight(el));

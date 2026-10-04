@@ -122,6 +122,9 @@ try {
       const last = document.createElement('p'); last.textContent = 'END OF DOCUMENT - References Available'; root.querySelector('section.col').append(last);
       root.style.height = '500px'; root.style.maxHeight = '500px'; root.style.overflow = 'hidden';
       root.querySelector('section.col').style.maxHeight = '480px'; root.querySelector('section.col').style.overflow = 'auto';
+      // Native controls measured with stale font metrics: exported multiline
+      // text must grow in flow instead of being pinned into overlapping rows.
+      root.querySelectorAll('section.col textarea').forEach(el => { el.style.height = '18px'; });
     });
     const originalStyles = await page.evaluate(() => ({ root: document.getElementById('cv').getAttribute('style'), section: document.querySelector('section.col').getAttribute('style') }));
     const html = await page.evaluate(() => CvPdfSnapshot.createCvPdfSnapshot("cv"));
@@ -152,6 +155,7 @@ try {
         scrollClipping: getComputedStyle(source.querySelector('section.col')).overflowY,
         headingLines: textRects.length, headingHeight: rect.height,
         overflow: controls.filter(el => el.scrollHeight > el.clientHeight + 1).length,
+        overlaps: [...source.querySelectorAll('section.col li')].slice(1).filter(el => el.getBoundingClientRect().top < el.previousElementSibling.getBoundingClientRect().bottom - 0.5).length,
         frames: [...document.querySelectorAll(".a4-page-frame")].map(el => ({ height: el.getBoundingClientRect().height, overflow: getComputedStyle(el).overflow })),
         sources: [...document.querySelectorAll(".a4-capture-source")].map(el => ({ position: getComputedStyle(el).position, top: getComputedStyle(el).top })),
         pages: document.querySelectorAll(".a4-page-frame").length };
@@ -160,6 +164,7 @@ try {
     assert.equal(metrics.grid, before.grid, "Columns changed during print");
     assert.equal(metrics.headingLines, 1, "EDUCATION split mid-word");
     assert.equal(metrics.overflow, 0, "Text overflows fixed control height");
+    assert.equal(metrics.overlaps, 0, 'Expanded bullet text overlaps subsequent entries');
     assert.match(metrics.nameColor, /^rgb\(/, 'OKLCH heading colour was not baked into sRGB');
     assert.notEqual(metrics.nameColor, 'rgb(0, 0, 0)', 'Name colour became black');
     assert.notEqual(metrics.headingColor, 'rgb(0, 0, 0)', 'Section colour became black');

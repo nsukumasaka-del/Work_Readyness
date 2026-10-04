@@ -38,7 +38,17 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
     throw new Error(`CV preview element #${previewElementId} was not found.`);
   }
 
-  await document.fonts?.ready;
+  // fonts.ready alone can resolve before an unused weight/style is requested.
+  const fontRequests = new Map<string, string>();
+  for (const element of [original, ...original.querySelectorAll<HTMLElement>("*")]) {
+    const style = getComputedStyle(element);
+    if (style.display === "none") continue;
+    const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    if (!fontRequests.has(font)) fontRequests.set(font, element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value : element.textContent || "CV");
+  }
+  await Promise.all([...fontRequests].map(([font, text]) => document.fonts.load(font, text)));
+  await document.fonts.ready;
+  await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   if (original.offsetWidth === 0) throw new Error("The CV preview must be visible before downloading.");
   const fontStyles = await captureFontStyles(original);
   const clone = original.cloneNode(true) as HTMLElement;
@@ -86,7 +96,7 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
     <style>
       @page { size: A4 portrait; margin: 0; }
       html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; color: #0f172a; color-scheme: only light; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-      body { width: 210mm; }
+      body { width: 210mm; height: auto; max-height: none; overflow: visible; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size-adjust: none; }
       #bonlist-cv-document {
         display: block !important; position: static !important;
         width: 210mm !important; max-width: 210mm !important;
@@ -235,12 +245,27 @@ function measureExpandedSnapshot(source: HTMLElement, clone: HTMLElement): numbe
   host.append(clone);
   document.body.append(host);
   try {
-    // Static text can have a different inline baseline from native controls.
-    // Preserve each settled block's screen coordinates, including nested
-    // entries, without changing the live DOM or rebuilding either column.
+    // Reflow expanded static text only in the clone. Pinning every entry back
+    // to stale native-control bounds causes overlapping multiline paragraphs.
+    const spacers = computeCvPageSpacers(clone);
+    clone.querySelectorAll<HTMLElement>("[data-a4-spacer]").forEach(el => {
+      const height = spacers[el.dataset.a4Spacer!] || 0;
+      el.style.height = `${height}px`; el.style.minHeight = `${height}px`;
+    });
+    for (const [id, height] of Object.entries(spacers)) {
+      if (clone.querySelector(`[data-a4-spacer="${CSS.escape(id)}"]`)) continue;
+      const target = clone.querySelector(`[data-a4-id="${CSS.escape(id)}"]`);
+      if (!target) continue;
+      const spacer = document.createElement("div"); spacer.dataset.a4Spacer = id;
+      spacer.style.cssText = `height:${height}px;min-height:${height}px;width:100%;flex-shrink:0`;
+      target.before(spacer);
+    }
+    // Only explicit user positioning is authoritative; ordinary sections and
+    // bullet entries must remain in flow when text gains height.
     const sourceRect = source.getBoundingClientRect();
     const scale = sourceRect.width / parseFloat(getComputedStyle(source).width) || 1;
     for (const block of source.querySelectorAll<HTMLElement>("[data-a4-id]")) {
+      if (!hasManualPosition(block, source)) continue;
       if (block.closest(".no-print, [data-preview-only='true'], [data-managed-pages-container]") || !block.getClientRects().length) continue;
       const target = clone.querySelector<HTMLElement>(`[data-a4-id="${CSS.escape(block.dataset.a4Id!)}"]`);
       if (!target) continue;
@@ -260,6 +285,16 @@ function measureExpandedSnapshot(source: HTMLElement, clone: HTMLElement): numbe
     if (savedId === null) clone.removeAttribute("id"); else clone.id = savedId;
     if (savedStyle === null) clone.removeAttribute("style"); else clone.setAttribute("style", savedStyle);
   }
+}
+
+function hasManualPosition(element: HTMLElement, root: HTMLElement): boolean {
+  for (let parent: HTMLElement | null = element; parent && parent !== root; parent = parent.parentElement) {
+    const transform = getComputedStyle(parent).transform;
+    if (transform === "none") continue;
+    const matrix = new DOMMatrixReadOnly(transform);
+    if (Math.abs(matrix.m41) > 0.01 || Math.abs(matrix.m42) > 0.01) return true;
+  }
+  return false;
 }
 
 function absolutizeCssUrls(value: string): string {
@@ -412,15 +447,7 @@ export function computeCvPageSpacers(root: HTMLElement): Record<string, number> 
       if (el.closest(".no-print, [data-preview-only='true'], [data-managed-pages-container]") || el.offsetParent === null) continue;
       // Free-positioned cards own their placement. Adding an automatic spacer
       // based on the translated bounds moves them a second time after a drag.
-      let manuallyPositioned = false;
-      for (let parent: HTMLElement | null = el; parent && parent !== root; parent = parent.parentElement) {
-        const transform = getComputedStyle(parent).transform;
-        if (transform !== "none") {
-          const matrix = new DOMMatrixReadOnly(transform);
-          if (Math.abs(matrix.m41) > 0.01 || Math.abs(matrix.m42) > 0.01) { manuallyPositioned = true; break; }
-        }
-      }
-      if (manuallyPositioned) continue;
+      if (hasManualPosition(el, root)) continue;
       const id = el.dataset.a4Id;
       if (!id) continue;
       const rootRect = root.getBoundingClientRect();

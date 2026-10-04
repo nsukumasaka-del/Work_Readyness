@@ -13,9 +13,11 @@ const cv = { id: 1, version: 1, structure: 'multicolumn', title: 'Integration CV
   education: [{ id: 'education-1', degree: 'Technical Certificate', institution: 'Example College', graduationYear: '2019' }], skills: ['Customer Service', 'Freight Operations', 'Excel'], skillGroups: [], languages: ['English', 'isiZulu'],
   references: ['Jacky van Rooyan - Team Leader, DSV Road Freight; Phone: 082 555 0101', 'Smangaliso Thwala - Team Leader, Menzies Aviation; Email: referee@example.com'], keywords: [], sections: [], footerNote: '', authenticityScore: 90
 } };
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, ...(process.env.PDF_TEST_BROWSER ? { executablePath: process.env.PDF_TEST_BROWSER } : {}) });
 try {
  const page = await browser.newPage({ viewport: { width: 1600, height: 1400 } });
+ page.setDefaultTimeout(120000);
+ const render = await browser.newPage({ viewport: { width: 794, height: 1123 } });
  page.on('pageerror', error => console.error('APP ERROR', error.message));
  page.on('console', message => { if (message.type() === 'error') console.error('BROWSER ERROR', message.text().slice(0, 500)); });
  page.on('requestfailed', request => console.error('REQUEST FAILED', new URL(request.url()).pathname, request.failure()?.errorText));
@@ -24,19 +26,13 @@ try {
   localStorage.setItem('careerbridge-profile', JSON.stringify({ id: 1, email: 'test@example.com', name: 'Test Candidate' }));
   localStorage.setItem('careerbridge-session-token', 'local-test-only');
  }, cv);
- let payload, renderedPdf;
+ let payload, renderedPdf, liveBounds;
  await page.route('**/api/**', async route => {
   const path = new URL(route.request().url()).pathname;
   if (!path.startsWith('/api/')) return route.continue();
   if (path.endsWith('/export-pdf')) {
    payload = route.request().postDataJSON(); writeFileSync(resolve(output, 'real-builder-request.html'), payload.html);
    assert.match(payload.html, /References/i); assert(payload.html.includes('082 555 0101') && payload.html.includes('referee@example.com'));
-   const liveBounds = await page.locator('#bonlist-cv-document [data-a4-id="references"]').evaluate(el => {
-    const root = document.getElementById('bonlist-cv-document'), r = root.getBoundingClientRect(), e = el.getBoundingClientRect();
-    const scale = r.width / parseFloat(getComputedStyle(root).width);
-    return { x: (e.left - r.left) / scale, y: (e.top - r.top) / scale };
-   });
-   const render = await browser.newPage({ viewport: { width: 794, height: 1123 } });
    await render.emulateMedia({ media: 'print' }); await render.setContent(payload.html); await render.evaluate(() => document.fonts.ready);
    const exportedBounds = await render.locator('.a4-capture-source [data-a4-id="references"]').first().boundingBox();
    console.log('REFERENCE COORDINATES', { liveBounds, exportedBounds });
@@ -74,7 +70,14 @@ try {
  await page.screenshot({ path: resolve(output, 'real-builder-dialog.png'), fullPage: true });
  console.log('DIALOG BUTTONS', await page.getByRole('dialog').getByRole('button').allTextContents());
  const confirm = page.getByRole('button', { name: 'Download Final CV', exact: true });
- const exported = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/export-pdf'), { timeout: 120000 });
+ // Capture settled geometry before the download UI may replace the preview.
+ // Reading the live canvas in the API interceptor races that UI transition.
+ liveBounds = await page.locator('#bonlist-cv-document [data-a4-id="references"]').evaluate(el => {
+  const root = document.getElementById('bonlist-cv-document'), r = root.getBoundingClientRect(), e = el.getBoundingClientRect();
+  const scale = r.width / parseFloat(getComputedStyle(root).width);
+  return { x: (e.left - r.left) / scale, y: (e.top - r.top) / scale };
+ });
+ const exported = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/export-pdf'), { timeout: 300000 });
  await confirm.click();
  await exported;
  assert(payload && renderedPdf, 'No PDF export request');

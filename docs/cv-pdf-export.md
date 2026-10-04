@@ -18,6 +18,7 @@ The preview is captured at its unscaled A4 CSS width; zoom and mobile breakpoint
 - Slice the continuous two-column canvas with translated content inside exact 210mm x 297mm frames. Chromium receives zero print margins, background printing and scale 1.
 - Wait for fonts, images and layout commits before printing. Remove editor controls and editable bindings from the snapshot.
 - Load every used font weight/style explicitly before `document.fonts.ready`, then allow two animation frames for layout. Preview textareas refit after font loading. Worker rendering waits for network idle, the same font barrier, decoded images and a settled layout.
+- Animation-frame waits apply only to the interactive client. The Worker disables JavaScript for untrusted HTML; animation-frame callbacks do not fire in that configuration. Flush final layout with a synchronous geometry read after font/image readiness instead.
 
 ## Regression harness
 
@@ -30,6 +31,8 @@ Set `PDF_TEST_PYTHON` to a Python executable containing pypdf to check PDF text/
 The fixtures cover one/two columns, fixed-height/nested scrollers, modern OKLCH/HSL colours, multi-page bullet lists, hostile application print rules, exact column widths, heading wrapping, font embedding and control overflow. With Python enabled they require 42 bullets exactly once, coloured PDF text, final-page content and no blank continuation pages. Poppler renders the actual PDFs for visual inspection.
 
 Intermediate PDFs/PNGs are written to `tmp/pdfs`. Visually inspect the rendered PDF pages, not just DOM screenshots. A production rollout still requires deployment and a check using the user's previously failing CV.
+
+After the real builder integration writes its request HTML, run `wrangler deploy --dry-run --outdir tmp/pdfs/worker-recovery` and `node scripts/pdf-worker-readiness-regression.mjs`. This executes the actual compiled Worker readiness callback in a script-disabled Chromium context, with a bounded timeout, and generates a PDF from the real request. With `PDF_TEST_PYTHON`, it also checks all References names/contact details on page 1. The pre-fix animation-frame wait times out; the synchronous layout flush completes.
 
 The Page 1 References fixture executes the actual builder download handler with isolated auth/UI dependencies and rejects layout mutations. It verifies unchanged DOM/coordinates and requires the References heading, both names, phone and email on PDF page 1.
 

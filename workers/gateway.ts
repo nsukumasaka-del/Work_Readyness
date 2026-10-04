@@ -87,7 +87,11 @@ async function handleCvPdfExport(request: Request, env: Env): Promise<Response> 
       await Promise.all(Array.from(document.images).map(async image => {
         await image.decode();
       }));
-      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      // Script execution is disabled for untrusted document HTML. Chromium
+      // does not deliver animation-frame callbacks in that configuration,
+      // so awaiting them stalls export indefinitely. A geometry read flushes
+      // pending font/layout changes synchronously before printToPDF instead.
+      document.getElementById("bonlist-cv-document")?.getBoundingClientRect();
     });
     const pdf = await page.pdf({
       format: "A4",

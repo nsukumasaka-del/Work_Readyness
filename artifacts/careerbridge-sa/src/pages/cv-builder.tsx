@@ -5179,21 +5179,15 @@ export default function CvBuilderPage() {
     try {
       // Let the loading state paint before DOM capture begins.
       await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-      const cleaned = sanitizeCvDocument(cv.document);
-      if (JSON.stringify(cleaned) !== JSON.stringify(cv.document)) {
-        const updated = { ...cv, document: cleaned };
-        setCv(updated);
-        persistGeneratedCv(updated);
-      }
-      const safeBaseName = (documentTitle.trim() || `CV of ${cleaned.fullName || "Candidate"}`)
+      // Export is read-only: sanitization and spacer updates belong to editing,
+      // not downloading. Capture the settled canvas without changing its layout.
+      const safeBaseName = (documentTitle.trim() || `CV of ${cv.document.fullName || "Candidate"}`)
         .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
         .trim().replace(/\s+/g, "_");
       const templateName = TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "CV";
       const safeTemplateName = templateName.replace(/[^a-z0-9_-]/gi, "_");
       const filename = `${safeBaseName}_${safeTemplateName}`;
       await document.fonts.ready;
-      setA4Spacers(computeCvPageSpacers(preview));
-      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       await exportCvVisualPdf(preview.id || "bonlist-cv-document", filename, selectedTemplate, setPdfDownloadStage);
       setMessage("Your CV PDF download has started.");
       setTimeout(() => setMessage(""), 4000);

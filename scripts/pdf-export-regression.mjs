@@ -17,8 +17,49 @@ const compiled = await build({
     builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: "export const authFetch = () => { throw new Error('No payment/API calls in rendering tests'); };", loader: "js" }));
   }}],
 });
+// Execute the actual builder handler with isolated auth/UI dependencies, not a
+// parallel imitation of its export logic. Mutating CV layout fails this test.
+const builderSource = readFileSync('artifacts/careerbridge-sa/src/pages/cv-builder.tsx', 'utf8');
+const handlerSource = builderSource.slice(builderSource.indexOf('const executeDownloadPdf = async'), builderSource.indexOf('const handleConfirmPreFlightDownload = async'));
+const { transform } = require('../artifacts/api-server/node_modules/esbuild');
+const handlerJs = (await transform(handlerSource + '\nwindow.runPdfDownload = executeDownloadPdf;', { loader: 'ts' })).code;
 const browser = await chromium.launch({ headless: true, ...(process.env.PDF_TEST_BROWSER ? { executablePath: process.env.PDF_TEST_BROWSER } : {}) });
 try {
+  const firstPage = await browser.newPage({ viewport: { width: 1200, height: 1400 } });
+  await firstPage.setContent('<style>body{margin:0;font:14px/1.4 Arial}#cv{width:210mm;min-height:297mm;box-sizing:border-box;padding:40px}.columns{display:grid;grid-template-columns:2fr 1fr;gap:24px}.right{min-width:0}#references{transform:translateY(680px)}textarea{width:100%;box-sizing:border-box;font:12px/18px Arial;resize:none;overflow:hidden}h2{font-size:14px}p{margin:0}</style><article id="cv"><h1>Candidate Name</h1><div class="columns"><section><h2>EXPERIENCE</h2><p>Customer Service and Freight Operations</p></section><aside class="right"><h2>LANGUAGES</h2><p>English and isiZulu</p><section id="references" data-a4-id="references"><h2>REFERENCES</h2><textarea>Jacky van Rooyan - Team Leader, DSV Road Freight\nPhone: 082 555 0101</textarea><textarea>Smangaliso Thwala - Team Leader, Menzies Aviation\nEmail: referee@example.com</textarea></section></aside></div></article>');
+  await firstPage.addScriptTag({ content: compiled.outputFiles[0].text });
+  await firstPage.evaluate(() => {
+    document.querySelectorAll('textarea').forEach(el => { el.style.height = el.scrollHeight + 'px'; });
+    window.printRef = { current: document.getElementById('cv') };
+    window.cv = { document: { fullName: 'Candidate Name' } };
+    window.pdfDownloadLockRef = { current: false };
+    window.ensureDownloadAccess = async () => true;
+    for (const key of ['setIsPdfDownloading', 'setPdfDownloadStage', 'setMessage', 'setError']) window[key] = () => {};
+    for (const key of ['setA4Spacers', 'setCv', 'persistGeneratedCv', 'sanitizeCvDocument']) window[key] = () => { throw new Error('Export mutated settled layout: ' + key); };
+    window.documentTitle = 'References regression'; window.selectedTemplate = 'test'; window.TEMPLATE_CATALOG = [];
+    window.exportCvVisualPdf = async id => { window.snapshotHtml = await CvPdfSnapshot.createCvPdfSnapshot(id); };
+    window.originalCanvas = printRef.current.outerHTML;
+    window.originalRect = document.getElementById('references').getBoundingClientRect().toJSON();
+  });
+  await firstPage.addScriptTag({ content: handlerJs });
+  await firstPage.evaluate(() => runPdfDownload());
+  assert(await firstPage.evaluate(() => printRef.current.outerHTML === originalCanvas), 'Download changed settled DOM');
+  const pageOneHtml = await firstPage.evaluate(() => snapshotHtml);
+  assert(pageOneHtml, 'Actual download handler failed');
+  const refBefore = await firstPage.evaluate(() => originalRect);
+  await firstPage.setContent(pageOneHtml);
+  const refAfter = await firstPage.locator('.a4-capture-source #references').first().boundingBox();
+  assert(Math.abs(refBefore.x - refAfter.x) < 1 && Math.abs(refBefore.y - refAfter.y) < 1, 'References moved during download');
+  assert(refAfter.y + refAfter.height < 297 * 96 / 25.4, 'References fixture does not fit page 1');
+  await firstPage.pdf({ path: resolve(output, 'references-page-one.pdf'), format: 'A4', printBackground: true, preferCSSPageSize: true, margin: { top: 0, bottom: 0, left: 0, right: 0 } });
+  if (process.env.PDF_TEST_PYTHON) {
+    const checked = spawnSync(process.env.PDF_TEST_PYTHON, ['-c', "import sys; from pypdf import PdfReader; text=' '.join((PdfReader(sys.argv[1]).pages[0].extract_text() or '').split()); required=['REFERENCES','Jacky van Rooyan','DSV Road Freight','082 555 0101','Smangaliso Thwala','Menzies Aviation','referee@example.com']; assert all(s in text for s in required),text; print('Actual download handler: References heading, names and contacts present on page 1')", resolve(output, 'references-page-one.pdf')], { encoding: 'utf8' });
+    if (checked.status !== 0) throw new Error(checked.stderr || checked.stdout);
+    console.log(checked.stdout.trim());
+  }
+  const refRender = spawnSync(process.env.PDF_TEST_PDFTOPPM || 'pdftoppm', ['-scale-to', '1000', '-png', resolve(output, 'references-page-one.pdf'), resolve(output, 'rendered-references-page-one')], { encoding: 'utf8' });
+  if (refRender.error || refRender.status !== 0) throw new Error(refRender.error?.message || refRender.stderr);
+  await firstPage.close();
   // A moved block ends just beyond page 1, inside the root's bottom padding.
   // Both the badge and export must include page 2 without changing placement.
   const moved = await browser.newPage();

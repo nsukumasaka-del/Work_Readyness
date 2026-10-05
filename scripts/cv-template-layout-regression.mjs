@@ -9,7 +9,7 @@ const catalog = source.slice(source.indexOf('const TEMPLATE_CATALOG:'), source.i
 const templates = [...catalog.matchAll(/id: "([a-z_]+)",\s*category:/g)].map(m => m[1]);
 const browser = await chromium.launch();
 try {
- for (const template of templates) {
+ for (const template of templates.filter(id=>!process.env.CV_LAYOUT_TEMPLATES || process.env.CV_LAYOUT_TEMPLATES.split(',').includes(id))) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1400 } });
   const cv = { id: 1, structure: template, title: 'Layout regression', document: {
    structure: template, fullName: 'Regression Candidate', headline: 'Freight Controller', email: 'candidate@example.com', phone: '082 555 0100', location: 'Johannesburg',
@@ -28,10 +28,29 @@ try {
    if (!path.startsWith('/api/')) return route.continue();
    return route.fulfill({contentType:'application/json',body:JSON.stringify(path.endsWith('/auth/me')?{id:1,email:'test@example.com',name:'Test'}:path.endsWith('/monetization')?{adminBypass:true}:{...cv,success:true})});
   });
-  await page.goto((process.env.CV_LAYOUT_APP_URL || 'http://127.0.0.1:5177')+'/cv-builder?offline=1');
+  await page.goto((process.env.CV_LAYOUT_APP_URL || 'http://127.0.0.1:5177')+'/cv-builder?offline=1', {waitUntil:'domcontentloaded',timeout:120000});
   await page.locator('#bonlist-cv-document [data-a4-id="references"]').waitFor({timeout:180000});
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(3000);
+  if (template === 'corporate_blue') {
+   await page.evaluate(() => {
+    const root=document.getElementById('bonlist-cv-document');
+    const fields=[...root.querySelectorAll("input:not([type='hidden']), textarea, [data-inline-editable='true']")];
+    const index=fields.indexOf(root.querySelector('.cv-skill-chip'));
+    const cv=JSON.parse(sessionStorage.getItem('bonlist-generated-cv'));
+    cv.preferences={...cv.preferences,elementPositions:{[`preview-field-${index}`]:{x:8,y:-22}}};
+    sessionStorage.setItem('bonlist-generated-cv',JSON.stringify(cv));
+   });
+   await page.reload();
+   await page.locator('#bonlist-cv-document .cv-skill-chip').first().waitFor();
+   await page.evaluate(() => document.fonts.ready);
+   await page.waitForTimeout(3000);
+  }
+  const badgesClearDivider=await page.locator('#bonlist-cv-document .cv-badge-list').evaluateAll(lists=>lists.every(list=>{
+   const heading=list.previousElementSibling?.getBoundingClientRect();
+   return !heading || [...list.querySelectorAll('.cv-skill-chip')].every(chip=>chip.getBoundingClientRect().top>=heading.bottom+3);
+  }));
+  assert(badgesClearDivider,template+': badge overlaps heading divider');
   const layout = await page.locator('#bonlist-cv-document').evaluate(root => {
    const bounds = el => {const r=el.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height};};
    const r=root.getBoundingClientRect(),scale=r.width/root.offsetWidth,pageHeight=root.offsetWidth*297/210;
@@ -39,12 +58,12 @@ try {
   });
   console.log('CHECK', template);
   assert(layout.skills.top >= layout.education.bottom - 2, template+': Skills overlaps Education');
-  for(const block of layout.blocks) if(block.height>0 && block.height<layout.pageHeight-140) assert(Math.floor((block.top+1)/layout.pageHeight)===Math.floor((block.top+block.height-1)/layout.pageHeight),template+': '+block.id+' crosses a page boundary');
+  if (!process.env.CV_DIVIDER_ONLY) for(const block of layout.blocks) if(block.height>0 && block.height<layout.pageHeight-140) assert(Math.floor((block.top+1)/layout.pageHeight)===Math.floor((block.top+block.height-1)/layout.pageHeight),template+': '+block.id+' crosses a page boundary');
   for (const item of layout.items) {
    for (const field of item.fields) assert(field.bottom <= item.box.bottom + 1, template+': education field escapes its row');
    assert(item.fields[1].top >= item.fields[0].bottom - 1, template+': institution overlaps qualification');
   }
   await page.close();
  }
- console.log(`PASS: ${templates.length} real CV templates preserve section and education bounds`);
+ console.log(`PASS: ${process.env.CV_LAYOUT_TEMPLATES ? process.env.CV_LAYOUT_TEMPLATES.split(',').length : templates.length} real CV templates checked${process.env.CV_DIVIDER_ONLY ? ' (divider alignment)' : ''}`);
 } finally { await browser.close(); }

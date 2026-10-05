@@ -906,6 +906,8 @@
 }
 
 #bonlist-cv-document .cv-badge-list {
+  /* Keep the first badge row visibly clear of the section heading rule. */
+  margin-block-start: 0.75rem !important;
   min-width: 0;
   width: 100%;
   max-width: 100%;

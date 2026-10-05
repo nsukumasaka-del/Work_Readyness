@@ -4256,7 +4256,11 @@ export default function CvBuilderPage() {
       element.classList.toggle("cv-inline-bullet", Boolean(format.bullet));
       const positionElement = element.closest<HTMLElement>("[data-canvas-position-target='true']") || element;
       const position = elementPositions[`preview-field-${index}`] || { x: 0, y: 0 };
-      positionElement.style.transform = `translate(${position.x}px, ${position.y}px)`;
+      // Badge lists own their wrapping/row geometry. A saved free-text offset
+      // must not lift an individual chip over its heading's divider.
+      positionElement.style.transform = element.classList.contains("cv-skill-chip")
+        ? "none"
+        : `translate(${position.x}px, ${position.y}px)`;
       positionElement.classList.toggle("cv-positionable-block", isEditMode);
       // Formatting can change line metrics without changing the field value.
       if (element instanceof HTMLTextAreaElement) fitTextareaHeight(element);

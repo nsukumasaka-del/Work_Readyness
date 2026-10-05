@@ -33,7 +33,7 @@ try {
   await page.pdf({ path: 'tmp/pdfs/worker-readiness.pdf', format: 'A4', printBackground: true, preferCSSPageSize: true, margin: { top: 0, right: 0, bottom: 0, left: 0 } });
   assert(readFileSync('tmp/pdfs/worker-readiness.pdf').subarray(0, 5).toString() === '%PDF-', 'Renderer did not produce a PDF');
   if (process.env.PDF_TEST_PYTHON) {
-    const checked = spawnSync(process.env.PDF_TEST_PYTHON, ['-c', "from pypdf import PdfReader; r=PdfReader('tmp/pdfs/worker-readiness.pdf'); t=r.pages[0].extract_text(); assert all(s in t for s in ['REFERENCES','Jacky van Rooyan','Smangaliso Thwala','082 555 0101','referee@example.com']); print('Worker PDF retains References and all referee contact details on page 1')"], { encoding: 'utf8' });
+    const checked = spawnSync(process.env.PDF_TEST_PYTHON, ['-c', "import sys; from pypdf import PdfReader; r=PdfReader('tmp/pdfs/worker-readiness.pdf'); t=' '.join(p.extract_text() or '' for p in (r.pages if sys.argv[1]=='dense' else [r.pages[0]])); assert all(s in t for s in ['REFERENCES','Jacky van Rooyan','Smangaliso Thwala','082 555 0101','referee@example.com']); print('Worker PDF retains References and all referee contact details;',len(r.pages),'pages')", process.env.PDF_TEST_DENSE_SIDEBAR ? 'dense' : 'default'], { encoding: 'utf8' });
     assert.equal(checked.status, 0, checked.stderr || checked.stdout);
     console.log(checked.stdout.trim());
   }

@@ -13,6 +13,16 @@ const cv = { id: 1, version: 1, structure: 'multicolumn', title: 'Integration CV
   education: [{ id: 'education-1', degree: 'Technical Certificate', institution: 'Example College', graduationYear: '2019' }], skills: ['Customer Service', 'Freight Operations', 'Excel'], skillGroups: [], languages: ['English', 'isiZulu'],
   references: ['Jacky van Rooyan - Team Leader, DSV Road Freight; Phone: 082 555 0101', 'Smangaliso Thwala - Team Leader, Menzies Aviation; Email: referee@example.com'], keywords: [], sections: [], footerNote: '', authenticityScore: 90
 } };
+const denseSidebar = !!process.env.PDF_TEST_DENSE_SIDEBAR;
+if (denseSidebar) {
+ cv.document.education = [
+  {id:'edu-n2',degree:'N2 Certificate - Mechanical Engineering',institution:'Central Johannesburg College, Ellis Park',graduationYear:'2023'},
+  {id:'edu-n3',degree:'N3 Certificate - Mechanical Engineering',institution:'N3 Module (Drawing) outstanding',graduationYear:'In progress'},
+  {id:'edu-matric',degree:'Matric Certificate - Science',institution:'Secondary School',graduationYear:'2018'},
+ ];
+ cv.document.skills = ['Freight and Import Coordination','Carrier Negotiation and Rate Management','Shipment Tracking and Exception Handling','Customer Account Management','Microsoft Excel and CRM / TMS Systems','Problem Solving and Conflict Resolution','Compliance and Accuracy','Time Management and Multitasking Under Pressure','Microsoft Outlook','NAVIS','Navis Vet','TPT Portal','Spotlight Tracking','Radixx Go'];
+ cv.document.languages = ['English - Fluent (speaking)','reading','writing','itsonga - Native','Zulu - Intermediate (speaking)','Tshivenda - Intermediate (speaking)','English','Zulu','Tshivenda'];
+}
 const browser = await chromium.launch({ headless: true, ...(process.env.PDF_TEST_BROWSER ? { executablePath: process.env.PDF_TEST_BROWSER } : {}) });
 try {
  const page = await browser.newPage({ viewport: { width: 1600, height: 1400 } });
@@ -36,7 +46,10 @@ try {
    await render.emulateMedia({ media: 'print' }); await render.setContent(payload.html); await render.evaluate(() => document.fonts.ready);
    const exportedBounds = await render.locator('.a4-capture-source [data-a4-id="references"]').first().boundingBox();
    console.log('REFERENCE COORDINATES', { liveBounds, exportedBounds });
-   assert(Math.abs(exportedBounds.x - liveBounds.x) < 2 && Math.abs(exportedBounds.y - liveBounds.y) < 2, 'Worker print layout moved References relative to live canvas: ' + JSON.stringify({ liveBounds, exportedBounds }));
+   assert(Math.abs(exportedBounds.x - liveBounds.x) < 2 && (denseSidebar ? exportedBounds.y >= liveBounds.y - 2 : Math.abs(exportedBounds.y - liveBounds.y) < 2), 'Worker print layout moved References relative to live canvas: ' + JSON.stringify({ liveBounds, exportedBounds }));
+   const education = await render.locator('.a4-capture-source [data-a4-id="education"]').first().boundingBox();
+   const skills = await render.locator('.a4-capture-source [data-a4-id="skills"]').first().boundingBox();
+   assert(skills.y >= education.y + education.height - 1, 'Skills overlaps Education in actual builder PDF');
    renderedPdf = await render.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true, margin: { top: 0, bottom: 0, left: 0, right: 0 } });
    writeFileSync(resolve(output, 'real-builder.pdf'), renderedPdf); await render.close();
    return route.fulfill({ contentType: 'application/pdf', body: renderedPdf });
@@ -52,7 +65,7 @@ try {
  await page.evaluate(() => document.fonts.ready);
  // Use the real section drag handle, not a manually authored DOM transform.
  await page.locator('button').filter({ hasText: /^Edit Mode$/ }).click();
- const grip = page.getByRole('button', { name: 'Move references section freely', exact: true });
+ const grip = page.getByRole('button', { name: denseSidebar ? 'Move skills section freely' : 'Move references section freely', exact: true });
  await grip.scrollIntoViewIfNeeded();
  const position = await page.locator('#bonlist-cv-document [data-a4-id="references"]').evaluate(el => {
   const root = document.getElementById('bonlist-cv-document'); const r = root.getBoundingClientRect(), e = el.getBoundingClientRect();
@@ -61,7 +74,7 @@ try {
  });
  const handle = await grip.boundingBox();
  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2); await page.mouse.down();
- await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2 + position.delta, { steps: 12 }); await page.mouse.up();
+ await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2 + (denseSidebar ? 10 : position.delta), { steps: 12 }); await page.mouse.up();
  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
  await page.screenshot({ path: resolve(output, 'real-builder-before.png'), fullPage: true });
  console.log('LIVE REFERENCES', await page.locator('[data-a4-id="references"]').first().evaluate(el => ({ text: el.innerText, rect: el.getBoundingClientRect().toJSON() })));
@@ -82,7 +95,7 @@ try {
  await exported;
  assert(payload && renderedPdf, 'No PDF export request');
  if (process.env.PDF_TEST_PYTHON) {
-  const result = spawnSync(process.env.PDF_TEST_PYTHON, ['-c', "import sys; from pypdf import PdfReader; pages=[p.extract_text() or '' for p in PdfReader(sys.argv[1]).pages]; text=' '.join(pages[0].split()); assert 'REFERENCES' in text.upper(); assert 'Jacky van Rooyan' in text; assert 'Smangaliso Thwala' in text; assert '082 555 0101' in text; assert 'referee@example.com' in text; alltext=' '.join(' '.join(pages).split()); assert alltext.count('Managed carrier rates and shipment tracking.')==int(sys.argv[2]); assert alltext.count('Prepared import documentation and operational reports.')==int(sys.argv[2]); assert len(pages)>1 if int(sys.argv[2])>3 else len(pages)>=1; print('Real builder References on page 1 and all work entries retained;',len(pages),'pages total')", resolve(output, 'real-builder.pdf'), String(cv.document.experiences.length)], { encoding: 'utf8' });
+  const result = spawnSync(process.env.PDF_TEST_PYTHON, ['-c', "import sys; from pypdf import PdfReader; pages=[p.extract_text() or '' for p in PdfReader(sys.argv[1]).pages]; text=' '.join((' '.join(pages) if sys.argv[3]=='dense' else pages[0]).split()); assert 'REFERENCES' in text.upper(); assert 'Jacky van Rooyan' in text; assert 'Smangaliso Thwala' in text; assert '082 555 0101' in text; assert 'referee@example.com' in text; alltext=' '.join(' '.join(pages).split()); assert alltext.count('Managed carrier rates and shipment tracking.')==int(sys.argv[2]); assert alltext.count('Prepared import documentation and operational reports.')==int(sys.argv[2]); assert len(pages)>1 if int(sys.argv[2])>3 else len(pages)>=1; print('Real builder References and all work entries retained;',len(pages),'pages total')", resolve(output, 'real-builder.pdf'), String(cv.document.experiences.length), denseSidebar ? 'dense' : 'default'], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr); console.log(result.stdout.trim());
  }
  const raster = spawnSync(process.env.PDF_TEST_PDFTOPPM, ['-scale-to', '1000', '-png', resolve(output, 'real-builder.pdf'), resolve(output, 'rendered-real-builder')], { encoding: 'utf8' }); assert.equal(raster.status, 0, raster.stderr);

@@ -12,13 +12,14 @@ The preview is captured at its unscaled A4 CSS width; zoom and mobile breakpoint
 - Expand root and overflowing document scroll containers only in the clone. Measure the full off-screen clone after converting editable controls, so viewport heights cannot cut off continuation pages. Preserve intentionally clipped managed-page slices.
 - Embed the relevant font-face files. Font-download failures stop export rather than silently changing typography. Inter, Roboto, Garamond and Mono choices use portable web fonts.
 - Convert editable controls to selectable text with the same width, typography, minimum height and positioning. Never force arbitrary mid-word breaks or fixed text heights.
-- Retain full captured control typography. Anchor only explicitly moved blocks to live, unzoomed coordinates; ordinary blocks must grow in flow when static text is taller than a native control. Recompute keep-together spacers in the clone only, never in the live canvas.
+- Retain full captured control typography and authored drag translations. Never pin section Y coordinates back to old native-control bounds: wrapped qualifications must push later sections down instead of overlapping them. Recompute keep-together spacers in the clone only, never in the live canvas.
 - Section headings contain actual words, not spaces between individual characters.
 - Preview and export share A4 page metrics and DOM-order spacer measurement. Nested blocks account for earlier moves, and trailing paper padding is not a new page.
 - Slice the continuous two-column canvas with translated content inside exact 210mm x 297mm frames. Chromium receives zero print margins, background printing and scale 1.
 - Wait for fonts, images and layout commits before printing. Remove editor controls and editable bindings from the snapshot.
 - Load every used font weight/style explicitly before `document.fonts.ready`, then allow two animation frames for layout. Preview textareas refit after font loading. Worker rendering waits for network idle, the same font barrier, decoded images and a settled layout.
 - Animation-frame waits apply only to the interactive client. The Worker disables JavaScript for untrusted HTML; animation-frame callbacks do not fire in that configuration. Flush final layout with a synchronous geometry read after font/image readiness instead.
+- Before printing, the Worker measures final painted content and adds any missing continuation frames. It adjusts slice boundaries away from text lines so font-metric differences cannot clip References or split glyphs. Existing column widths, section order and authored translations are retained.
 
 ## Regression harness
 
@@ -33,6 +34,8 @@ The fixtures cover one/two columns, fixed-height/nested scrollers, modern OKLCH/
 Intermediate PDFs/PNGs are written to `tmp/pdfs`. Visually inspect the rendered PDF pages, not just DOM screenshots. A production rollout still requires deployment and a check using the user's previously failing CV.
 
 After the real builder integration writes its request HTML, run `wrangler deploy --dry-run --outdir tmp/pdfs/worker-recovery` and `node scripts/pdf-worker-readiness-regression.mjs`. This executes the actual compiled Worker readiness callback in a script-disabled Chromium context, with a bounded timeout, and generates a PDF from the real request. With `PDF_TEST_PYTHON`, it also checks all References names/contact details on page 1. The pre-fix animation-frame wait times out; the synchronous layout flush completes.
+
+`scripts/pdf-dense-sidebar-regression.mjs` covers three long qualifications, moved Skills, a dense Languages list and full References. `PDF_TEST_OLD=1` must fail with Education/Skills overlap; current code must pass. The renderer test deliberately supplies a stale single-page snapshot and requires complete referee names/contact details on continuation pages. Set `PDF_TEST_DENSE_SIDEBAR=1` for equivalent real-builder integration coverage.
 
 The Page 1 References fixture executes the actual builder download handler with isolated auth/UI dependencies and rejects layout mutations. It verifies unchanged DOM/coordinates and requires the References heading, both names, phone and email on PDF page 1.
 

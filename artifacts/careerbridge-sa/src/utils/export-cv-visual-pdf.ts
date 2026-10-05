@@ -260,24 +260,10 @@ function measureExpandedSnapshot(source: HTMLElement, clone: HTMLElement): numbe
       spacer.style.cssText = `height:${height}px;min-height:${height}px;width:100%;flex-shrink:0`;
       target.before(spacer);
     }
-    // Only explicit user positioning is authoritative; ordinary sections and
-    // bullet entries must remain in flow when text gains height.
-    const sourceRect = source.getBoundingClientRect();
-    const scale = sourceRect.width / parseFloat(getComputedStyle(source).width) || 1;
-    for (const block of source.querySelectorAll<HTMLElement>("[data-a4-id]")) {
-      if (!hasManualPosition(block, source)) continue;
-      if (block.closest(".no-print, [data-preview-only='true'], [data-managed-pages-container]") || !block.getClientRects().length) continue;
-      const target = clone.querySelector<HTMLElement>(`[data-a4-id="${CSS.escape(block.dataset.a4Id!)}"]`);
-      if (!target) continue;
-      const original = block.getBoundingClientRect(), measured = target.getBoundingClientRect(), root = clone.getBoundingClientRect();
-      const dx = (original.left - sourceRect.left) / scale - (measured.left - root.left);
-      const dy = (original.top - sourceRect.top) / scale - (measured.top - root.top);
-      if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) continue;
-      const transform = getComputedStyle(target).transform;
-      const matrix = new DOMMatrixReadOnly(transform === "none" ? undefined : transform).toFloat64Array();
-      matrix[12] += dx; matrix[13] += dy;
-      target.style.setProperty("transform", new DOMMatrixReadOnly(Array.from(matrix)).toString(), "important");
-    }
+    // Authored translations are already copied verbatim. Do not compensate
+    // them back to stale screen coordinates: a single-line qualification can
+    // become two lines in print, and pinning Skills to its old Y then overlaps
+    // Education. Preserve the translation while allowing preceding flow to grow.
     return measureCvPages(clone).pageCount;
   }
   finally {

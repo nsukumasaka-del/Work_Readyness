@@ -92,6 +92,58 @@ async function handleCvPdfExport(request: Request, env: Env): Promise<Response> 
       // so awaiting them stalls export indefinitely. A geometry read flushes
       // pending font/layout changes synchronously before printToPDF instead.
       document.getElementById("bonlist-cv-document")?.getBoundingClientRect();
+      // The print browser can have different control/font metrics from the
+      // editor. Count the final painted bounds, not the client's stale count.
+      // Each slice retains a complete source tree, including off-page References.
+      const documentRoot = document.getElementById("bonlist-cv-document");
+      const frames = Array.from(documentRoot?.querySelectorAll<HTMLElement>(".a4-page-frame") || []);
+      const firstSource = frames[0]?.querySelector<HTMLElement>(".a4-capture-source");
+      if (documentRoot && firstSource && frames.length) {
+        const origin = firstSource.getBoundingClientRect();
+        const pageHeight = frames[0].getBoundingClientRect().height;
+        const lines: Array<{ top: number; bottom: number }> = [];
+        let bottom = 0;
+        for (const element of firstSource.querySelectorAll<HTMLElement>("*")) {
+          if (element.childElementCount || element.closest(".no-print, [data-preview-only='true'], [data-a4-spacer]")) continue;
+          const style = getComputedStyle(element), rect = element.getBoundingClientRect();
+          if (style.visibility === "hidden" || style.display === "none" || !rect.width || !rect.height) continue;
+          bottom = Math.max(bottom, rect.bottom - origin.top);
+          if (rect.height < pageHeight / 4) lines.push({ top: rect.top - origin.top, bottom: rect.bottom - origin.top });
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          for (const line of Array.from(range.getClientRects())) {
+            if (line.height > 0 && line.height < pageHeight / 4) lines.push({ top: line.top - origin.top, bottom: line.bottom - origin.top });
+          }
+        }
+        // Avoid slicing through glyphs at an A4 boundary. Leave a few pixels
+        // blank at the end of that page and resume at the same line on the next.
+        const slices: Array<{ top: number; height: number }> = [];
+        let offset = 0;
+        while (offset < bottom - 0.5 && slices.length < 100) {
+          let end = offset + pageHeight;
+          // Keep a small paint safety margin as glyph ink can extend beyond
+          // a line box, especially across browser/font engine versions.
+          const crossing = lines.filter(line => line.top < end && line.bottom > end - 16);
+          if (crossing.length) {
+            const safeEnd = Math.min(...crossing.map(line => line.top)) - 0.5;
+            if (safeEnd > offset + pageHeight * 0.85) end = safeEnd;
+          }
+          slices.push({ top: offset, height: end - offset });
+          offset = end;
+        }
+        const requiredPages = Math.max(frames.length, slices.length);
+        if (offset < bottom - 0.5) throw new Error("CV document exceeds the page limit.");
+        if (!Number.isFinite(requiredPages) || requiredPages > 100) throw new Error("CV page bounds are invalid.");
+        for (let index = 0; index < requiredPages; index++) {
+          const frame = frames[index] || frames[0].cloneNode(true) as HTMLElement;
+          frame.id = `cv-page-container-${index + 1}`;
+          frame.dataset.pageIndex = String(index);
+          const slice = slices[index] || { top: offset + (index - slices.length) * pageHeight, height: pageHeight };
+          frame.style.clipPath = `inset(0 0 ${Math.max(0, pageHeight - slice.height)}px 0)`;
+          frame.querySelector<HTMLElement>(".a4-capture-source")!.style.setProperty("--a4-capture-top", `-${slice.top}px`);
+          if (!frames[index]) documentRoot.append(frame);
+        }
+      }
     });
     const pdf = await page.pdf({
       format: "A4",

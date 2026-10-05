@@ -2165,7 +2165,7 @@ function mergeSpacersStable(
  * collapsed so results are stable (no measure→push→remeasure oscillation).
  */
 function computeA4Spacers(root: HTMLElement): Record<string, number> {
-  return computeCvPageSpacers(root);
+  return computeCvPageSpacers(root, true);
 }
 
 function A4PageSpacer({ id, height }: { id: string; height: number }) {
@@ -5655,6 +5655,8 @@ export default function CvBuilderPage() {
     ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => schedule()) : null;
     ro?.observe(el);
     window.addEventListener("resize", schedule);
+    void document.fonts.ready.then(schedule);
+    document.fonts.addEventListener("loadingdone", schedule);
 
     return () => {
       applying = true;
@@ -5664,6 +5666,7 @@ export default function CvBuilderPage() {
       window.clearTimeout(coolDownTimer);
       ro?.disconnect();
       window.removeEventListener("resize", schedule);
+      document.fonts.removeEventListener("loadingdone", schedule);
     };
   }, [
     cv,
@@ -5684,6 +5687,12 @@ export default function CvBuilderPage() {
     cv?.document.references,
     cv?.document.projects,
     managedPages,
+    inlineFormatting,
+    elementPositions,
+    sectionOrder,
+    sectionSpacing,
+    columnRatio,
+    sectionLabels,
   ]);
 
   // Keep the A4 preview inside the available canvas on phones and narrow
@@ -7130,7 +7139,9 @@ export default function CvBuilderPage() {
                 );
 
                 const experienceSection = visibleSections.experience && cv.document.experiences.length > 0 && (
-                  <section className="relative group/section space-y-4 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
+                  <>
+                  <A4PageSpacer id="experience" height={a4Spacers.experience || 0} />
+                  <section data-a4-id="experience" className="relative group/section space-y-4 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
                     {/* Contextual Section Toolbar */}
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1.5 rounded-full border border-border bg-card/95 backdrop-blur-md px-2.5 py-0.5 shadow-sm">
                       <button
@@ -7335,6 +7346,7 @@ export default function CvBuilderPage() {
                       ))}
                     </div>
                   </section>
+                  </>
                 );
 
                 const skillsSection = visibleSections.skills && (
@@ -7713,8 +7725,10 @@ export default function CvBuilderPage() {
                 );
 
                 const customSectionsSection = (cv.document.sections || []).map((section, sectionIndex) => (
+                  <Fragment key={`${section.heading}-${sectionIndex}`}>
+                  <A4PageSpacer id={`custom-${sectionIndex}`} height={a4Spacers[`custom-${sectionIndex}`] || 0} />
                   <section
-                    key={`${section.heading}-${sectionIndex}`}
+                    data-a4-id={`custom-${sectionIndex}`}
                     className="group/custom relative space-y-2 rounded-xl p-1 transition hover:bg-slate-50/50"
                   >
                     <div className="flex items-center gap-2">
@@ -7739,6 +7753,7 @@ export default function CvBuilderPage() {
                       }} className="w-full resize-none bg-transparent text-xs leading-snug text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary/30" placeholder="Add a verified detail" />
                     ))}
                   </section>
+                  </Fragment>
                 ));
 
                 const canvasSections = {

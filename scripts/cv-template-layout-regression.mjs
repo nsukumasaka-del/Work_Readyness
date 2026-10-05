@@ -14,7 +14,7 @@ try {
   const cv = { id: 1, structure: template, title: 'Layout regression', document: {
    structure: template, fullName: 'Regression Candidate', headline: 'Freight Controller', email: 'candidate@example.com', phone: '082 555 0100', location: 'Johannesburg',
    summary: 'Experienced freight controller handling customer enquiries and administration.',
-   experiences: [{ id:'work', role:'Customer Services Agent', company:'Menzies Aviation', startDate:'2023', endDate:'2025', bullets:['Coordinated boarding to support on time departures.'] }],
+   experiences: Array.from({length:4},(_,i)=>({ id:'work-'+i, role:'Customer Services Agent', company:'Menzies Aviation', startDate:'2023', endDate:'2025', bullets:Array.from({length:3},()=> 'Coordinated boarding and resolved customer enquiries to support on time departures and reliable daily operations.') })),
    education: [
     {id:'n2',degree:'N2 Certificate — Mechanical Engineering',institution:'Central Johannesburg College, Ellis Park',graduationYear:'2023'},
     {id:'n3',degree:'N3 Certificate — Mechanical Engineering',institution:'1 module (Drawing) outstanding',graduationYear:'In progress'},
@@ -31,13 +31,15 @@ try {
   await page.goto((process.env.CV_LAYOUT_APP_URL || 'http://127.0.0.1:5177')+'/cv-builder?offline=1');
   await page.locator('#bonlist-cv-document [data-a4-id="references"]').waitFor({timeout:180000});
   await page.evaluate(() => document.fonts.ready);
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(3000);
   const layout = await page.locator('#bonlist-cv-document').evaluate(root => {
    const bounds = el => {const r=el.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height};};
-   return {education:bounds(root.querySelector('[data-a4-id="education"]')),skills:bounds(root.querySelector('[data-a4-id="skills"]')),items:[...root.querySelectorAll('.education-item')].map(el=>({box:bounds(el),fields:[...el.querySelectorAll('input,textarea')].map(f=>({value:f.value,...bounds(f)}))}))};
+   const r=root.getBoundingClientRect(),scale=r.width/root.offsetWidth,pageHeight=root.offsetWidth*297/210;
+   return {pageHeight,blocks:[...root.querySelectorAll('section[data-a4-id]')].map(el=>({id:el.dataset.a4Id,top:(el.getBoundingClientRect().top-r.top)/scale,height:el.getBoundingClientRect().height/scale})),education:bounds(root.querySelector('[data-a4-id="education"]')),skills:bounds(root.querySelector('[data-a4-id="skills"]')),items:[...root.querySelectorAll('.education-item')].map(el=>({box:bounds(el),fields:[...el.querySelectorAll('input,textarea')].map(f=>({value:f.value,...bounds(f)}))}))};
   });
   console.log('CHECK', template);
   assert(layout.skills.top >= layout.education.bottom - 2, template+': Skills overlaps Education');
+  for(const block of layout.blocks) if(block.height>0 && block.height<layout.pageHeight-140) assert(Math.floor((block.top+1)/layout.pageHeight)===Math.floor((block.top+block.height-1)/layout.pageHeight),template+': '+block.id+' crosses a page boundary');
   for (const item of layout.items) {
    for (const field of item.fields) assert(field.bottom <= item.box.bottom + 1, template+': education field escapes its row');
    assert(item.fields[1].top >= item.fields[0].bottom - 1, template+': institution overlaps qualification');

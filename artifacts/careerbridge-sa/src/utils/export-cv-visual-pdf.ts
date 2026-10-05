@@ -458,7 +458,7 @@ export function measureCvPages(source: HTMLElement) {
 
 /** Measure in DOM order with temporary spacers so nested blocks and both
  * columns include earlier shifts. Restore the live canvas before returning. */
-export function computeCvPageSpacers(root: HTMLElement): Record<string, number> {
+export function computeCvPageSpacers(root: HTMLElement, includePositionedBlocks = false): Record<string, number> {
   const pageH = measureCvPages(root).pageHeightPx;
   const styles = getComputedStyle(root);
   const padY = parseFloat(styles.paddingTop) || 0;
@@ -475,7 +475,7 @@ export function computeCvPageSpacers(root: HTMLElement): Record<string, number> 
       if (el.closest(".no-print, [data-preview-only='true'], [data-managed-pages-container]") || el.offsetParent === null) continue;
       // Free-positioned cards own their placement. Adding an automatic spacer
       // based on the translated bounds moves them a second time after a drag.
-      if (hasManualPosition(el, root)) continue;
+      if (!includePositionedBlocks && hasManualPosition(el, root)) continue;
       const id = el.dataset.a4Id;
       if (!id) continue;
       const rootRect = root.getBoundingClientRect();

@@ -212,6 +212,18 @@ async function inlineComputedStyles(sourceRoot: HTMLElement, cloneRoot: HTMLElem
       }
     }
     lockPaintStyles(computed, target, resolveColor);
+    if (source.classList.contains("cv-skill-chip")) {
+      // A badge's anonymous flex text can wrap differently in Chromium print,
+      // while its copied height stays fixed. Keep the preview's border box and
+      // explicit line breaks instead of letting print re-flow that flex item.
+      const range = document.createRange();
+      range.selectNodeContents(source);
+      const lineTops = new Set(Array.from(range.getClientRects()).filter(rect => rect.width > 0).map(rect => Math.round(rect.top)));
+      target.style.setProperty("width", computed.width, "important");
+      target.style.setProperty("height", computed.height, "important");
+      target.style.setProperty("box-sizing", "border-box", "important");
+      if (lineTops.size <= 1) target.style.setProperty("white-space", "nowrap", "important");
+    }
     if (source instanceof HTMLImageElement && target instanceof HTMLImageElement) {
       target.src = source.currentSrc || source.src;
       target.removeAttribute("srcset");

@@ -3971,6 +3971,16 @@ export default function CvBuilderPage() {
   };
 
   const handleTemplateChange = (templateId: string) => {
+    // Coordinates belong to the old design's geometry. Reusing them in a
+    // different column/field layout can move text over unrelated sections.
+    if (templateId !== selectedTemplate) {
+      recordCanvasHistory();
+      setElementPositions({});
+      setActiveInlineField(null);
+      activeInlineElementRef.current = null;
+      selectedCanvasElementRef.current = null;
+      setSelectedCanvasPositionKey(null);
+    }
     setSelectedTemplate(templateId);
     // Auto-match accent colour to the selected modern template
     const themeByTemplate: Record<string, string> = {
@@ -3997,7 +4007,15 @@ export default function CvBuilderPage() {
       structure: templateId,
       structureLabel: meta?.name || templateId,
     };
-    const updatedCv = { ...cv, structure: templateId, document: updatedDoc };
+    const updatedCv = {
+      ...cv,
+      structure: templateId,
+      document: updatedDoc,
+      preferences: {
+        ...cv.preferences,
+        elementPositions: templateId !== selectedTemplate ? {} : elementPositions,
+      },
+    };
     setCv(updatedCv);
     persistGeneratedCv(updatedCv);
     void runQualityEvaluation(updatedDoc, jobDescription);
@@ -4240,6 +4258,8 @@ export default function CvBuilderPage() {
       const position = elementPositions[`preview-field-${index}`] || { x: 0, y: 0 };
       positionElement.style.transform = `translate(${position.x}px, ${position.y}px)`;
       positionElement.classList.toggle("cv-positionable-block", isEditMode);
+      // Formatting can change line metrics without changing the field value.
+      if (element instanceof HTMLTextAreaElement) fitTextareaHeight(element);
     });
   }, [cv, selectedTemplate, inlineFormatting, elementPositions, isEditMode]);
 
@@ -7426,8 +7446,7 @@ export default function CvBuilderPage() {
                                 style={{ borderColor: selectedColor.primary }}
                               />
                             )}
-                            <input
-                              type="text"
+                            <AutoGrowTextarea
                               value={edu.degree}
                               onChange={(e) => {
                                 const edus = [...cv.document.education];
@@ -7437,16 +7456,14 @@ export default function CvBuilderPage() {
                               className="w-full bg-transparent font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal"
                               placeholder="Degree / Qualification"
                             />
-                            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600 overflow-visible">
-                              <input
-                                type="text"
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 text-[11px] text-slate-600 overflow-visible">
+                              <AutoGrowTextarea
                                 value={edu.institution}
                                 onChange={(e) => {
                                   const edus = [...cv.document.education];
                                   edus[eduIdx] = { ...edu, institution: e.target.value };
                                   updateDocumentField("education", edus);
                                 }}
-                                style={{ width: `${Math.max((edu.institution || "").length + 1, 16)}ch`, maxWidth: "100%" }}
                                 className="bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal"
                                 placeholder="Institution"
                               />

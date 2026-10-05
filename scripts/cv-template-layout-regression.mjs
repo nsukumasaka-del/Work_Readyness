@@ -1,0 +1,48 @@
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import assert from 'node:assert/strict';
+const require = createRequire(import.meta.url);
+const { chromium } = require(resolve(process.env.BONLIST_RUNTIME_MODULES, 'playwright'));
+const source = readFileSync('artifacts/careerbridge-sa/src/pages/cv-builder.tsx', 'utf8');
+const catalog = source.slice(source.indexOf('const TEMPLATE_CATALOG:'), source.indexOf('const TEMPLATE_CATALOG:') + 16000);
+const templates = [...catalog.matchAll(/id: "([a-z_]+)",\s*category:/g)].map(m => m[1]);
+const browser = await chromium.launch();
+try {
+ for (const template of templates) {
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1400 } });
+  const cv = { id: 1, structure: template, title: 'Layout regression', document: {
+   structure: template, fullName: 'Regression Candidate', headline: 'Freight Controller', email: 'candidate@example.com', phone: '082 555 0100', location: 'Johannesburg',
+   summary: 'Experienced freight controller handling customer enquiries and administration.',
+   experiences: [{ id:'work', role:'Customer Services Agent', company:'Menzies Aviation', startDate:'2023', endDate:'2025', bullets:['Coordinated boarding to support on time departures.'] }],
+   education: [
+    {id:'n2',degree:'N2 Certificate — Mechanical Engineering',institution:'Central Johannesburg College, Ellis Park',graduationYear:'2023'},
+    {id:'n3',degree:'N3 Certificate — Mechanical Engineering',institution:'1 module (Drawing) outstanding',graduationYear:'In progress'},
+    {id:'matric',degree:'Matric Certificate — Science',institution:'Waterval High School, Elim',graduationYear:'2018'}],
+   skills:['Freight & Import Coordination','Carrier Negotiation & Rate Management','Time Management & Multitasking Under Pressure'], skillGroups:[], languages:['English — Fluent (speaking)','itsonga — Native'],
+   references:['Jacky van Rooyan — Team Leader, DSV Road Brokerage • 082 320 1339','Smangaliso Thwala — Team Leader, Menzies Aviation • 083 738 6146'],keywords:[],sections:[],footerNote:'',authenticityScore:90
+  }};
+  await page.addInitScript(data => { sessionStorage.setItem('bonlist-generated-cv',JSON.stringify(data)); localStorage.setItem('careerbridge-profile',JSON.stringify({id:1,email:'test@example.com',name:'Test'}));localStorage.setItem('careerbridge-session-token','test'); }, cv);
+  await page.route('**/api/**', route => {
+   const path = new URL(route.request().url()).pathname;
+   if (!path.startsWith('/api/')) return route.continue();
+   return route.fulfill({contentType:'application/json',body:JSON.stringify(path.endsWith('/auth/me')?{id:1,email:'test@example.com',name:'Test'}:path.endsWith('/monetization')?{adminBypass:true}:{...cv,success:true})});
+  });
+  await page.goto((process.env.CV_LAYOUT_APP_URL || 'http://127.0.0.1:5177')+'/cv-builder?offline=1');
+  await page.locator('#bonlist-cv-document [data-a4-id="references"]').waitFor({timeout:180000});
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(600);
+  const layout = await page.locator('#bonlist-cv-document').evaluate(root => {
+   const bounds = el => {const r=el.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height};};
+   return {education:bounds(root.querySelector('[data-a4-id="education"]')),skills:bounds(root.querySelector('[data-a4-id="skills"]')),items:[...root.querySelectorAll('.education-item')].map(el=>({box:bounds(el),fields:[...el.querySelectorAll('input,textarea')].map(f=>({value:f.value,...bounds(f)}))}))};
+  });
+  console.log('CHECK', template);
+  assert(layout.skills.top >= layout.education.bottom - 2, template+': Skills overlaps Education');
+  for (const item of layout.items) {
+   for (const field of item.fields) assert(field.bottom <= item.box.bottom + 1, template+': education field escapes its row');
+   assert(item.fields[1].top >= item.fields[0].bottom - 1, template+': institution overlaps qualification');
+  }
+  await page.close();
+ }
+ console.log(`PASS: ${templates.length} real CV templates preserve section and education bounds`);
+} finally { await browser.close(); }

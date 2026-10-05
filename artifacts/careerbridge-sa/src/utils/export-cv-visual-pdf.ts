@@ -51,9 +51,16 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
   await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   if (original.offsetWidth === 0) throw new Error("The CV preview must be visible before downloading.");
   const fontStyles = await captureFontStyles(original);
+  // A settled preview is authoritative. Native fields and their fixed measured
+  // boxes must not become wrapping spans that inflate the exported page count.
+  const lockPreviewLayout = ![original, ...original.querySelectorAll<HTMLElement>("*")].some(element => {
+    if (element.closest("[data-managed-page], [data-managed-duplicate-page], .no-print, [data-preview-only='true']")) return false;
+    const style = getComputedStyle(element);
+    return style.display !== "none" && element.scrollHeight > element.clientHeight + 2 && /hidden|auto|scroll|clip/.test(style.overflowY);
+  });
   const clone = original.cloneNode(true) as HTMLElement;
-  await inlineComputedStyles(original, clone);
-  expandScrollableContent(original, clone);
+  await inlineComputedStyles(original, clone, lockPreviewLayout);
+  if (!lockPreviewLayout) expandScrollableContent(original, clone);
   clone.removeAttribute("inert");
   clone.classList.remove("cv-inline-edit-mode");
   clone.querySelectorAll("script, iframe, object, embed").forEach((element) => element.remove());
@@ -75,12 +82,47 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
   // dimensions of narrow CV columns.
   const sourceFields = original.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select");
   const cloneFields = clone.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select");
+  const rootBox = original.getBoundingClientRect();
+  const rootStyle = getComputedStyle(original);
+  const previewScale = rootBox.width / parseFloat(rootStyle.width) || 1;
   sourceFields.forEach((source, index) => {
     const target = cloneFields[index];
     if (!target) return;
+    if (source.closest(".no-print, [data-preview-only='true'], .cv-page-guides, .cv-page-badge")) return;
     const text = source instanceof HTMLSelectElement
       ? source.selectedOptions[0]?.textContent || ""
       : source.value;
+    if (lockPreviewLayout) {
+      if (target instanceof HTMLInputElement) { target.setAttribute("value", text); target.readOnly = true; target.placeholder = ""; }
+      if (target instanceof HTMLTextAreaElement) { target.textContent = text; target.readOnly = true; target.placeholder = ""; }
+      if (target instanceof HTMLSelectElement) Array.from(target.options).forEach((option, optionIndex) => option.toggleAttribute("selected", source instanceof HTMLSelectElement && source.options[optionIndex].selected));
+      // Native textarea baseline placement can differ between screen and
+      // print. Retain an invisible in-flow box, then paint the readonly field
+      // at its exact unzoomed preview coordinates instead of reflowing it.
+      const overlay = target.cloneNode(true) as HTMLElement;
+      const box = source.getBoundingClientRect();
+      overlay.dataset.exportOverlay = "true";
+      overlay.style.setProperty("position", "absolute", "important");
+      overlay.style.setProperty("left", `${(box.left - rootBox.left) / previewScale - parseFloat(rootStyle.borderLeftWidth || "0")}px`, "important");
+      overlay.style.setProperty("top", `${(box.top - rootBox.top) / previewScale - parseFloat(rootStyle.borderTopWidth || "0")}px`, "important");
+      overlay.style.setProperty("width", `${box.width / previewScale}px`, "important");
+      overlay.style.setProperty("height", `${box.height / previewScale}px`, "important");
+      overlay.style.setProperty("box-sizing", "border-box", "important");
+      overlay.style.setProperty("min-width", "0", "important");
+      overlay.style.setProperty("max-width", "none", "important");
+      overlay.style.setProperty("min-height", "0", "important");
+      overlay.style.setProperty("max-height", "none", "important");
+      overlay.style.setProperty("margin", "0", "important");
+      overlay.style.setProperty("transform", "none", "important");
+      overlay.style.setProperty("translate", "none", "important");
+      overlay.style.setProperty("rotate", "none", "important");
+      overlay.style.setProperty("scale", "none", "important");
+      overlay.style.setProperty("right", "auto", "important");
+      overlay.style.setProperty("bottom", "auto", "important");
+      target.style.setProperty("visibility", "hidden", "important");
+      clone.append(overlay);
+      return;
+    }
     const staticText = createStaticTextControl(source, text, target.style.cssText);
     target.replaceWith(staticText);
   });
@@ -89,7 +131,7 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
   // The editor is one continuous A4-width document with measured spacers.
   // Keep that exact layout intact and expose one A4-height slice per page.
   // Rebuilding its grid or pruning sections loses content at page boundaries.
-  const pageCount = measureExpandedSnapshot(original, clone);
+  const pageCount = lockPreviewLayout ? measureCvPages(original).pageCount : measureExpandedSnapshot(original, clone);
   const paginatedPages = captureA4PageFrames(original, clone, pageCount);
 
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${fontStyles}
@@ -139,14 +181,14 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
         word-break: normal !important; overflow-wrap: normal !important; hyphens: manual !important;
       }
       #bonlist-cv-document * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    </style></head><body><main id="bonlist-cv-document" class="cv-export-document">${paginatedPages.map((page) => page.outerHTML).join("")}</main></body></html>`;
+    </style></head><body><main id="bonlist-cv-document" class="cv-export-document"${lockPreviewLayout ? ' data-export-layout="preview-locked"' : ""}>${paginatedPages.map((page) => page.outerHTML).join("")}</main></body></html>`;
 
   return html;
 }
 
 /** Inline computed declarations so the Worker renderer retains the exact
  * responsive layout and Tailwind appearance even if it cannot fetch app CSS. */
-async function inlineComputedStyles(sourceRoot: HTMLElement, cloneRoot: HTMLElement): Promise<void> {
+async function inlineComputedStyles(sourceRoot: HTMLElement, cloneRoot: HTMLElement, lockGeometry = false): Promise<void> {
   const resolveColor = createColorResolver();
   const sourceElements = [sourceRoot, ...Array.from(sourceRoot.querySelectorAll<HTMLElement>("*"))];
   const cloneElements = [cloneRoot, ...Array.from(cloneRoot.querySelectorAll<HTMLElement>("*"))];
@@ -163,8 +205,8 @@ async function inlineComputedStyles(sourceRoot: HTMLElement, cloneRoot: HTMLElem
       if (/^(?:(?:min|max)-)?(?:inline-size|block-size)$/.test(property) || /^inset-(?:block|inline)/.test(property)) continue;
       if (["animation", "transition", "outline", "box-shadow"].some(prefix => property.startsWith(prefix))) continue;
       // Used block heights/grid rows are not authored constraints: allow text to grow.
-      if (property === "height" && source !== sourceRoot && ["DIV", "SECTION", "HEADER", "ARTICLE", "P", "LI", "UL", "SPAN", "H1", "H2", "H3", "H4", "H5", "H6"].includes(source.tagName) && !source.style.height && !/(^|\s)(?:\S+:)?h-/.test(source.className)) continue;
-      if (property === "grid-template-rows" && !source.style.gridTemplateRows) continue;
+      if (!lockGeometry && property === "height" && source !== sourceRoot && ["DIV", "SECTION", "HEADER", "ARTICLE", "P", "LI", "UL", "SPAN", "H1", "H2", "H3", "H4", "H5", "H6"].includes(source.tagName) && !source.style.height && !/(^|\s)(?:\S+:)?h-/.test(source.className)) continue;
+      if (!lockGeometry && property === "grid-template-rows" && !source.style.gridTemplateRows) continue;
       if (property && value) {
         target.style.setProperty(property, value.includes("url(") ? absolutizeCssUrls(value) : value);
       }

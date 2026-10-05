@@ -79,7 +79,7 @@ async function handleCvPdfExport(request: Request, env: Env): Promise<Response> 
         const style = getComputedStyle(element);
         if (style.display === "none") continue;
         const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-        if (!fonts.has(font)) fonts.set(font, element.textContent || "CV");
+        if (!fonts.has(font)) fonts.set(font, element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value : element.textContent || "CV");
       }
       await Promise.all([...fonts].map(([font, text]) => document.fonts.load(font, text)));
       await document.fonts.ready;
@@ -98,7 +98,7 @@ async function handleCvPdfExport(request: Request, env: Env): Promise<Response> 
       const documentRoot = document.getElementById("bonlist-cv-document");
       const frames = Array.from(documentRoot?.querySelectorAll<HTMLElement>(".a4-page-frame") || []);
       const firstSource = frames[0]?.querySelector<HTMLElement>(".a4-capture-source");
-      if (documentRoot && firstSource && frames.length) {
+      if (documentRoot && firstSource && frames.length && documentRoot.dataset.exportLayout !== "preview-locked") {
         const origin = firstSource.getBoundingClientRect();
         const pageHeight = frames[0].getBoundingClientRect().height;
         const lines: Array<{ top: number; bottom: number }> = [];

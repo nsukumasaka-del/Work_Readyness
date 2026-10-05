@@ -23,6 +23,7 @@ if (denseSidebar) {
  cv.document.skills = ['Freight and Import Coordination','Carrier Negotiation and Rate Management','Shipment Tracking and Exception Handling','Customer Account Management','Microsoft Excel and CRM / TMS Systems','Problem Solving and Conflict Resolution','Compliance and Accuracy','Time Management and Multitasking Under Pressure','Microsoft Outlook','NAVIS','Navis Vet','TPT Portal','Spotlight Tracking','Radixx Go'];
  cv.document.languages = ['English - Fluent (speaking)','reading','writing','itsonga - Native','Zulu - Intermediate (speaking)','Tshivenda - Intermediate (speaking)','English','Zulu','Tshivenda'];
 }
+if (process.env.PDF_TEST_PREVIEW_PARITY) cv.preferences = { columnRatio: 58, sectionSpacing: 12, elementPositions: { 'section-references': { x: 0, y: 1 } } };
 const browser = await chromium.launch({ headless: true, ...(process.env.PDF_TEST_BROWSER ? { executablePath: process.env.PDF_TEST_BROWSER } : {}) });
 try {
  const page = await browser.newPage({ viewport: { width: 1600, height: 1400 } });
@@ -36,7 +37,7 @@ try {
   localStorage.setItem('careerbridge-profile', JSON.stringify({ id: 1, email: 'test@example.com', name: 'Test Candidate' }));
   localStorage.setItem('careerbridge-session-token', 'local-test-only');
  }, cv);
- let payload, renderedPdf, liveBounds;
+ let payload, renderedPdf, liveBounds, liveFields, previewPages;
  await page.route('**/api/**', async route => {
   const path = new URL(route.request().url()).pathname;
   if (!path.startsWith('/api/')) return route.continue();
@@ -44,6 +45,10 @@ try {
    payload = route.request().postDataJSON(); writeFileSync(resolve(output, 'real-builder-request.html'), payload.html);
    assert.match(payload.html, /References/i); assert(payload.html.includes('082 555 0101') && payload.html.includes('referee@example.com'));
    await render.emulateMedia({ media: 'print' }); await render.setContent(payload.html); await render.evaluate(() => document.fonts.ready);
+   assert.equal(await render.locator('.a4-page-frame').count(), previewPages, 'Export page count differs from builder');
+   const fields = await render.locator('.a4-capture-source').first().locator('[data-export-overlay="true"]').evaluateAll(elements => elements.filter(el=>el.getClientRects().length).map(el=>{const root=el.closest('.a4-capture-source').getBoundingClientRect(),box=el.getBoundingClientRect();return {x:box.x-root.x,y:box.y-root.y,width:box.width,height:box.height};}));
+   assert.equal(fields.length,liveFields.length,'Visible preview fields missing from exact snapshot');
+   liveFields.forEach((box,i)=>{for(const key of ['x','y','width','height'])assert(Math.abs(box[key]-fields[i][key])<1.5,`Preview field ${i} ${key} changed`);});
    const exportedBounds = await render.locator('.a4-capture-source [data-a4-id="references"]').first().boundingBox();
    console.log('REFERENCE COORDINATES', { liveBounds, exportedBounds });
    assert(Math.abs(exportedBounds.x - liveBounds.x) < 2 && (denseSidebar ? exportedBounds.y >= liveBounds.y - 2 : Math.abs(exportedBounds.y - liveBounds.y) < 2), 'Worker print layout moved References relative to live canvas: ' + JSON.stringify({ liveBounds, exportedBounds }));
@@ -83,6 +88,12 @@ try {
  await page.screenshot({ path: resolve(output, 'real-builder-dialog.png'), fullPage: true });
  console.log('DIALOG BUTTONS', await page.getByRole('dialog').getByRole('button').allTextContents());
  const confirm = page.getByRole('button', { name: 'Download Final CV', exact: true });
+ const { build } = require('../artifacts/api-server/node_modules/esbuild');
+ const metrics = await build({entryPoints:['artifacts/careerbridge-sa/src/utils/export-cv-visual-pdf.ts'],bundle:true,write:false,format:'iife',globalName:'PreviewMetrics',plugins:[{name:'no-test-auth',setup(b){b.onResolve({filter:/^@\/lib\/auth-session$/},()=>({path:'auth',namespace:'test'}));b.onLoad({filter:/.*/,namespace:'test'},()=>({contents:'export const authFetch=()=>{}',loader:'js'}));}}]});
+ await page.addScriptTag({content:metrics.outputFiles[0].text});
+ previewPages = await page.evaluate(()=>PreviewMetrics.measureCvPages(document.getElementById('bonlist-cv-document')).pageCount);
+ if(process.env.PDF_TEST_PREVIEW_PARITY) assert.equal(previewPages,1,'Real builder parity fixture must be one page');
+ liveFields = await page.locator('#bonlist-cv-document').evaluate(root=>{const rect=root.getBoundingClientRect(),scale=rect.width/parseFloat(getComputedStyle(root).width);return [...root.querySelectorAll('input,textarea,select')].filter(el=>el.getClientRects().length).map(el=>{const box=el.getBoundingClientRect();return {x:(box.x-rect.x)/scale,y:(box.y-rect.y)/scale,width:box.width/scale,height:box.height/scale};});});
  // Capture settled geometry before the download UI may replace the preview.
  // Reading the live canvas in the API interceptor races that UI transition.
  liveBounds = await page.locator('#bonlist-cv-document [data-a4-id="references"]').evaluate(el => {
@@ -97,6 +108,7 @@ try {
  if (process.env.PDF_TEST_PYTHON) {
   const result = spawnSync(process.env.PDF_TEST_PYTHON, ['-c', "import sys; from pypdf import PdfReader; pages=[p.extract_text() or '' for p in PdfReader(sys.argv[1]).pages]; text=' '.join((' '.join(pages) if sys.argv[3]=='dense' else pages[0]).split()); assert 'REFERENCES' in text.upper(); assert 'Jacky van Rooyan' in text; assert 'Smangaliso Thwala' in text; assert '082 555 0101' in text; assert 'referee@example.com' in text; alltext=' '.join(' '.join(pages).split()); assert alltext.count('Managed carrier rates and shipment tracking.')==int(sys.argv[2]); assert alltext.count('Prepared import documentation and operational reports.')==int(sys.argv[2]); assert len(pages)>1 if int(sys.argv[2])>3 else len(pages)>=1; print('Real builder References and all work entries retained;',len(pages),'pages total')", resolve(output, 'real-builder.pdf'), String(cv.document.experiences.length), denseSidebar ? 'dense' : 'default'], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr); console.log(result.stdout.trim());
+  const count=spawnSync(process.env.PDF_TEST_PYTHON,['-c',"import sys; from pypdf import PdfReader; assert len(PdfReader('tmp/pdfs/real-builder.pdf').pages)==int(sys.argv[1]); print('PDF page count matches preview:',sys.argv[1])",String(previewPages)],{encoding:'utf8'});assert.equal(count.status,0,count.stderr);console.log(count.stdout.trim());
  }
  const raster = spawnSync(process.env.PDF_TEST_PDFTOPPM, ['-scale-to', '1000', '-png', resolve(output, 'real-builder.pdf'), resolve(output, 'rendered-real-builder')], { encoding: 'utf8' }); assert.equal(raster.status, 0, raster.stderr);
 } finally { await browser.close(); }

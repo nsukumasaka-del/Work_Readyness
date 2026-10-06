@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
-import { Link, useLocation } from 'wouter';
+import { Link, useLocation, useSearch } from 'wouter';
 import { Eye, EyeOff, ArrowRight, Fingerprint } from 'lucide-react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Network } from '@capacitor/network';
@@ -447,8 +447,9 @@ export function SignupPage() {
 }
 
 export function LoginPage() {
-  const [location, setLocation] = useLocation();
-  const params = useMemo(() => new URLSearchParams(location.split('?')[1] || ''), [location]);
+  const [, setLocation] = useLocation();
+  const search = useSearch();
+  const params = useMemo(() => new URLSearchParams(search), [search]);
   const returnTo = params.get('returnTo') || '/cv-builder';
   const initialMfa = params.get('mfaToken') || '';
   const oauthError = params.get('error');
@@ -632,7 +633,7 @@ export function LoginPage() {
     }
   };
 
-  if (new URLSearchParams(window.location.search).get('signingOut') === '1') {
+  if (params.get('signingOut') === '1') {
     return <AuthShell title="Signing you out…" description="Clearing your session safely."><p role="status" className="text-sm text-muted-foreground">Please wait a moment.</p></AuthShell>;
   }
   if (mfaToken) {
@@ -680,7 +681,7 @@ export function LoginPage() {
   return (
     <AuthShell
       title="Sign in"
-      description={new URLSearchParams(window.location.search).get('signedOut') === '1' ? 'You have been signed out safely.' : 'Welcome back to BonList.'}
+      description={params.get('signedOut') === '1' ? 'You have been signed out safely.' : 'Welcome back to BonList.'}
       footer={
         <>
           Don&apos;t have an account?{' '}

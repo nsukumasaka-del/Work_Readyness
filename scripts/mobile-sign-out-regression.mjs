@@ -5,10 +5,18 @@ const require = createRequire(import.meta.url);
 const { chromium } = require(resolve(process.env.BONLIST_RUNTIME_MODULES, 'playwright'));
 const { build } = require('../artifacts/api-server/node_modules/esbuild');
 const bundle = await build({ stdin: { resolveDir: resolve('artifacts/careerbridge-sa'), loader: 'ts', contents: `
+  import React from 'react';
+  import {createRoot} from 'react-dom/client';
+  import {useSearch} from 'wouter';
   import * as auth from './src/lib/auth-session';
-  import {beginSignOut,installSignedOutNavigation} from './src/lib/sign-out';
+  import {beginSignOut,installSignedOutNavigation,resetSignedOutNavigation} from './src/lib/sign-out';
   import {initializeNativeAuth} from './src/lib/native-auth-startup';
-  window.testAuth={...auth,beginSignOut,installSignedOutNavigation,initializeNativeAuth};
+  const mountQueryView=()=>{
+    const node=document.createElement('div');node.id='logout-query-view';document.body.appendChild(node);
+    function QueryView(){const params=new URLSearchParams(useSearch());return React.createElement('p',null,params.has('signingOut')?'signing-out':params.has('signedOut')?'signed-out':'ready');}
+    createRoot(node).render(React.createElement(QueryView));
+  };
+  window.testAuth={...auth,beginSignOut,installSignedOutNavigation,resetSignedOutNavigation,initializeNativeAuth,mountQueryView};
 ` }, bundle: true, write: false, format: 'iife', plugins: [{ name: 'native-test', setup(b) {
   b.onResolve({filter:/^@capacitor\/core$/},()=>({path:'core',namespace:'mock'}));
   b.onResolve({filter:/^@capacitor\/preferences$/},()=>({path:'preferences',namespace:'mock'}));
@@ -61,8 +69,20 @@ try {
   assert.deepEqual(result.immediate,{profile:null,token:null,admin:false,events:1});
   assert.ok(result.removed);assert.ok(result.elapsed<4500);assert.equal(result.aborted,'AbortError');assert.equal(result.theme,'light');
   assert.equal(result.requests.find(r=>r.url.endsWith('/logout')).authorization,'Bearer saved-token');
-  assert.equal(result.cookieDeletes.length,6);
-  assert.deepEqual(result.preferenceDeletes,['bonlist.native.offline-workstation.v1'],'saved offline CVs must not be erased');
+  assert.equal(result.cookieDeletes.length,9);
+  assert.ok(result.cookieDeletes.some(cookie=>cookie.url==='https://bonlist.example'),'local WebView origin cookies must be cleared');
+  const authKeys = await page.evaluate(()=>[...window.testAuth.AUTH_STORAGE_KEYS,'bonlist.native.offline-workstation.v1']);
+  assert.deepEqual(result.preferenceDeletes,authKeys,'remove the same account keys from native and WebView storage without clearing saved CV preferences');
+  await page.evaluate(()=>{history.replaceState({},'', '/login?signingOut=1');window.testAuth.mountQueryView();});
+  await page.waitForFunction(()=>document.getElementById('logout-query-view')?.textContent==='signing-out');
+  const routing = await page.evaluate(()=>{
+    const started=performance.timeOrigin;let route,events=0;
+    window.addEventListener('popstate',()=>events++,{once:true});
+    window.testAuth.resetSignedOutNavigation(path=>{route=path;history.replaceState({},'',path);});
+    return {route,events,origin:location.origin,reloaded:performance.timeOrigin!==started};
+  });
+  assert.deepEqual(routing,{route:'/login?signedOut=1',events:1,origin:'https://bonlist.example',reloaded:false},'native sign-out uses the router without document navigation');
+  await page.waitForFunction(()=>document.getElementById('logout-query-view')?.textContent==='signed-out');
   await page.addScriptTag({content:bundle.outputFiles[0].text});
   assert.equal(await page.evaluate(()=>window.testAuth.isExplicitlySignedOut()),true,'logout marker survives fresh module startup');
   await page.evaluate(()=>window.testAuth.completeAuthSession({id:'user2',email:'new@example.com',sessionToken:'new-token'}));
@@ -78,7 +98,7 @@ try {
   });
   assert.equal(bridgeFailure.token,null);
   assert.equal(bridgeFailure.profile,null);
-  assert.equal(bridgeFailure.cookiesAttempted,6,'a synchronous preference failure must not skip cookie cleanup');
+  assert.equal(bridgeFailure.cookiesAttempted,9,'a synchronous preference failure must not skip cookie cleanup');
   assert.ok(bridgeFailure.elapsed<4500,'synchronous network failures must not strand logout');
   await page.evaluate(()=>window.testAuth.clearAuthSession());
   await page.goto('https://bonlist.example/login?signedOut=1');

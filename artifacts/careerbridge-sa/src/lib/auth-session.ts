@@ -7,6 +7,9 @@ const ADMIN_TOKEN_KEY = 'careerbridge-admin-token';
 const ADMIN_FLAG_KEY = 'careerbridge-is-admin';
 const NUDGE_KEY = 'careerbridge-security-nudge';
 const SIGNED_OUT_KEY = 'bonlist-explicitly-signed-out';
+export const AUTH_STORAGE_KEYS = [PROFILE_KEY, SESSION_KEY, ADMIN_TOKEN_KEY, ADMIN_FLAG_KEY, NUDGE_KEY, 'bonlist-profile',
+  'careerbridge-report', 'bonlist-report', 'careerbridge-selected-job', 'bonlist-saved-jobs',
+  'bonlist-unread-job-matches', 'bonlist-yoco-pending', 'bonlist-yoco-resume-download'] as const;
 let signedOut = false;
 let sessionGeneration = 0;
 const sessionRequests = new Set<AbortController>();
@@ -107,9 +110,7 @@ export function clearAuthSession() {
   writeStoredValue(SIGNED_OUT_KEY, '1');
   sessionRequests.forEach(controller => controller.abort());
   sessionRequests.clear();
-  [PROFILE_KEY, SESSION_KEY, ADMIN_TOKEN_KEY, ADMIN_FLAG_KEY, NUDGE_KEY, 'bonlist-profile',
-    'careerbridge-report', 'bonlist-report', 'careerbridge-selected-job', 'bonlist-saved-jobs',
-    'bonlist-unread-job-matches', 'bonlist-yoco-pending', 'bonlist-yoco-resume-download'].forEach(removeStoredValue);
+  AUTH_STORAGE_KEYS.forEach(removeStoredValue);
   window.dispatchEvent(new Event('careerbridge-profile-updated'));
   window.dispatchEvent(new Event('bonlist-auth-signed-out'));
 }

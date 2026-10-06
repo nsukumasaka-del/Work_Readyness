@@ -96,7 +96,7 @@ const AdminRoute = lazy(() => import('@/pages/admin/AdminDashboard').then((modul
 
 import { isNativeApp } from '@/lib/platform';
 import { describeApiMisconfiguration } from '@/lib/api-base';
-import { beginSignOut, installSignedOutNavigation } from '@/lib/sign-out';
+import { beginSignOut, installSignedOutNavigation, resetSignedOutNavigation } from '@/lib/sign-out';
 import { triggerAndroidApkDownload } from '@/lib/download-apk';
 import { ThemeToggle } from '@/components/theme-provider';
 import { getNativeCv, isOfflineWorkstationActive, listNativeCvs, startNativeCvSync } from '@/lib/native-cv-store';
@@ -304,10 +304,10 @@ function HeaderAuthActions({
             Updates
           </Link>
         ) : null}
-        {!workspaceMode ? <button
+        {(!workspaceMode || compact) ? <button
           type="button"
           onClick={onLogout}
-          className={`rounded-xl px-2.5 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground xl:px-3 ${
+          className={`pointer-events-auto min-h-11 touch-manipulation rounded-xl px-2.5 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground xl:px-3 ${
             compact ? 'w-full border border-border' : ''
           }`}
           data-testid="button-header-logout"
@@ -856,9 +856,12 @@ function AppShell({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('[Auth] Sign out failed; forcing local reset', error);
     } finally {
-      // Recreate the app tree so account-specific React state cannot survive.
+      // Native routing unmounts protected views without reloading the WebView.
       try { clearAuthSession(); }
-      finally { window.location.replace('/login?signedOut=1'); }
+      finally {
+        loggingOut.current = false;
+        resetSignedOutNavigation(path => setLocation(path, { replace: true }));
+      }
     }
   };
 

@@ -62,7 +62,8 @@ const config = {
       autoUpdate: false,
       appReadyTimeout: 20000,
       statsUrl: "",
-      resetWhenUpdate: false,
+      // A native APK update must use its new bundled UI, not an older OTA cache.
+      resetWhenUpdate: true,
       resetWhenUpdateUninstalled: true,
       responseTimeout: 120,
       keepUrlPathAfterReload: true,

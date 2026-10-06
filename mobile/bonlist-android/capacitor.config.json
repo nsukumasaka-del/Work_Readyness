@@ -10,7 +10,7 @@
       "autoUpdate": false,
       "appReadyTimeout": 20000,
       "statsUrl": "",
-      "resetWhenUpdate": false,
+      "resetWhenUpdate": true,
       "resetWhenUpdateUninstalled": true,
       "responseTimeout": 120,
       "keepUrlPathAfterReload": true

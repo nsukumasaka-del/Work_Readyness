@@ -28,13 +28,14 @@ export function beginSignOut() {
   clearAuthSession();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3000);
-  const revoke = fetch(apiUrl('/api/career/auth/logout'), {
+  // Defer plugin/fetch calls so synchronous bridge errors are also contained.
+  const revoke = Promise.resolve().then(() => fetch(apiUrl('/api/career/auth/logout'), {
     method: 'POST', body: '{}', headers, credentials: 'include', signal: controller.signal,
-  }).catch(() => undefined).finally(() => clearTimeout(timer));
+  })).catch(error => console.warn('[Auth] Server logout unavailable; local session cleared', error)).finally(() => clearTimeout(timer));
   const nativeCleanup = (async () => { if (!Capacitor.isNativePlatform()) return; await Promise.allSettled([
-    Preferences.remove({ key: 'bonlist.native.offline-workstation.v1' }),
+    Promise.resolve().then(() => Preferences.remove({ key: 'bonlist.native.offline-workstation.v1' })),
     ...['https://www.bonlist.site', 'https://bonlist.site'].flatMap(url =>
-      ['bonlist_session', 'session_token', 'session'].map(key => CapacitorCookies.deleteCookie({ url, key }))),
+      ['bonlist_session', 'session_token', 'session'].map(key => Promise.resolve().then(() => CapacitorCookies.deleteCookie({ url, key })))),
   ]); })();
   // Native plugins can also stall. They must never block local logout/navigation.
   let navigationTimer: ReturnType<typeof setTimeout>;

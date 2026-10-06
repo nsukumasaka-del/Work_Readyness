@@ -834,25 +834,31 @@ function AppShell({ children }: { children: ReactNode }) {
   const handleLogout = async () => {
     if (loggingOut.current) return;
     loggingOut.current = true;
+    console.info('[Auth] Sign out requested');
     setLogoutError('');
     try {
       const cleanup = beginSignOut();
-      markJobMatchesRead();
-      if (typeof document !== 'undefined') {
-        document.cookie = 'bonlist_session=; Path=/; Max-Age=0; SameSite=Lax';
-      }
-      void queryClient.cancelQueries();
-      queryClient.clear();
       setProfile(null);
       setIsAdmin(false);
       setMenuOpen(false);
       setActiveMobileDropdown(null);
       setLocation('/login?signingOut=1', { replace: true });
+      // Optional cache/cookie cleanup must not interrupt the navigation reset.
+      try {
+        markJobMatchesRead();
+        document.cookie = 'bonlist_session=; Path=/; Max-Age=0; SameSite=Lax';
+        void queryClient.cancelQueries().catch(error => console.warn('[Auth] Query cancellation failed', error));
+        queryClient.clear();
+      } catch (error) {
+        console.warn('[Auth] Optional logout cleanup failed', error);
+      }
       await cleanup;
+    } catch (error) {
+      console.error('[Auth] Sign out failed; forcing local reset', error);
     } finally {
       // Recreate the app tree so account-specific React state cannot survive.
-      clearAuthSession();
-      window.location.replace('/login?signedOut=1');
+      try { clearAuthSession(); }
+      finally { window.location.replace('/login?signedOut=1'); }
     }
   };
 

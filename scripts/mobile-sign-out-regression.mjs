@@ -67,6 +67,19 @@ try {
   assert.equal(await page.evaluate(()=>window.testAuth.isExplicitlySignedOut()),true,'logout marker survives fresh module startup');
   await page.evaluate(()=>window.testAuth.completeAuthSession({id:'user2',email:'new@example.com',sessionToken:'new-token'}));
   assert.equal(await page.evaluate(()=>window.testAuth.getSessionToken()),'new-token','fresh login is allowed');
+  const bridgeFailure = await page.evaluate(async()=>{
+    // Older/offline WebViews may throw synchronously instead of rejecting fetch.
+    window.fetch=()=>{throw new Error('Native network bridge unavailable');};
+    const cookiesBefore=window.cookieDeletes.length;
+    window.preferenceDeletes.push=()=>{throw new Error('Native preference bridge unavailable');};
+    const started=Date.now();
+    await window.testAuth.beginSignOut();
+    return {token:window.testAuth.getSessionToken(),profile:window.testAuth.readProfile(),elapsed:Date.now()-started,cookiesAttempted:window.cookieDeletes.length-cookiesBefore};
+  });
+  assert.equal(bridgeFailure.token,null);
+  assert.equal(bridgeFailure.profile,null);
+  assert.equal(bridgeFailure.cookiesAttempted,6,'a synchronous preference failure must not skip cookie cleanup');
+  assert.ok(bridgeFailure.elapsed<4500,'synchronous network failures must not strand logout');
   await page.evaluate(()=>window.testAuth.clearAuthSession());
   await page.goto('https://bonlist.example/login?signedOut=1');
   await page.addScriptTag({content:bundle.outputFiles[0].text});

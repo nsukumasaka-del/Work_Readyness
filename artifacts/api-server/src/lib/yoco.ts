@@ -1,9 +1,5 @@
-export const PAYMENT_PRODUCTS = {
-  TEMPLATE_DOWNLOAD: { amount: 5000, name: 'CV template download', priceZar: 50 },
-  JOB_MATCH_UNLOCK: { amount: 3000, name: '24-hour job match access', priceZar: 30 },
-  MEGA_ACCESS: { amount: 8000, name: 'Mega Access Promotion', priceZar: 80 },
-} as const;
-export type PaymentType = keyof typeof PAYMENT_PRODUCTS;
+import { DAILY_JOB_MATCH_PRICE, PAYMENT_PRODUCTS, type PaymentType } from '../../../../shared/payment-products.mjs';
+export { PAYMENT_PRODUCTS, type PaymentType } from '../../../../shared/payment-products.mjs';
 export type PaymentUser = { id: string; email: string; isAdmin?: boolean };
 export type YocoEnv = { YOCO_SECRET_KEY?: string; YOCO_WEBHOOK_SECRET?: string; PRIMARY_ADMIN_EMAIL?: string; APP_BASE_URL?: string };
 export type PaymentOrder = { id: string; userId: string; itemType: PaymentType; targetId: string; amount: number; status: string; checkoutId: string | null; paymentId: string | null; paidAt: string | null; expiresAt: string | null; mode: string };
@@ -21,7 +17,7 @@ export function isPrimaryAdmin(user: PaymentUser | null, email?: string): boolea
 export function paymentAccess(user: PaymentUser, orders: PaymentOrder[], primaryEmail?: string, now = Date.now()) {
   const paid = orders.filter(order => order.userId === user.id && order.status === 'paid');
   const mega = paid.filter(order => order.itemType === 'MEGA_ACCESS' && Date.parse(order.expiresAt || '') > now);
-  const daily = paid.filter(order => order.itemType === 'JOB_MATCH_UNLOCK' && order.amount === 3000 && Date.parse(order.expiresAt || '') > now);
+  const daily = paid.filter(order => order.itemType === 'JOB_MATCH_UNLOCK' && order.amount === DAILY_JOB_MATCH_PRICE && Date.parse(order.expiresAt || '') > now);
   return {
     adminBypass: isPrimaryAdmin(user, primaryEmail),
     megaAccessUntil: mega.map(order => order.expiresAt!).sort().at(-1) || null,
@@ -89,7 +85,7 @@ export async function handleYoco(request: Request, store: PaymentStore, user: Pa
     if (!order) return json({ error: 'Checkout not recorded yet.' }, 503);
     if (payload.status !== 'succeeded' || payload.currency !== 'ZAR' || payload.amount !== order.amount || payload.mode !== order.mode) return json({ error: 'Payment does not match the order.' }, 400);
     const paidAt = new Date().toISOString();
-    const duration = order.itemType === 'MEGA_ACCESS' ? 7 * 86400_000 : order.itemType === 'JOB_MATCH_UNLOCK' && order.amount === 3000 ? 86400_000 : 0;
+    const duration = order.itemType === 'MEGA_ACCESS' ? 7 * 86400_000 : order.itemType === 'JOB_MATCH_UNLOCK' && order.amount === DAILY_JOB_MATCH_PRICE ? 86400_000 : 0;
     const expiresAt = duration ? new Date(Date.parse(paidAt) + duration).toISOString() : null;
     await store.complete(order.id, checkoutId, payload.id, paidAt, expiresAt);
     return json({ received: true });
@@ -110,6 +106,9 @@ export async function handleYoco(request: Request, store: PaymentStore, user: Pa
   const itemType = input.itemType;
   if (typeof itemType !== 'string' || !Object.hasOwn(PAYMENT_PRODUCTS, itemType)) return json({ error: 'Unknown purchase type.' }, 400);
   const type = itemType as PaymentType;
+  const product = PAYMENT_PRODUCTS[type];
+  if (input.expectedAmount !== undefined && input.expectedAmount !== product.amount) return json({ error: 'The checkout price changed. Please reopen the purchase dialog.' }, 409);
+  if (input.currency !== undefined && input.currency !== 'ZAR') return json({ error: 'Checkout currency must be ZAR.' }, 400);
   const targetId = type === 'MEGA_ACCESS' ? '' : typeof input.targetId === 'string' || typeof input.targetId === 'number' ? String(input.targetId) : '';
   if (type !== 'MEGA_ACCESS' && !/^[a-zA-Z0-9_-]{1,80}$/.test(targetId)) return json({ error: 'A valid item ID is required.' }, 400);
   if (access.adminBypass || access.megaAccessActive || (type === 'TEMPLATE_DOWNLOAD' && canDownloadTemplate(access, targetId)) || (type === 'JOB_MATCH_UNLOCK' && access.jobAccessActive)) return json({ alreadyUnlocked: true, ...access });
@@ -118,18 +117,19 @@ export async function handleYoco(request: Request, store: PaymentStore, user: Pa
   let origin: string;
   try { const url = new URL(env.APP_BASE_URL || ''); if (url.protocol !== 'https:' && url.hostname !== 'localhost') throw new Error(); origin = url.origin; } catch { return json({ error: 'Payment return URL is not configured.' }, 503); }
   const id = crypto.randomUUID();
-  const order: PaymentOrder = { id, userId: user.id, itemType: type, targetId, amount: PAYMENT_PRODUCTS[type].amount, status: 'pending', checkoutId: null, paymentId: null, paidAt: null, expiresAt: null, mode: key.startsWith('sk_live_') ? 'live' : 'test' };
+  const order: PaymentOrder = { id, userId: user.id, itemType: type, targetId, amount: product.amount, status: 'pending', checkoutId: null, paymentId: null, paidAt: null, expiresAt: null, mode: key.startsWith('sk_live_') ? 'live' : 'test' };
   await store.create(order);
   try {
     const response = await providerFetch('https://payments.yoco.com/api/checkouts', {
       method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Idempotency-Key': id },
       signal: AbortSignal.timeout(15_000), body: JSON.stringify({ amount: order.amount, currency: 'ZAR',
         successUrl: `${origin}/payment/success?order_id=${id}${input.native === true ? '&native=1' : ''}`, cancelUrl: `${origin}/payment/cancel?order_id=${id}${input.native === true ? '&native=1' : ''}`, failureUrl: `${origin}/payment/cancel?order_id=${id}${input.native === true ? '&native=1' : ''}`,
-        metadata: { orderId: id, userId: user.id, itemType: type, targetId }, clientReferenceId: id }),
+        metadata: { orderId: id, userId: user.id, itemType: type, targetId, item_name: product.name, amount: order.amount, currency: 'ZAR' }, clientReferenceId: id }),
     });
     if (!response.ok) return json({ error: 'Yoco checkout is temporarily unavailable. Please try again.' }, 502);
-    const checkout = await response.json() as { id?: string; redirectUrl?: string };
+    const checkout = await response.json() as { id?: string; redirectUrl?: string; amount?: number; currency?: string };
     if (!checkout.id || typeof checkout.redirectUrl !== 'string') throw new Error('Invalid checkout');
+    if (checkout.amount !== order.amount || checkout.currency !== 'ZAR') return json({ error: 'The payment provider returned a different price. Checkout was not opened.' }, 502);
     const redirect = new URL(checkout.redirectUrl);
     if (redirect.protocol !== 'https:' || !(redirect.hostname === 'yoco.com' || redirect.hostname.endsWith('.yoco.com'))) throw new Error('Invalid checkout URL');
     await store.attach(id, checkout.id);

@@ -1,7 +1,9 @@
 import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from 'react';
 import { authFetch, isExplicitlySignedOut } from './auth-session';
 import { normalizeAccess } from './safe-data';
-export type PurchaseType = 'TEMPLATE_DOWNLOAD' | 'JOB_MATCH_UNLOCK' | 'MEGA_ACCESS';
+import type { PaymentType } from '../../../../shared/payment-products.mjs';
+export { PAYMENT_PRODUCTS } from '../../../../shared/payment-products.mjs';
+export type PurchaseType = PaymentType;
 export type Purchase = { itemType: PurchaseType; targetId?: string | number; downloadFormat?: 'print' | 'doc' | 'html' | 'txt'; onVerified?: () => void };
 export type PaidAccess = { adminBypass: boolean; megaAccessActive: boolean; megaAccessUntil: string | null; jobAccessActive: boolean; jobAccessUntil: string | null; ownedTemplateIds: string[]; unlockedJobIds: string[] };
 export const EMPTY_ACCESS: PaidAccess = { adminBypass: false, megaAccessActive: false, megaAccessUntil: null, jobAccessActive: false, jobAccessUntil: null, ownedTemplateIds: [], unlockedJobIds: [] };

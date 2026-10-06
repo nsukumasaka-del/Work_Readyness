@@ -2,15 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Link, useLocation } from 'wouter';
 import { authFetch } from '@/lib/auth-session';
-import { type Purchase } from '@/lib/yoco';
-const prices = { TEMPLATE_DOWNLOAD: 50, JOB_MATCH_UNLOCK: 30, MEGA_ACCESS: 80 };
+import { PAYMENT_PRODUCTS, type Purchase } from '@/lib/yoco';
 export function YocoCheckoutHost() {
   const [purchase, setPurchase] = useState<Purchase | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const ref = useRef(false);
   useEffect(() => {
-    const open = (event: Event) => { setPurchase((event as CustomEvent<Purchase>).detail); setError(''); };
+    const open = (event: Event) => {
+      const item = (event as CustomEvent<Purchase>).detail;
+      if (ref.current || !item || !Object.hasOwn(PAYMENT_PRODUCTS, item.itemType)) return;
+      setPurchase(item); setError('');
+    };
     window.addEventListener('bonlist-yoco-purchase', open);
     return () => window.removeEventListener('bonlist-yoco-purchase', open);
   }, []);
@@ -19,10 +22,12 @@ export function YocoCheckoutHost() {
     if (ref.current) return;
     ref.current = true; setBusy(true); setError('');
     try {
-      const response = await authFetch('/api/payments/yoco/create-checkout', { method: 'POST', body: JSON.stringify({ itemType: item.itemType, targetId: item.targetId, native: Capacitor.isNativePlatform() }) });
+      const product = PAYMENT_PRODUCTS[item.itemType];
+      const response = await authFetch('/api/payments/yoco/create-checkout', { method: 'POST', body: JSON.stringify({ itemType: item.itemType, targetId: item.targetId, amount: product.amount, expectedAmount: product.amount, currency: 'ZAR', native: Capacitor.isNativePlatform() }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Checkout could not be started.');
       if (result.alreadyUnlocked) { window.dispatchEvent(new Event('bonlist-monetization-updated')); setPurchase(null); item.onVerified?.(); return; }
+      if (result.itemType !== item.itemType || result.amount !== product.amount) throw new Error('Checkout price does not match your selected offer. No payment was opened. Please try again.');
       // This is return navigation only, never proof of payment.
       try { localStorage.setItem('bonlist-yoco-pending', JSON.stringify({ orderId: result.orderId, itemType: item.itemType, targetId: item.targetId, downloadFormat: item.downloadFormat, returnTo: `${window.location.pathname}${window.location.search}` })); } catch { /* The server still retains the order. */ }
       window.location.assign(result.redirectUrl);
@@ -33,10 +38,10 @@ export function YocoCheckoutHost() {
     <section role="dialog" aria-modal="true" aria-labelledby="yoco-title" className="box-border w-full min-w-0 max-w-md rounded-2xl bg-white p-5 text-slate-900 shadow-xl [overflow-wrap:anywhere]" onClick={event => event.stopPropagation()}>
 <div className="flex items-start justify-between gap-3"><h2 id="yoco-title" className="text-lg font-bold">{purchase.itemType === 'MEGA_ACCESS' ? 'Mega Access Promotion' : purchase.itemType === 'TEMPLATE_DOWNLOAD' ? 'Unlock this CV template' : 'Unlock all job matches'}</h2><button aria-label="Close checkout" disabled={busy} onClick={() => setPurchase(null)} className="h-9 w-9 shrink-0 rounded-lg hover:bg-slate-100">×</button></div>
       <p className="mt-3 text-sm leading-6">{purchase.itemType === 'MEGA_ACCESS' ? '7 days of unlimited CV downloads, 50%+ job match reveals, and AI CV and cover-letter tools.' : purchase.itemType === 'TEMPLATE_DOWNLOAD' ? 'Pay once to download and reuse this template. Editing and previewing remain free.' : 'Unlock all matches scoring 50% or higher for exactly 24 hours after payment. No recurring charge.'}</p>
-      <p className="mt-4 text-3xl font-bold">R{prices[purchase.itemType]} <span className="text-sm font-normal text-slate-500">{purchase.itemType === 'JOB_MATCH_UNLOCK' ? 'for 24 hours' : 'once-off'}</span></p>
+      <p className="mt-4 text-3xl font-bold">R{PAYMENT_PRODUCTS[purchase.itemType].priceZar} <span className="text-sm font-normal text-slate-500">{purchase.itemType === 'JOB_MATCH_UNLOCK' ? 'for 24 hours' : 'once-off'}</span></p>
       {error ? <p role="alert" className="mt-3 text-sm text-red-700">{error}</p> : null}
-      <button disabled={busy} onClick={() => void start(purchase)} className="mt-5 min-h-11 w-full rounded-xl bg-blue-700 px-3 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Opening secure checkout…' : `Pay R${prices[purchase.itemType]} with Yoco`}</button>
-      {purchase.itemType !== 'MEGA_ACCESS' ? <button disabled={busy} onClick={() => void start({ ...purchase, itemType: 'MEGA_ACCESS' })} className="mt-3 min-h-11 w-full rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">PROMOTION — 1 WEEK MEGA ACCESS · R80</button> : null}
+      <button disabled={busy} onClick={() => void start(purchase)} className="mt-5 min-h-11 w-full rounded-xl bg-blue-700 px-3 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Opening secure checkout…' : `Pay R${PAYMENT_PRODUCTS[purchase.itemType].priceZar} with Yoco`}</button>
+      {purchase.itemType !== 'MEGA_ACCESS' ? <button disabled={busy} onClick={() => { setPurchase({ ...purchase, itemType: 'MEGA_ACCESS' }); setError(''); }} className="mt-3 min-h-11 w-full rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">Choose 1 Week Mega Access · R{PAYMENT_PRODUCTS.MEGA_ACCESS.priceZar}</button> : null}
       <p className="mt-3 text-xs leading-5 text-slate-500">Card details are entered on Yoco’s hosted checkout, not on BonList.</p>
     </section>
   </div>;

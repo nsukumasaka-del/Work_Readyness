@@ -3,6 +3,39 @@ import assert from 'node:assert/strict';
 import { handleYoco, paymentAccess, protectJob, canDownloadTemplate, verifyYocoSignature, type PaymentOrder, type PaymentStore } from './yoco';
 const user = { id: 'u1', email: 'user@example.com' };
 const env = { YOCO_SECRET_KEY: 'sk_test_fixture', YOCO_WEBHOOK_SECRET: 'whsec_' + btoa('test-secret'), APP_BASE_URL: 'https://bonlist.example' };
+test('daily checkout uses 3000 cents and canonical metadata even when client supplies 8000', async () => {
+  const { store, orders } = memoryStore();
+  let payload: any;
+  const provider = (async (_url: any, init: any) => {
+    payload = JSON.parse(init.body);
+    return Response.json({ id: 'daily_price', redirectUrl: 'https://c.yoco.com/daily', amount: payload.amount, currency: 'ZAR' });
+  }) as typeof fetch;
+  const response = await handleYoco(new Request('https://bonlist.example/api/payments/yoco/create-checkout', { method: 'POST', body: JSON.stringify({ itemType: 'JOB_MATCH_UNLOCK', targetId: 'job1', amount: 8000, expectedAmount: 3000, currency: 'ZAR' }) }), store, user, env, provider);
+  assert.equal(response.status, 200);
+  assert.equal(payload.amount, 3000);
+  assert.equal(payload.currency, 'ZAR');
+  assert.equal(payload.metadata.item_name, 'Daily Job Match Access');
+  assert.equal(payload.metadata.itemType, 'JOB_MATCH_UNLOCK');
+  assert.equal(payload.metadata.amount, 3000);
+  assert.equal([...orders.values()][0].amount, 3000);
+  assert.equal((await response.json()).amount, 3000);
+});
+test('stale displayed prices reject before creating any order or contacting Yoco', async () => {
+  for (const [itemType, expectedAmount] of [['JOB_MATCH_UNLOCK', 8000], ['MEGA_ACCESS', 3000]]) {
+    const { store, orders } = memoryStore();
+    const response = await handleYoco(new Request('https://bonlist.example/api/payments/yoco/create-checkout', { method: 'POST', body: JSON.stringify({ itemType, expectedAmount, targetId: 'job1' }) }), store, user, env, (() => { throw Error('Must not contact Yoco'); }) as typeof fetch);
+    assert.equal(response.status, 409);
+    assert.equal(orders.size, 0);
+  }
+});
+test('unexpected R80 provider quote cannot redirect an R30 daily purchase', async () => {
+  const { store, orders } = memoryStore();
+  const provider = (async () => Response.json({ id: 'wrong_price', redirectUrl: 'https://c.yoco.com/wrong', amount: 8000, currency: 'ZAR' })) as typeof fetch;
+  const response = await handleYoco(new Request('https://bonlist.example/api/payments/yoco/create-checkout', { method: 'POST', body: JSON.stringify({ itemType: 'JOB_MATCH_UNLOCK', targetId: 'job1', expectedAmount: 3000 }) }), store, user, env, provider);
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).redirectUrl, undefined);
+  assert.equal([...orders.values()][0].checkoutId, null);
+});
 function memoryStore() {
   const orders = new Map<string, PaymentOrder>();
   const store: PaymentStore = {
@@ -38,7 +71,7 @@ test('signature rejects forgery, modified body and stale deliveries', async () =
 test('server fixes price; redirect verification cannot grant; signed webhook grants once', async () => {
   const { store, orders } = memoryStore();
   let sent: any;
-  const provider = (async (_url: any, init: any) => { sent = JSON.parse(init.body); return new Response(JSON.stringify({ id: 'checkout_1', redirectUrl: 'https://c.yoco.com/fixture' })); }) as typeof fetch;
+  const provider = (async (_url: any, init: any) => { sent = JSON.parse(init.body); return new Response(JSON.stringify({ id: 'checkout_1', redirectUrl: 'https://c.yoco.com/fixture', amount: sent.amount, currency: 'ZAR' })); }) as typeof fetch;
   const checkout = await handleYoco(new Request('https://bonlist.example/api/payments/yoco/create-checkout', { method: 'POST', body: JSON.stringify({ itemType: 'MEGA_ACCESS', amount: 1 }) }), store, user, env, provider);
   assert.equal(checkout.status, 200); assert.equal(sent.amount, 8000);
   const order = [...orders.values()][0];
@@ -70,7 +103,7 @@ test('missing secrets fail closed and administrator never contacts provider', as
 test('R30 verified payment unlocks every high-score job for exactly 24 hours, not templates', async () => {
   const { store, orders } = memoryStore();
   let amount = 0;
-  const provider = (async (_url: any, init: any) => { amount = JSON.parse(init.body).amount; return Response.json({ id: 'daily_checkout', redirectUrl: 'https://c.yoco.com/daily' }); }) as typeof fetch;
+  const provider = (async (_url: any, init: any) => { amount = JSON.parse(init.body).amount; return Response.json({ id: 'daily_checkout', redirectUrl: 'https://c.yoco.com/daily', amount, currency: 'ZAR' }); }) as typeof fetch;
   await handleYoco(new Request('https://bonlist.example/api/payments/yoco/create-checkout', { method: 'POST', body: JSON.stringify({ itemType: 'JOB_MATCH_UNLOCK', targetId: 'job1', amount: 1 }) }), store, user, env, provider);
   assert.equal(amount, 3000);
   const order = [...orders.values()][0];

@@ -32,6 +32,26 @@ try {
   await page.locator('#bonlist-cv-document [data-a4-id="references"]').waitFor({timeout:180000});
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(3000);
+  if (process.env.CV_PALETTE_ONLY) {
+   const expected = {serif_classic:'#18181b',corporate_blue:'#0284c7',editorial_gold:'#701a36',analyst_clean:'#18181b',double_column:'#1e3a8a',ivy_league:'#1e3a8a',elegant:'#701a36',contemporary:'#0f766e',modern:'#1e3a8a',timeline:'#0284c7',creative:'#0f766e',stylish:'#059669',single_column:'#18181b',compact:'#18181b',polished:'#1e3a8a',multicolumn:'#1e3a8a',classic:'#18181b',high_performer:'#059669',minimal:'#18181b'};
+   const palette = await page.locator('#bonlist-cv-document').evaluate(root=>{
+    document.documentElement.classList.add('dark');
+    document.documentElement.style.setProperty('--cv-primary','#ff00ff');
+    return {template:root.dataset.cvTemplate,primary:getComputedStyle(root).getPropertyValue('--cv-primary').trim(),rootPrimary:document.documentElement.style.getPropertyValue('--cv-primary')};
+   });
+   assert.equal(palette.template,template); assert.equal(palette.primary,expected[template]);assert.equal(palette.rootPrimary,'#ff00ff');
+   if(template==='serif_classic') {
+    for(const [name,id] of [['Creative','creative'],['Minimal','minimal'],['Modern','modern'],['Serif Classic','serif_classic']]) {
+     await page.getByRole('button',{name:'Choose a template',exact:true}).first().click();
+     const card=page.locator('article').filter({has:page.getByRole('heading',{name,exact:true})});
+     await card.getByRole('button',{name:/^(Use Template|Preview|Selected)$/}).click();
+     await page.waitForTimeout(300);
+     assert.equal(await page.locator('#bonlist-cv-document').getAttribute('data-cv-template'),id);
+     assert.equal(await page.locator('#bonlist-cv-document').evaluate(root=>getComputedStyle(root).getPropertyValue('--cv-primary').trim()),expected[id]);
+    }
+   }
+   console.log('PALETTE PASS',template);await page.close();continue;
+  }
   if (template === 'corporate_blue') {
    await page.evaluate(() => {
     const root=document.getElementById('bonlist-cv-document');

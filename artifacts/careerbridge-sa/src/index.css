@@ -905,6 +905,21 @@
   }
 }
 
+/* Document palette tokens live on each template root, never on :root/body.
+   Application themes and adjacent template previews cannot mutate them. */
+.cv-template[data-cv-template] {
+  isolation: isolate;
+  color: var(--cv-text, #334155);
+  background-color: var(--cv-background, #ffffff);
+  color-scheme: light;
+}
+
+.cv-template[data-cv-template] .cv-skill-chip {
+  color: var(--cv-primary);
+  background-color: var(--cv-secondary);
+  border-color: var(--cv-border);
+}
+
 #bonlist-cv-document .cv-badge-list {
   /* Keep the first badge row visibly clear of the section heading rule. */
   margin-block-start: 0.75rem !important;

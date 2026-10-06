@@ -1,5 +1,6 @@
 import {
   type ChangeEvent,
+  type CSSProperties,
   type DragEvent,
   type FocusEvent as ReactFocusEvent,
   type PointerEvent as ReactPointerEvent,
@@ -11,6 +12,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { getTemplatePalette } from "@/lib/cv-template-palettes";
 import { Link, useLocation } from "wouter";
 import {
   AlertCircle,
@@ -1659,7 +1661,13 @@ const COLOR_THEMES = [
   { id: "amber", label: "Protea Amber Gold", primary: "#b45309", secondary: "#fffbeb", border: "#fde68a" },
   { id: "pine", label: "Forest Pine", primary: "#166534", secondary: "#f0fdf4", border: "#bbf7d0" },
   { id: "charcoal", label: "Charcoal Minimal", primary: "#18181b", secondary: "#fafafa", border: "#e4e4e7" },
+  { id: "burgundy", label: "Executive Burgundy & Gold", primary: "#701a36", secondary: "#fff9eb", border: "#c5a253" },
 ];
+
+function templateColor(templateId: string, savedColor?: string) {
+  return COLOR_THEMES.find(theme => theme.id === (savedColor || getTemplatePalette(templateId).theme))
+    || COLOR_THEMES.find(theme => theme.id === getTemplatePalette(templateId).theme)!;
+}
 
 const FONT_OPTIONS = [
   { id: "inter", label: "Inter", family: "Inter, var(--font-sans), ui-sans-serif, system-ui, sans-serif" },
@@ -1872,7 +1880,7 @@ function TemplateThumbnail({
   doc?: GeneratedCvDocument | null;
   showDetails?: boolean;
 }) {
-  const accent = tpl.previewAccent;
+  const accent = templateColor(tpl.id).primary;
   const isDouble = tpl.columns === "double";
   const isTimeline = tpl.templateType === "timeline" || tpl.id === "timeline";
   const isStylish = tpl.id === "stylish";
@@ -2257,7 +2265,7 @@ export default function CvBuilderPage() {
     void fetchMonetizationStatus().then((value) => { if (active) setMonetization(value); }).catch(() => undefined);
     return () => { active = false; };
   }, [profile?.id]);
-  const [selectedColor, setSelectedColor] = useState(COLOR_THEMES[0]!);
+  const [selectedColor, setSelectedColor] = useState(templateColor("serif_classic"));
   const [selectedFont, setSelectedFont] = useState(FONT_OPTIONS[0]!);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   useEffect(() => {
@@ -3599,6 +3607,7 @@ export default function CvBuilderPage() {
           documentTitleEditedRef.current = true;
           setDocumentTitle(normalizedCv.title || ("CV of " + (normalizedCv.document.fullName || "Candidate")));
           setSelectedTemplate(normalizedCv.structure || "professional");
+          setSelectedColor(templateColor(normalizedCv.structure || "professional", normalizedCv.preferences?.color));
           const preferences = normalizedCv.preferences;
           if (preferences?.color) {
             const color = COLOR_THEMES.find((theme) => theme.id === preferences.color);
@@ -3684,6 +3693,7 @@ export default function CvBuilderPage() {
       hasGeneratedRef.current = true;
       setIsIntakeModalOpen(false);
       setSelectedTemplate(existing.structure || "professional");
+      setSelectedColor(templateColor(existing.structure || "professional", existing.preferences?.color));
       setInlineFormatting(existing.preferences?.inlineFormatting || {});
       setSectionOrder(existing.preferences?.sectionOrder || DEFAULT_CANVAS_SECTION_ORDER);
       setSectionSpacing(existing.preferences?.sectionSpacing ?? 24);
@@ -3716,6 +3726,7 @@ export default function CvBuilderPage() {
           documentTitleEditedRef.current = true;
           setDocumentTitle(normalizedCv.title || ("CV of " + (normalizedCv.document.fullName || "Candidate")));
           setSelectedTemplate(normalizedCv.structure || "professional");
+          setSelectedColor(templateColor(normalizedCv.structure || "professional", normalizedCv.preferences?.color));
           const preferences = normalizedCv.preferences;
           if (preferences?.color) {
             const color = COLOR_THEMES.find((theme) => theme.id === preferences.color);
@@ -3887,7 +3898,11 @@ export default function CvBuilderPage() {
     recordChange(`Switched from "${currentVersionName}" to "${target.name}"`);
     setCurrentVersionName(target.name);
     setSelectedTemplate(target.template);
-    const updatedCv = { ...cv, structure: target.template, document: target.document };
+    setSelectedColor(templateColor(target.template));
+    setInlineFormatting({});
+    setElementPositions({});
+    const updatedCv = { ...cv, structure: target.template, document: target.document,
+      preferences: { ...cv.preferences, color: templateColor(target.template).id, inlineFormatting: {}, elementPositions: {} } };
     setCv(updatedCv);
     persistGeneratedCv(updatedCv);
     void runQualityEvaluation(target.document, jobDescription);
@@ -3976,30 +3991,16 @@ export default function CvBuilderPage() {
     if (templateId !== selectedTemplate) {
       recordCanvasHistory();
       setElementPositions({});
+      setInlineFormatting({});
       setActiveInlineField(null);
       activeInlineElementRef.current = null;
       selectedCanvasElementRef.current = null;
       setSelectedCanvasPositionKey(null);
     }
     setSelectedTemplate(templateId);
-    // Auto-match accent colour to the selected modern template
-    const themeByTemplate: Record<string, string> = {
-      serif_classic: "charcoal",
-      corporate_blue: "sky",
-      editorial_gold: "amber",
-      analyst_clean: "charcoal",
-      stylish: "emerald",
-      ivy_league: "navy",
-      polished: "navy",
-      high_performer: "emerald",
-      contemporary: "teal",
-      creative: "purple",
-    };
-    const themeId = themeByTemplate[templateId];
-    if (themeId) {
-      const theme = COLOR_THEMES.find((t) => t.id === themeId);
-      if (theme) setSelectedColor(theme);
-    }
+    // Every template has a default, including legacy single/two-column IDs.
+    const nextColor = templateColor(templateId);
+    setSelectedColor(nextColor);
     if (!cv) return;
     const meta = TEMPLATE_CATALOG.find((t) => t.id === templateId);
     const updatedDoc: GeneratedCvDocument = {
@@ -4013,6 +4014,8 @@ export default function CvBuilderPage() {
       document: updatedDoc,
       preferences: {
         ...cv.preferences,
+        color: nextColor.id,
+        inlineFormatting: templateId !== selectedTemplate ? {} : inlineFormatting,
         elementPositions: templateId !== selectedTemplate ? {} : elementPositions,
       },
     };
@@ -5830,7 +5833,7 @@ export default function CvBuilderPage() {
   };
 
   const selectLandingTemplate = (templateId: string) => {
-    setSelectedTemplate(templateId);
+    handleTemplateChange(templateId);
     setLocation("/cv-builder/edit");
   };
   const showingImportConfirmation = routePath === "/cv-builder/import" && importStep === "confirmation" && Boolean(extractedData);
@@ -5869,7 +5872,7 @@ export default function CvBuilderPage() {
             })}
           </div>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            <button type="button" onClick={() => { setSelectedTemplate("serif_classic"); setLocation("/cv-builder/edit?intake=1"); }} className="flex min-h-[330px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white/60 p-6 text-center transition hover:border-indigo-500 hover:bg-indigo-50/60 dark:border-slate-700 dark:bg-slate-900/50 dark:hover:bg-indigo-950/20"><span className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-slate-100 text-3xl font-light text-slate-500 dark:bg-slate-800 dark:text-slate-300">+</span><strong className="text-base">Start from Scratch</strong><span className="mt-2 max-w-48 text-xs leading-5 text-slate-500 dark:text-slate-400">Open the editor and enter your information in a clean ATS-friendly layout.</span></button>
+            <button type="button" onClick={() => { handleTemplateChange("serif_classic"); setLocation("/cv-builder/edit?intake=1"); }} className="flex min-h-[330px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white/60 p-6 text-center transition hover:border-indigo-500 hover:bg-indigo-50/60 dark:border-slate-700 dark:bg-slate-900/50 dark:hover:bg-indigo-950/20"><span className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-slate-100 text-3xl font-light text-slate-500 dark:bg-slate-800 dark:text-slate-300">+</span><strong className="text-base">Start from Scratch</strong><span className="mt-2 max-w-48 text-xs leading-5 text-slate-500 dark:text-slate-400">Open the editor and enter your information in a clean ATS-friendly layout.</span></button>
             {catalogTemplates.map((template, index) => {
               const premium = ["editorial_gold", "creative", "stylish", "polished", "high_performer"].includes(template.id);
               const access = templateAccess(monetization, template.id);
@@ -7796,6 +7799,8 @@ export default function CvBuilderPage() {
 
                 return (
                   <article
+                    key={selectedTemplate}
+                    data-cv-template={selectedTemplate}
                     ref={printRef}
                     inert={isEditMode ? undefined : true}
                     onFocusCapture={handleInlineFieldFocus}
@@ -7809,11 +7814,19 @@ export default function CvBuilderPage() {
                     }}
                     id="bonlist-cv-document"
                     style={{
+                      "--cv-primary": selectedColor.primary,
+                      "--cv-secondary": selectedColor.secondary,
+                      "--cv-border": selectedColor.border,
+                      "--cv-background": getTemplatePalette(selectedTemplate).background,
+                      "--cv-text": getTemplatePalette(selectedTemplate).text,
+                      colorScheme: "light",
+                      color: "var(--cv-text)",
+                      backgroundColor: "var(--cv-background)",
                       fontFamily: selectedFont.family,
                       fontSize: `${fontSize}pt`,
                       ...(BACKGROUND_PATTERNS.find((p) => p.id === bgPattern)?.style || {}),
-                    }}
-                    className={`cv-page-sheet cv-margin-${marginSize} ${isEditMode ? "cv-inline-edit-mode" : ""} overflow-visible bg-white text-slate-900 transition-all ${
+                    } as CSSProperties & Record<`--cv-${string}`, string>}
+                    className={`cv-template template-${selectedTemplate} cv-page-sheet cv-margin-${marginSize} ${isEditMode ? "cv-inline-edit-mode" : ""} overflow-visible bg-white text-slate-900 transition-all ${
                       lineSpacing === "tight"
                         ? "space-y-4"
                         : lineSpacing === "relaxed"

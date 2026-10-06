@@ -1,5 +1,5 @@
 import type { UserProfile } from "@workspace/api-client-react";
-import { authFetch } from "@/lib/auth-session";
+import { authFetch, readProfile } from "@/lib/auth-session";
 
 export type PlanId = "free" | "job_seeker" | "career_pro";
 
@@ -76,23 +76,7 @@ export async function fetchEntitlement(
 }
 
 export function readStoredProfile(): UserProfile | null {
-  try {
-    // Auth persists to localStorage + sessionStorage; never prefer the legacy
-    // bonlist-profile guest stub (often hardcoded id:1) over a real session.
-    let fallback: UserProfile | null = null;
-    for (const store of [localStorage, sessionStorage]) {
-      const stored = store.getItem("careerbridge-profile");
-      if (!stored) continue;
-      const profile = JSON.parse(stored) as UserProfile;
-      if (!profile?.email && !profile?.id) continue;
-      // Prefer a numeric career-profile id when present (Render API).
-      if (profile?.id && Number(profile.id) > 0) return profile;
-      if (!fallback && profile?.email) fallback = profile;
-    }
-    return fallback;
-  } catch {
-    return null;
-  }
+  return readProfile();
 }
 
 export function formatZar(amount: number) {

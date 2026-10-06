@@ -3921,21 +3921,28 @@ function ProtectedApp() {
       }
 
       const hasSavedToken = Boolean(getSessionToken() || getAdminToken());
+      // Native installs must never bootstrap an identity from WebView cookies.
+      if (Capacitor.isNativePlatform() && !hasSavedToken) {
+        clearAuthSession();
+        queryClient.clear();
+        setLocation('/login', { replace: true });
+        return;
+      }
       const endpoints = ['/api/career/auth/me', '/api/auth/me'];
       let lastError: unknown = null;
       let rejectedSession = false;
-      let verificationUnavailable = false;
 
       for (const endpoint of endpoints) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
         try {
-          const response = await authFetch(endpoint);
+          const response = await authFetch(endpoint, { signal: controller.signal });
           if (response.status === 401 || response.status === 403) {
             rejectedSession = true;
             lastError = new Error('Session expired');
-            continue;
+            break;
           }
           if (!response.ok) {
-            verificationUnavailable = true;
             throw new Error('Session check failed');
           }
           const profile = await response.json() as UserProfile & {
@@ -3950,7 +3957,7 @@ function ProtectedApp() {
           if (profile.authenticated === false) {
             rejectedSession = true;
             lastError = new Error('Session expired');
-            continue;
+            break;
           }
           if (!profile || !profile.id || typeof profile.email !== 'string' || !profile.email.trim()) throw new Error('Invalid session response');
           const hydratedToken = profile.sessionToken || profile.token;
@@ -3973,25 +3980,15 @@ function ProtectedApp() {
           if (current) setAccess({ location, check, status: 'allowed' });
           return;
         } catch (error) {
-          if (!(error instanceof Error && error.message === 'Session expired')) {
-            verificationUnavailable = true;
-          }
           lastError = error;
+        } finally {
+          clearTimeout(timeout);
         }
       }
 
       if (!current) return;
-      if (hasSavedToken) {
-        if (rejectedSession && !verificationUnavailable) {
-          clearAuthSession();
-          queryClient.clear();
-          setLocation(`/login?returnTo=${encodeURIComponent(location)}`);
-          return;
-        }
-        setAccess({ location, check, status: 'allowed' });
-        return;
-      }
-      if (rejectedSession && !verificationUnavailable) {
+      // Possession of cached credentials is not proof of a valid session.
+      if (rejectedSession) {
         clearAuthSession();
         queryClient.clear();
         setLocation(`/login?returnTo=${encodeURIComponent(location)}`);

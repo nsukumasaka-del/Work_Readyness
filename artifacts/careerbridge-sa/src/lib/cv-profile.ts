@@ -1,5 +1,5 @@
 import { readStoredProfile } from "@/lib/entitlements";
-import { authFetch, readProfile as readAuthProfile } from "@/lib/auth-session";
+import { authFetch, readProfile as readAuthProfile, isExplicitlySignedOut, persistProfile } from "@/lib/auth-session";
 
 export type CareerProfile = {
   id: number | string;
@@ -21,14 +21,16 @@ export async function ensureCvProfile(partial?: {
   targetRole?: string;
 }): Promise<CareerProfile> {
   const existing = readStoredProfile() || readAuthProfile();
+  if (!existing || isExplicitlySignedOut()) throw new Error("Please sign in to prepare your profile");
   const name = (
     partial?.name ||
   existing?.name ||
   ""
   ).trim();
-  const email = (partial?.email || existing?.email || "candidate@bonlist.co.za")
+  const email = (partial?.email || existing?.email || "")
     .trim()
     .toLowerCase();
+  if (!email) throw new Error("Your profile needs an email address");
   const response = await authFetch("/api/career/profile", {
     method: "POST",
     credentials: "include",
@@ -50,14 +52,6 @@ export async function ensureCvProfile(partial?: {
     );
   }
   const profile = payload as CareerProfile;
-  try {
-    sessionStorage.setItem("careerbridge-profile", JSON.stringify(profile));
-    localStorage.setItem("careerbridge-profile", JSON.stringify(profile));
-    sessionStorage.removeItem("bonlist-profile");
-    localStorage.removeItem("bonlist-profile");
-  } catch {
-    // ignore storage failures
-  }
-  window.dispatchEvent(new Event("careerbridge-profile-updated"));
+  persistProfile({ ...profile, profileCount: profile.profileCount ?? 0 });
   return profile;
 }

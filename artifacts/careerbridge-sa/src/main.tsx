@@ -6,6 +6,7 @@ import { DefaultFallback, ErrorBoundary, type ErrorFallbackProps } from "@/compo
 import { getApiBase, installApiFetchRewrite } from "@/lib/api-base";
 import { configureNativeChrome } from "@/lib/native-chrome";
 import { getSessionToken } from "@/lib/auth-session";
+import { initializeNativeAuth } from "@/lib/native-auth-startup";
 import { ThemeProvider } from "@/components/theme-provider";
 
 import "./index.css";
@@ -26,6 +27,7 @@ function MountedApp({ children }: { children: ReactNode }) {
 const container = document.getElementById("root");
 if (!container) throw new Error("BonList could not find its app container.");
 try {
+  initializeNativeAuth();
   const apiBase = getApiBase();
   if (apiBase) setBaseUrl(apiBase);
   setAuthTokenGetter(getSessionToken);

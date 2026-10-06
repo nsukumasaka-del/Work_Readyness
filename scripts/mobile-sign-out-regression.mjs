@@ -7,7 +7,8 @@ const { build } = require('../artifacts/api-server/node_modules/esbuild');
 const bundle = await build({ stdin: { resolveDir: resolve('artifacts/careerbridge-sa'), loader: 'ts', contents: `
   import * as auth from './src/lib/auth-session';
   import {beginSignOut,installSignedOutNavigation} from './src/lib/sign-out';
-  window.testAuth={...auth,beginSignOut,installSignedOutNavigation};
+  import {initializeNativeAuth} from './src/lib/native-auth-startup';
+  window.testAuth={...auth,beginSignOut,installSignedOutNavigation,initializeNativeAuth};
 ` }, bundle: true, write: false, format: 'iife', plugins: [{ name: 'native-test', setup(b) {
   b.onResolve({filter:/^@capacitor\/core$/},()=>({path:'core',namespace:'mock'}));
   b.onResolve({filter:/^@capacitor\/preferences$/},()=>({path:'preferences',namespace:'mock'}));
@@ -34,6 +35,18 @@ try {
     };
   });
   await page.addScriptTag({content:bundle.outputFiles[0].text});
+  await page.evaluate(()=>{
+    localStorage.setItem('saved-cv-document', 'keep-my-draft');
+    window.testAuth.initializeNativeAuth();
+  });
+  assert.equal(await page.evaluate(()=>window.testAuth.getSessionToken()),null,'legacy restored identity is invalidated before app startup');
+  assert.equal(await page.evaluate(()=>location.pathname),'/login','fresh native startup opens sign in');
+  assert.equal(await page.evaluate(()=>localStorage.getItem('saved-cv-document')),'keep-my-draft');
+  await page.evaluate(()=>{
+    window.testAuth.completeAuthSession({id:'user1',email:'test@example.com',sessionToken:'saved-token'});
+    window.testAuth.initializeNativeAuth();
+  });
+  assert.equal(await page.evaluate(()=>window.testAuth.getSessionToken()),'saved-token','subsequent startups retain explicit sign-in credentials for server validation');
   const result = await page.evaluate(async()=>{
     const auth=window.testAuth;
     const inFlight=auth.authFetch('/api/auth/me').catch(e=>e.name);

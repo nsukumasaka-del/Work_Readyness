@@ -1,5 +1,5 @@
 import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from 'react';
-import { authFetch } from './auth-session';
+import { authFetch, isExplicitlySignedOut } from './auth-session';
 import { normalizeAccess } from './safe-data';
 export type PurchaseType = 'TEMPLATE_DOWNLOAD' | 'JOB_MATCH_UNLOCK' | 'MEGA_ACCESS';
 export type Purchase = { itemType: PurchaseType; targetId?: string | number; downloadFormat?: 'print' | 'doc' | 'html' | 'txt'; onVerified?: () => void };
@@ -14,7 +14,7 @@ function usePaidAccessState() {
   useEffect(() => {
     let cancelled = false;
     let generation = 0;
-    const refresh = () => { const current = ++generation; void authFetch('/api/career/monetization', { cache: 'no-store' }).then(async response => {
+    const refresh = () => { const current = ++generation; if (isExplicitlySignedOut()) { setAccess(EMPTY_ACCESS); return; } void authFetch('/api/career/monetization', { cache: 'no-store' }).then(async response => {
       if (!response.ok) throw new Error();
       const value = await response.json();
       if (!cancelled && current === generation) setAccess(normalizeAccess(value));

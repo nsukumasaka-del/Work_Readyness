@@ -1,7 +1,7 @@
 import { Capacitor } from "@capacitor/core";
 import { Network } from "@capacitor/network";
 import { Preferences } from "@capacitor/preferences";
-import { authFetch } from "@/lib/auth-session";
+import { authFetch, isExplicitlySignedOut } from "@/lib/auth-session";
 
 const STORE_KEY = "bonlist.native.saved-cvs.v1";
 const OFFLINE_MODE_KEY = "bonlist.native.offline-workstation.v1";
@@ -119,10 +119,12 @@ export async function removeNativeCv(id: number) {
 }
 
 export async function syncPendingNativeCvs() {
+  if (isExplicitlySignedOut()) return { synced: 0, pending: 0 };
   if (!isAndroidApk() || !navigator.onLine) return { synced: 0, pending: (await readAll()).filter((r) => r.pendingSync).length };
   let synced = 0;
   let rows = await readAll();
   for (const row of rows.filter((item) => item.pendingSync)) {
+    if (isExplicitlySignedOut()) break;
     try {
       const payload = JSON.stringify({
         title: row.title,

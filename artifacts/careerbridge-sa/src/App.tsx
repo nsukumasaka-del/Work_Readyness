@@ -96,11 +96,13 @@ const AdminRoute = lazy(() => import('@/pages/admin/AdminDashboard').then((modul
 
 import { isNativeApp } from '@/lib/platform';
 import { describeApiMisconfiguration } from '@/lib/api-base';
+import { beginSignOut, installSignedOutNavigation } from '@/lib/sign-out';
 import { triggerAndroidApkDownload } from '@/lib/download-apk';
 import { ThemeToggle } from '@/components/theme-provider';
 import { getNativeCv, isOfflineWorkstationActive, listNativeCvs, startNativeCvSync } from '@/lib/native-cv-store';
 import {
   clearAuthSession,
+  isExplicitlySignedOut,
   dismissSecurityNudgeLocal,
   hasProfile as hasAuthProfile,
   getSessionToken,
@@ -724,6 +726,7 @@ function AppShell({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [logoutError, setLogoutError] = useState('');
+  const loggingOut = useRef(false);
   const [activeDropdown, setActiveDropdown] = useState<'resume' | 'tools' | null>(null);
   const [guideModalTopic, setGuideModalTopic] = useState<string | null>(null);
   const closeTimeoutRef = useRef<number | null>(null);
@@ -829,36 +832,27 @@ function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   const handleLogout = async () => {
+    if (loggingOut.current) return;
+    loggingOut.current = true;
     setLogoutError('');
     try {
-      const attempts = [
-        authFetch('/api/career/auth/logout', { method: 'POST', body: '{}' }),
-        authFetch('/api/auth/logout', { method: 'POST', body: '{}' }),
-      ];
-
-      for (const request of attempts) {
-        try {
-          const response = await request;
-          if (response.ok || response.status === 401 || response.status === 403 || response.status === 404) {
-            continue;
-          }
-        } catch {
-          // Ignore backend errors; the client session must still be cleared.
-        }
-      }
-    } catch {
-      // Ignore server-side failures and continue with a local logout.
-    } finally {
-      clearAuthSession();
+      const cleanup = beginSignOut();
       markJobMatchesRead();
       if (typeof document !== 'undefined') {
         document.cookie = 'bonlist_session=; Path=/; Max-Age=0; SameSite=Lax';
       }
+      void queryClient.cancelQueries();
       queryClient.clear();
       setProfile(null);
       setIsAdmin(false);
       setMenuOpen(false);
-      setLocation('/login');
+      setActiveMobileDropdown(null);
+      setLocation('/login?signingOut=1', { replace: true });
+      await cleanup;
+    } finally {
+      // Recreate the app tree so account-specific React state cannot survive.
+      clearAuthSession();
+      window.location.replace('/login?signedOut=1');
     }
   };
 
@@ -1635,8 +1629,9 @@ function Home() {
 
   useEffect(() => {
     let stop: (() => void) | undefined;
-    void startNativeCvSync().then((cleanup) => { stop = cleanup; });
-    return () => stop?.();
+    let disposed = false;
+    void startNativeCvSync().then((cleanup) => { if (disposed) cleanup(); else stop = cleanup; });
+    return () => { disposed = true; stop?.(); };
   }, []);
 
   useEffect(() => {
@@ -3896,9 +3891,11 @@ function ProtectedApp() {
     const refresh = () => setCheck((value) => value + 1);
     window.addEventListener('storage', refresh);
     window.addEventListener('focus', refresh);
+    window.addEventListener('bonlist-auth-signed-out', refresh);
     return () => {
       window.removeEventListener('storage', refresh);
       window.removeEventListener('focus', refresh);
+      window.removeEventListener('bonlist-auth-signed-out', refresh);
     };
   }, []);
 
@@ -3906,6 +3903,10 @@ function ProtectedApp() {
     let current = true;
 
     const verifySession = async () => {
+      if (isExplicitlySignedOut()) {
+        if (current) setLocation('/login?signedOut=1', { replace: true });
+        return;
+      }
       const routeUrl = new URL(window.location.href);
       const offlineEditorRequested = routeUrl.pathname === '/cv-builder' && routeUrl.searchParams.get('offline') === '1';
       const offlineHomeRequested = routeUrl.pathname === '/offline-workstation';
@@ -3945,6 +3946,7 @@ function ProtectedApp() {
             adminToken?: string;
           };
           if (!profile || typeof profile !== 'object' || Array.isArray(profile)) throw new Error('Invalid session response');
+          if (!current || isExplicitlySignedOut()) return;
           if (profile.authenticated === false) {
             rejectedSession = true;
             lastError = new Error('Session expired');
@@ -4142,6 +4144,7 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function App() {
+  useEffect(() => installSignedOutNavigation(), []);
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     let disposed = false;

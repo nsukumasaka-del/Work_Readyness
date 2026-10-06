@@ -20,7 +20,7 @@ const bundle = await build({
   define: { 'process.env.NODE_ENV': '"test"' },
   plugins: [{ name: 'mock-transport', setup(b) {
     b.onResolve({filter:/auth-session$/},()=>({path:'transport',namespace:'mock'}));
-    b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents: `export async function authFetch(url){window.__calls.push(url);return Response.json(url.includes('/verify')?{status:window.__paid?'paid':'pending',itemType:'JOB_MATCH_UNLOCK',success:window.__paid,hasActiveAccess:window.__paid,...window.__access}:window.__access)}`,loader:'js'}));
+    b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents: `export const isExplicitlySignedOut=()=>false;export async function authFetch(url){window.__calls.push(url);return Response.json(url.includes('/verify')?{status:window.__paid?'paid':'pending',itemType:'JOB_MATCH_UNLOCK',success:window.__paid,hasActiveAccess:window.__paid,...window.__access}:window.__access)}`,loader:'js'}));
     b.onResolve({filter:/^@\//},args=>({path:resolve('artifacts/careerbridge-sa/src',args.path.slice(2)+ (args.path.endsWith('/utils')?'.ts':'.tsx'))}));
   }}],
 });

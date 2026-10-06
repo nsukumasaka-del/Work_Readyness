@@ -6,6 +6,11 @@ const SESSION_KEY = 'careerbridge-session-token';
 const ADMIN_TOKEN_KEY = 'careerbridge-admin-token';
 const ADMIN_FLAG_KEY = 'careerbridge-is-admin';
 const NUDGE_KEY = 'careerbridge-security-nudge';
+const SIGNED_OUT_KEY = 'bonlist-explicitly-signed-out';
+let signedOut = false;
+let sessionGeneration = 0;
+const sessionRequests = new Set<AbortController>();
+export function isExplicitlySignedOut() { return signedOut || hasStoredValue(SIGNED_OUT_KEY, '1'); }
 
 export type AuthSessionPayload = UserProfile & {
   sessionToken?: string;
@@ -60,6 +65,7 @@ function removeStoredValue(key: string): void {
 }
 
 export function readProfile(): UserProfile | null {
+  if (isExplicitlySignedOut()) return null;
   try {
     const stored = readStoredValue(PROFILE_KEY);
     if (!stored) return null;
@@ -79,29 +85,37 @@ export function hasProfile() {
 }
 
 export function isAdminUser() {
+  if (isExplicitlySignedOut()) return false;
   return (
     hasStoredValue(ADMIN_FLAG_KEY, '1') && Boolean(readStoredValue(ADMIN_TOKEN_KEY))
   );
 }
 
 export function getAdminToken(): string | null {
+  if (isExplicitlySignedOut()) return null;
   return readStoredValue(ADMIN_TOKEN_KEY);
 }
 
 export function getSessionToken(): string | null {
+  if (isExplicitlySignedOut()) return null;
   return readStoredValue(SESSION_KEY);
 }
 
 export function clearAuthSession() {
-  [PROFILE_KEY, SESSION_KEY, ADMIN_TOKEN_KEY, ADMIN_FLAG_KEY].forEach(removeStoredValue);
-  try {
-    sessionStorage.removeItem('careerbridge-report');
-    sessionStorage.removeItem('bonlist-report');
-    sessionStorage.removeItem('careerbridge-selected-job');
-  } catch { /* Storage may be blocked; auth state is already handled in memory. */ }
+  signedOut = true;
+  sessionGeneration++;
+  writeStoredValue(SIGNED_OUT_KEY, '1');
+  sessionRequests.forEach(controller => controller.abort());
+  sessionRequests.clear();
+  [PROFILE_KEY, SESSION_KEY, ADMIN_TOKEN_KEY, ADMIN_FLAG_KEY, NUDGE_KEY, 'bonlist-profile',
+    'careerbridge-report', 'bonlist-report', 'careerbridge-selected-job', 'bonlist-saved-jobs',
+    'bonlist-unread-job-matches', 'bonlist-yoco-pending', 'bonlist-yoco-resume-download'].forEach(removeStoredValue);
+  window.dispatchEvent(new Event('careerbridge-profile-updated'));
+  window.dispatchEvent(new Event('bonlist-auth-signed-out'));
 }
 
 export function persistProfile(profile: UserProfile) {
+  if (isExplicitlySignedOut()) return;
   const raw = JSON.stringify(profile);
   writeStoredValue(PROFILE_KEY, raw);
   // Drop legacy guest stub so CV generate never prefers a fake profileId: 1.
@@ -114,6 +128,7 @@ export function persistProfile(profile: UserProfile) {
 }
 
 export function persistAdminAccess(adminToken?: string, isAdmin?: boolean) {
+  if (isExplicitlySignedOut()) return;
   if (isAdmin && adminToken) {
     writeStoredValue(ADMIN_TOKEN_KEY, adminToken);
     writeStoredValue(ADMIN_FLAG_KEY, '1');
@@ -124,6 +139,7 @@ export function persistAdminAccess(adminToken?: string, isAdmin?: boolean) {
 }
 
 export function persistSessionToken(token?: string, rememberMe = true) {
+  if (isExplicitlySignedOut()) return;
   if (token) {
     try { sessionStorage.setItem(SESSION_KEY, token); } catch { /* session can remain available from local storage */ }
     try {
@@ -136,6 +152,8 @@ export function persistSessionToken(token?: string, rememberMe = true) {
 }
 
 export async function completeAuthSession(payload: AuthSessionPayload, rememberMe = true) {
+  signedOut = false;
+  removeStoredValue(SIGNED_OUT_KEY);
   persistSessionToken(payload.sessionToken, rememberMe);
   persistAdminAccess(payload.adminToken, Boolean(payload.isAdmin));
   // Profile listeners immediately fetch entitlements; publish only after auth is ready.
@@ -169,11 +187,20 @@ export function authHeaders(extra?: HeadersInit): HeadersInit {
 }
 
 export async function authFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(apiUrl(path), {
-    ...init,
-    credentials: 'include',
-    headers: authHeaders(init?.headers),
-  });
+  const controller = new AbortController();
+  const generation = sessionGeneration;
+  sessionRequests.add(controller);
+  try {
+    const authenticating = /\/auth\/(?:login|register|verify|exchange|magic-verify|mfa\/verify|passkey\/login\/verify)(?:$|\?)/.test(path);
+    const response = await fetch(apiUrl(path), {
+      ...init,
+      credentials: isExplicitlySignedOut() && !authenticating ? 'omit' : 'include',
+      headers: authHeaders(init?.headers),
+      signal: init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal,
+    });
+    if (generation !== sessionGeneration) throw new DOMException('Session ended', 'AbortError');
+    return response;
+  } finally { sessionRequests.delete(controller); }
 }
 
 export async function readApiJson(response: Response): Promise<Record<string, any>> {

@@ -632,6 +632,9 @@ export function LoginPage() {
     }
   };
 
+  if (new URLSearchParams(window.location.search).get('signingOut') === '1') {
+    return <AuthShell title="Signing you out…" description="Clearing your session safely."><p role="status" className="text-sm text-muted-foreground">Please wait a moment.</p></AuthShell>;
+  }
   if (mfaToken) {
     return (
       <AuthShell title="Enter your authentication code" description="Open your authenticator app for a 6-digit code.">
@@ -677,7 +680,7 @@ export function LoginPage() {
   return (
     <AuthShell
       title="Sign in"
-      description="Welcome back to BonList."
+      description={new URLSearchParams(window.location.search).get('signedOut') === '1' ? 'You have been signed out safely.' : 'Welcome back to BonList.'}
       footer={
         <>
           Don&apos;t have an account?{' '}

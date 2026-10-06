@@ -36,6 +36,10 @@ export type SearchInput = {
   adzunaAppKey?: string;
   /** Query all trusted sources instead of using fallback boards only when sparse. */
   includeAllBoards?: boolean;
+  signal?: AbortSignal;
+  minimumMatchScore?: number;
+  /** Bound fallback provider fan-out inside the progressive request budget. */
+  progressive?: boolean;
   mode?: "recommendations" | "candidate-options" | "search";
 };
 
@@ -278,7 +282,12 @@ function scoreListing(role: string, location: string | undefined, title: string,
   return Math.min(99, score);
 }
 
-async function fetchHtml(url: string, timeoutMs = 8000, restrictRedirects = false): Promise<string | null> {
+// Cache only public source HTML, never candidate scores or protected job payloads.
+const sourceHtmlCache = new Map<string, { html: string; expiresAt: number }>();
+async function fetchHtml(url: string, timeoutMs = 8000, restrictRedirects = false, signal?: AbortSignal): Promise<string | null> {
+  if (signal?.aborted) return null;
+  const cached = !restrictRedirects && sourceHtmlCache.get(url);
+  if (cached && cached.expiresAt > Date.now()) return cached.html;
   try {
     const response = await fetch(url, {
       headers: {
@@ -286,20 +295,25 @@ async function fetchHtml(url: string, timeoutMs = 8000, restrictRedirects = fals
         Accept: "text/html,application/xhtml+xml",
         "Accept-Language": "en-ZA,en;q=0.9",
       },
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
       redirect: restrictRedirects ? "error" : "follow",
     });
     if (!response.ok) return null;
-    return await response.text();
+    const html = await response.text();
+    if (!restrictRedirects && html.length < 500_000) {
+      if (sourceHtmlCache.size >= 32) sourceHtmlCache.delete(sourceHtmlCache.keys().next().value!);
+      sourceHtmlCache.set(url, { html, expiresAt: Date.now() + 60_000 });
+    }
+    return html;
   } catch {
     return null;
   }
 }
 
-async function searchJobMail(role: string, location?: string): Promise<LiveJobListing[]> {
+async function searchJobMail(role: string, location?: string, signal?: AbortSignal): Promise<LiveJobListing[]> {
   const params = new URLSearchParams({ q: role });
   if (location && location !== "Hybrid") params.set("l", location);
-  const html = await fetchHtml(`https://www.jobmail.co.za/jobs?${params.toString()}`);
+  const html = await fetchHtml(`https://www.jobmail.co.za/jobs?${params.toString()}`, 8000, false, signal);
   if (!html) return [];
 
   const results: LiveJobListing[] = [];
@@ -349,13 +363,13 @@ async function searchJobMail(role: string, location?: string): Promise<LiveJobLi
   return results;
 }
 
-async function searchCareerJunction(role: string, location?: string): Promise<LiveJobListing[]> {
+async function searchCareerJunction(role: string, location?: string, signal?: AbortSignal): Promise<LiveJobListing[]> {
   const params = new URLSearchParams({
     keywords: role,
     SortBy: "Date",
   });
   if (location && location !== "Hybrid") params.set("location", location);
-  const html = await fetchHtml(`https://www.careerjunction.co.za/jobs?${params.toString()}`);
+  const html = await fetchHtml(`https://www.careerjunction.co.za/jobs?${params.toString()}`, 8000, false, signal);
   if (!html) return [];
 
   const results: LiveJobListing[] = [];
@@ -414,7 +428,7 @@ async function searchCareerJunction(role: string, location?: string): Promise<Li
   return results;
 }
 
-async function searchPNet(role: string, location?: string): Promise<LiveJobListing[]> {
+async function searchPNet(role: string, location?: string, signal?: AbortSignal): Promise<LiveJobListing[]> {
   const where = location && location !== "Hybrid" ? location : undefined;
   const urls = where
     ? [
@@ -424,7 +438,7 @@ async function searchPNet(role: string, location?: string): Promise<LiveJobListi
     : [`https://www.pnet.co.za/jobs/?search=${encodeURIComponent(role)}`];
 
   for (const url of urls) {
-    const html = await fetchHtml(url, 7000);
+    const html = await fetchHtml(url, 7000, false, signal);
     if (!html) continue;
     const items = extractJsonArray(html, "items") as Array<{
       id?: number | string;
@@ -481,7 +495,7 @@ async function searchPNet(role: string, location?: string): Promise<LiveJobListi
   return [];
 }
 
-async function searchIndeed(role: string, location?: string): Promise<LiveJobListing[]> {
+async function searchIndeed(role: string, location?: string, signal?: AbortSignal): Promise<LiveJobListing[]> {
   const where = location && location !== "Hybrid" ? location : "South Africa";
   const queries = [
     `${role} ${where} site:za.indeed.com`,
@@ -493,7 +507,7 @@ async function searchIndeed(role: string, location?: string): Promise<LiveJobLis
   const seen = new Set<string>();
 
   for (const query of queries) {
-    const html = await fetchHtml(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
+    const html = await fetchHtml(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, 8000, false, signal);
     if (!html) continue;
 
     const linkPattern =
@@ -558,7 +572,7 @@ async function searchIndeed(role: string, location?: string): Promise<LiveJobLis
   return results.filter((job) => /viewjob\?jk=/i.test(job.url)).slice(0, 6);
 }
 
-async function searchLinkedIn(role: string, location?: string): Promise<LiveJobListing[]> {
+async function searchLinkedIn(role: string, location?: string, signal?: AbortSignal): Promise<LiveJobListing[]> {
   const linkedInLocation: Record<string, string> = {
     johannesburg: "Johannesburg, Gauteng, South Africa",
     "cape town": "Cape Town, Western Cape, South Africa",
@@ -576,7 +590,7 @@ async function searchLinkedIn(role: string, location?: string): Promise<LiveJobL
       location: place,
       start: String(start),
     });
-    return fetchHtml(`https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?${params.toString()}`);
+    return fetchHtml(`https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?${params.toString()}`, 8000, false, signal);
   }));
   const results: LiveJobListing[] = [];
   const seen = new Set<string>();
@@ -612,7 +626,7 @@ async function searchLinkedIn(role: string, location?: string): Promise<LiveJobL
   return Promise.all(relevant.map(async (job, index) => {
     // Bound enrichment to avoid rate limits and the Worker's subrequest limit.
     if (index >= 2) return job;
-    const html = await fetchHtml(job.url, 4000);
+    const html = await fetchHtml(job.url, 4000, false, signal);
     const description = html?.match(/show-more-less-html__markup[^>]*>([\s\S]*?)<\/div>/i)?.[1];
     const details = description ? stripHtml(description).slice(0, 2400) : "";
     return details.length >= 60
@@ -722,7 +736,7 @@ export function candidateMatch(
     ? (experienceRoles.length ? 52 : 35)
     : yearsExperience <= 1 ? 38 : yearsExperience <= 3 ? 58 : yearsExperience <= 7 ? 76 : 90;
   let seniority = candidateLeadership ? Math.max(candidateBaseSeniority, 88) : candidateBaseSeniority;
-  const listingSenior = /\b(principal|lead|senior|manager|director|chief|executive)\b|\bhead of\b/i.test(job.title);
+  const listingSenior = /\b(principal|lead|senior|manager|director|chief|executive)\b|\bhead of\b/i.test(job.title) && !/\bexecutive assistant\b/i.test(job.title);
   const listingJunior = /\b(entry[- ]level|graduate|junior|trainee|intern(ship)?)\b/i.test(seniorTerms);
   if (listingSenior) {
     const minimumSeniorYears = /\b(?:principal|director|chief|executive)\b|\bhead of\b/i.test(job.title)
@@ -814,10 +828,11 @@ async function searchBoardViaDuckDuckGo(
   board: (typeof TRUSTED_BOARDS)[number],
   role: string,
   location?: string,
+  signal?: AbortSignal,
 ): Promise<LiveJobListing[]> {
   const where = location && location !== "Hybrid" ? location : "South Africa";
   const query = `${role} jobs ${where} site:${board.siteQuery}`;
-  const html = await fetchHtml(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
+  const html = await fetchHtml(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, 8000, false, signal);
   if (!html) return [];
 
   const results: LiveJobListing[] = [];
@@ -875,7 +890,7 @@ async function searchBoardViaDuckDuckGo(
 async function searchViaAdzuna(
   role: string,
   location?: string,
-  credentials?: { appId?: string; appKey?: string },
+  credentials?: { appId?: string; appKey?: string; signal?: AbortSignal },
 ): Promise<LiveJobListing[]> {
   // The API server has process.env; Cloudflare Workers only have env bindings.
   const appId = credentials?.appId || (typeof process !== "undefined" ? process.env.ADZUNA_APP_ID : undefined);
@@ -896,7 +911,7 @@ async function searchViaAdzuna(
   try {
     const response = await fetch(
       `https://api.adzuna.com/v1/api/jobs/za/search/1?${params.toString()}`,
-      { signal: AbortSignal.timeout(8000) },
+      { signal: credentials?.signal ? AbortSignal.any([credentials.signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000) },
     );
     if (!response.ok) return [];
     const payload = (await response.json()) as {
@@ -989,7 +1004,7 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
       const match = fit.score;
       // Best-fit recommendations must satisfy at least 60% of the evidence-based
       // role, skill, seniority, credential, and location criteria.
-      if (input.mode !== "search" && match < (input.mode === 'candidate-options' ? 35 : 60)) continue;
+      if (input.mode !== "search" && match < (input.minimumMatchScore ?? (input.mode === 'candidate-options' ? 35 : 60))) continue;
       if (input.mode === "search") {
         const terms = jobTerms(role);
         const listingTerms = new Set(jobTerms(`${job.title} ${job.description}`));
@@ -1006,11 +1021,11 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
 
   // A blocked or changed board must not discard results from every other board.
   const settled = await Promise.allSettled([
-    searchPNet(role, location),
-    searchLinkedIn(role, location),
-    searchIndeed(role, location),
-    searchViaAdzuna(role, location, { appId: input.adzunaAppId, appKey: input.adzunaAppKey }),
-    searchBoardViaDuckDuckGo(JOB_PLACEMENTS_BOARD, optimizedRoleQuery, location),
+    searchPNet(role, location, input.signal),
+    searchLinkedIn(role, location, input.signal),
+    searchIndeed(role, location, input.signal),
+    searchViaAdzuna(role, location, { appId: input.adzunaAppId, appKey: input.adzunaAppKey, signal: input.signal }),
+    searchBoardViaDuckDuckGo(JOB_PLACEMENTS_BOARD, optimizedRoleQuery, location, input.signal),
   ]);
   for (const result of settled) {
     if (result.status === "fulfilled") addMatches(result.value);
@@ -1020,14 +1035,14 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   // Start with the highest-priority boards and avoid a second scrape fan-out
   // when that first pass already produced a useful set of listings.
   const minimumUsefulResults = Math.min(limit, 10);
-  if (input.includeAllBoards || priorityJobs.length < minimumUsefulResults) {
+  if (!input.signal?.aborted && (input.includeAllBoards || priorityJobs.length < minimumUsefulResults)) {
     const fallbackBoards = TRUSTED_BOARDS.filter((board) =>
-      !["Indeed SA", "PNet", "LinkedIn", "Job Placements"].includes(board.label));
+      !["Indeed SA", "PNet", "LinkedIn", "Job Placements"].includes(board.label)).slice(0, input.progressive ? 2 : undefined);
     queriedBoards.push(...[...new Set(fallbackBoards.map((board) => board.label))]);
     const fallback = await Promise.allSettled([
-      searchCareerJunction(role, location),
-      searchJobMail(role, location),
-      ...fallbackBoards.map((board) => searchBoardViaDuckDuckGo(board, optimizedRoleQuery, location)),
+      searchCareerJunction(role, location, input.signal),
+      searchJobMail(role, location, input.signal),
+      ...fallbackBoards.map((board) => searchBoardViaDuckDuckGo(board, optimizedRoleQuery, location, input.signal)),
     ]);
     for (const result of fallback) {
       if (result.status === "fulfilled") addMatches(result.value);

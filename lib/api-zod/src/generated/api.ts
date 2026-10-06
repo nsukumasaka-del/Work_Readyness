@@ -154,6 +154,8 @@ export const CreateDiagnosticResponse = zod.object({
     strategicSuccessVerdict: zod.string(),
   }).optional(),
   jobSearch: zod.object({
+    searchNotice: zod.string().optional(),
+    fallbackApplied: zod.boolean().optional(),
     query: zod.string(),
     queriedBoards: zod.array(zod.string()),
     liveResults: zod.boolean(),

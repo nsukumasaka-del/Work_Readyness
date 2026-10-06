@@ -41,10 +41,10 @@ try {
   await page.evaluate(()=>{window.__access.jobAccessUntil=new Date(0).toISOString();window.dispatchEvent(new Event('bonlist-monetization-updated'));});
   await page.getByRole('button',{name:'Unlock All Matches for R30',exact:true}).first().waitFor();
   await page.goto('https://bonlist.example/payment/success?order_id=daily');
-  await page.evaluate(({access,expiry})=>{window.__access={...access,jobAccessActive:true,jobAccessUntil:expiry};window.__paid=true;window.__calls=[];localStorage.setItem('bonlist-yoco-pending',JSON.stringify({orderId:'daily',itemType:'JOB_MATCH_UNLOCK',returnTo:'/jobs'}));},{access:empty,expiry});
+  await page.evaluate(({access,expiry})=>{window.__access={...access,jobAccessActive:true,jobAccessUntil:expiry};window.__paid=true;window.__calls=[];localStorage.setItem('bonlist-yoco-pending',JSON.stringify({orderId:'daily',itemType:'JOB_MATCH_UNLOCK',returnTo:'/pricing'}));},{access:empty,expiry});
   await page.addScriptTag({content:bundle.outputFiles[0].text});
   await page.getByText('Access Unlocked — Valid for 24 Hours',{exact:true}).waitFor();
-  await page.waitForURL('https://bonlist.example/jobs');
+  await page.waitForURL('https://bonlist.example/job-matches');
   await page.getByText('Employer 90',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Unlock All Matches for R30',exact:true}).count(),0);
   console.log('PASS: threshold, instant reactive unlock, expiry relock and automatic verified-payment return.');

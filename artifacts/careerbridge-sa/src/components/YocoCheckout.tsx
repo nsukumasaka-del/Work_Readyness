@@ -64,12 +64,12 @@ export function PaymentResultPage() {
         if (result.status === 'paid') {
           setStatus('paid'); setMessage(result.jobAccessActive ? 'Access Unlocked — Valid for 24 Hours' : 'Payment confirmed. Your access is ready.');
           window.dispatchEvent(new Event('bonlist-monetization-updated'));
-          let destination = result.itemType === 'JOB_MATCH_UNLOCK' ? '/jobs' : '/pricing';
+          let destination = result.itemType === 'JOB_MATCH_UNLOCK' ? '/job-matches' : '/pricing';
           try {
             const pending = JSON.parse(localStorage.getItem('bonlist-yoco-pending') || '{}');
             if (pending.orderId === orderId) {
               const path = typeof pending.returnTo === 'string' && pending.returnTo.startsWith('/') && !pending.returnTo.startsWith('//') ? pending.returnTo : '/pricing';
-              destination = path;
+              if (result.itemType !== 'JOB_MATCH_UNLOCK') destination = path;
               if (pending.downloadFormat && (result.itemType === 'TEMPLATE_DOWNLOAD' || result.itemType === 'MEGA_ACCESS')) sessionStorage.setItem('bonlist-yoco-resume-download', JSON.stringify({ templateId: pending.targetId, format: pending.downloadFormat }));
               localStorage.removeItem('bonlist-yoco-pending');
             }

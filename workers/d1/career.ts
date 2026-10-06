@@ -791,7 +791,9 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
     location: location || data?.personal.location || "South Africa",
   };
   const scoredJobs = await scoreJobListingsWithGemini({ apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL, candidateProfile, jobs: jobSearch.jobs });
-  jobSearch.jobs = calibrateJobListingScores(candidateProfile, scoredJobs || jobSearch.jobs).filter(job => job.match >= 35).slice(0, 10);
+  const deterministicJobs = jobSearch.jobs;
+  jobSearch.jobs = calibrateJobListingScores(candidateProfile, scoredJobs || deterministicJobs).filter(job => job.match >= jobSearch.minimumMatchScore).slice(0, 10);
+  if (!jobSearch.jobs.length) jobSearch.jobs = calibrateJobListingScores(candidateProfile, deterministicJobs).filter(job => job.match >= jobSearch.minimumMatchScore).slice(0, 10);
   jobSearch.liveResults = jobSearch.jobs.length > 0;
   const deterministicReport = buildReport(fileName, role, location, data, id);
   const geminiRoleReview = data ? await reviewDiagnosticRoleFitWithGemini({
@@ -838,6 +840,8 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
       queriedBoards: jobSearch.queriedBoards,
       liveResults: jobSearch.liveResults,
       boardSearchLinks: jobSearch.boardSearchLinks,
+      searchNotice: jobSearch.searchNotice,
+      fallbackApplied: jobSearch.fallbackApplied,
     },
   };
   const inserted = await env.DB.prepare("INSERT INTO cv_reports (user_id, report_json, created_at) VALUES (?, ?, datetime('now'))")

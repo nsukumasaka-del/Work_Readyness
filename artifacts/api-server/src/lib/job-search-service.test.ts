@@ -39,7 +39,7 @@ test('manual search works before CV review without asserting a fit score', async
 test('empty exact location broadens transparently while retaining recommendation gating', async () => {
   const calls: string[] = [];
   const response = await searchWithLocationFallback({ role: 'Engineer', location: 'Pretoria', mode: 'recommendations' }, async input => {
-    calls.push(input.location!); assert.equal(input.mode, 'recommendations'); return result(input.location === 'Gauteng' ? [job] : []);
+    calls.push(input.location!); assert.equal(input.mode, 'recommendations'); return result(input.location === 'Gauteng' ? [{ ...job, match: 70 }] : []);
   });
   assert.deepEqual(calls, ['Pretoria', 'Gauteng']);
   assert.equal(response.effectiveLocation, 'Gauteng');
@@ -92,7 +92,7 @@ test('partial city results broaden and merge up to ten distinct real listings', 
   const response = await searchWithLocationFallback({ role: 'Customer Service', location: 'Johannesburg', limit: 10, mode: 'candidate-options' }, async input => {
     calls.push(input.location!);
     const count = input.location === 'Johannesburg' ? 3 : input.location === 'Gauteng' ? 7 : 12;
-    return result(Array.from({ length: count }, (_, index) => ({ ...job, id: index + 1, match: 40 + index, url: `https://www.pnet.co.za/jobs/${index + 1}` })));
+    return result(Array.from({ length: count }, (_, index) => ({ ...job, id: index + 1, title: `Customer Service Representative ${index + 1}`, match: 40 + index, url: `https://www.pnet.co.za/jobs/${index + 1}` })));
   });
   assert.deepEqual(calls, ['Johannesburg', 'Gauteng', 'South Africa']);
   assert.equal(response.jobs.length, 10);
@@ -107,4 +107,75 @@ test('AI results retain lower-fit vacancies without inflating scores', async () 
   });
   assert.equal(response.jobs.length, 1);
   assert.equal(response.jobs[0].match, 40);
+});
+
+const assistant = { ...job, title: 'Administrative Assistant', sector: 'Administration', match: 55, description: 'Office administration, Excel and customer enquiries', tags: ['Excel'], url: 'https://www.pnet.co.za/jobs/assistant' };
+const assistantInput = { role: 'Virtual Assistant', location: 'Johannesburg', limit: 10, mode: 'candidate-options' as const, experienceRoles: ['Office Administrator'], expertise: ['Excel', 'office administration'], yearsExperience: 3 };
+
+test('Virtual Assistant review score of 45 does not gate discovery; synonyms yield real jobs', async () => {
+  const calls: string[] = [];
+  const response = await searchCandidateJobs({ keywords: 'Virtual Assistant', location: 'Johannesburg', report: { overallScore: 45, candidateProfile: { targetRole: 'Virtual Assistant', experienceRoles: assistantInput.experienceRoles, skills: assistantInput.expertise, yearsExperience: 3 } } }, {
+    search: async input => { calls.push(input.role); return result(input.role === 'Administrative Assistant' ? [assistant] : []); }, score: async () => null,
+  });
+  assert.equal(calls[0], 'Virtual Assistant');
+  assert.ok(calls.includes('Administrative Assistant'));
+  assert.equal(response.jobs.length, 1);
+  assert.equal(response.jobs[0].url, assistant.url);
+  assert.match(response.searchNotice, /expanded job matches/);
+  assert.ok(response.jobs[0].match <= assistant.match, 'no score inflation');
+});
+
+test('nationwide/remote search follows empty synonyms and preserves source metadata', async () => {
+  const response = await searchWithLocationFallback(assistantInput, async input => ({ ...result(input.role === 'Remote Assistant' && input.location === 'South Africa' ? [{ ...assistant, title: 'Remote Assistant', location: 'Remote - South Africa' }] : []), queriedBoards: [input.role] }));
+  assert.equal(response.jobs.length, 1);
+  assert.ok(response.searchTiers.some(item => item.tier === 2));
+  assert.ok(response.searchTiers.some(item => item.tier === 3 && item.role === 'Remote Assistant'));
+  assert.ok(response.queriedBoards.includes('Virtual Assistant'));
+});
+
+test('adjacent evidence-based tier retains honest lower-fit jobs, deduplicated', async () => {
+  const response = await searchWithLocationFallback(assistantInput, async input => result(input.minimumMatchScore === 30 && input.role === 'Office Administrator' ? [{ ...assistant, match: 32 }, { ...assistant, id: 123, match: 32, url: assistant.url + '#duplicate' }] : []));
+  assert.equal(response.jobs.length, 1);
+  assert.equal(response.jobs[0].match, 32);
+  assert.equal(response.minimumMatchScore, 30);
+  assert.ok(response.searchTiers.some(item => item.tier === 4));
+});
+
+test('provider failure continues fallback; total failure is honest and attempts all tiers', async () => {
+  const recovered = await searchWithLocationFallback(assistantInput, async input => { if (input.role === 'Virtual Assistant') throw Error('429'); return result([assistant]); });
+  assert.equal(recovered.jobs.length, 1);
+  assert.match(recovered.searchNotice, /unavailable/);
+  const empty = await searchWithLocationFallback(assistantInput, async () => result([]));
+  assert.deepEqual(empty.jobs, []);
+  assert.ok(empty.searchTiers.some(item => item.tier === 4));
+  assert.match(empty.searchNotice, /no listings were invented/);
+});
+
+test('pre-scoring qualification filter triggers expansion, not a post-review empty screen', async () => {
+  const response = await searchWithLocationFallback(assistantInput, async input => result(input.role === 'Virtual Assistant' ? [job] : [assistant]));
+  assert.equal(response.jobs.length, 1);
+  assert.equal(response.jobs[0].title, 'Administrative Assistant');
+  assert.ok(response.fallbackApplied);
+});
+
+test('slow sources receive cancellation and do not hang the fallback chain', async () => {
+  let aborted = false;
+  const started = Date.now();
+  const response = await searchWithLocationFallback({ role: 'Virtual Assistant', location: 'South Africa', limit: 1 }, async input => {
+    if (input.role !== 'Virtual Assistant') return result([assistant]);
+    return new Promise((_, reject) => input.signal!.addEventListener('abort', () => { aborted = true; reject(Error('aborted')); }, { once: true }));
+  });
+  assert.ok(aborted);
+  assert.ok(Date.now() - started < 8000);
+  assert.equal(response.jobs.length, 1);
+  assert.ok(response.searchTiers.some(item => item.status === 'timeout'));
+});
+
+test('cancelling slow sources preserves listings already found by fast sources', async () => {
+  const response = await searchWithLocationFallback({ ...assistantInput, limit: 1 }, async input => new Promise(resolve => {
+    input.signal!.addEventListener('abort', () => resolve(result([assistant])), { once: true });
+  }));
+  assert.equal(response.jobs.length, 1);
+  assert.equal(response.jobs[0].url, assistant.url);
+  assert.equal(response.fallbackApplied, false);
 });

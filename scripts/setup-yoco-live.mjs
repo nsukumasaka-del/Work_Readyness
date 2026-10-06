@@ -1,0 +1,25 @@
+// Supply credentials through stdin only. No credentials are written or logged.
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const require = createRequire(import.meta.url);
+let input = ''; for await (const chunk of process.stdin) input += chunk;
+const credentials = JSON.parse(input); input = '';
+if (!/^sk_live_/.test(credentials.secret) || !/^pk_live_/.test(credentials.public)) throw new Error('Live credentials required.');
+const endpoint = 'https://www.bonlist.site/api/payments/yoco/webhook';
+const headers = { Authorization: `Bearer ${credentials.secret}`, 'Content-Type': 'application/json' };
+const list = await fetch('https://payments.yoco.com/api/webhooks', { headers, signal: AbortSignal.timeout(15000) });
+if (!list.ok) throw new Error(`Live credentials rejected: HTTP ${list.status}.`);
+const current = await list.json();
+if (current.subscriptions?.some(w => w.url === endpoint && w.mode === 'live')) throw new Error('Live webhook already exists. Reuse its signing secret; do not create a duplicate.');
+const registration = await fetch('https://payments.yoco.com/api/webhooks', { method: 'POST', headers, body: JSON.stringify({ name: 'BonList live payments', url: endpoint }), signal: AbortSignal.timeout(15000) });
+if (!registration.ok) throw new Error(`Live webhook registration failed: HTTP ${registration.status}.`);
+const webhook = await registration.json();
+if (webhook.mode !== 'live' || !webhook.secret?.startsWith('whsec_')) throw new Error('Invalid live webhook response.');
+const pkg = dirname(require.resolve('wrangler/package.json'));
+const original = resolve(pkg, 'bin/wrangler.js.bonlist-original');
+const entry = existsSync(original) ? original : resolve(pkg, 'bin/wrangler.js');
+const result = spawnSync(process.execPath, [entry, 'secret', 'bulk', '--config', 'wrangler.toml'], { input: JSON.stringify({ YOCO_SECRET_KEY: credentials.secret, YOCO_PUBLIC_KEY: credentials.public, YOCO_WEBHOOK_SECRET: webhook.secret }), encoding: 'utf8', windowsHide: true });
+if (result.status !== 0) throw new Error('Cloudflare secret installation failed; live webhook exists. No credentials logged.');
+console.log('Live Yoco credentials and live webhook signing secret replaced the test configuration. No charge created.');

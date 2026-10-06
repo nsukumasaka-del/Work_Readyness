@@ -53,6 +53,8 @@ export interface JobMatch {
 }
 
 export interface DiagnosticJobSearch {
+  searchNotice?: string;
+  fallbackApplied?: boolean;
   query: string;
   queriedBoards: string[];
   liveResults: boolean;

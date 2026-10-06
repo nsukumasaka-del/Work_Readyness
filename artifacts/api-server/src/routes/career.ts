@@ -1143,12 +1143,15 @@ router.post("/career/diagnostic", requireUser, async (req: AuthedUserRequest, re
       skills: extractedCandidate?.skills || [], systems: extractedCandidate?.toolsAndSoftware || [],
       credentials: [...(extractedCandidate?.education || []).map(item => item.degree), ...(extractedCandidate?.certifications || []).map(item => item.name)], yearsExperience: estimateCareerYears(extractedCandidate?.experiences) };
     const scoredJobs = await scoreJobListingsWithGemini({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL, candidateProfile: matchCandidate, jobs: liveSearch.jobs });
-    const relatedJobs = calibrateJobListingScores(matchCandidate, scoredJobs || liveSearch.jobs).filter(job => job.match >= 35).slice(0, MATCH_LIMIT);
+    let relatedJobs = calibrateJobListingScores(matchCandidate, scoredJobs || liveSearch.jobs).filter(job => job.match >= liveSearch.minimumMatchScore).slice(0, MATCH_LIMIT);
+    if (!relatedJobs.length) relatedJobs = calibrateJobListingScores(matchCandidate, liveSearch.jobs).filter(job => job.match >= liveSearch.minimumMatchScore).slice(0, MATCH_LIMIT);
     const jobSearch = {
       query: liveSearch.query,
       queriedBoards: liveSearch.queriedBoards,
       liveResults: relatedJobs.length > 0,
       boardSearchLinks: liveSearch.boardSearchLinks,
+      searchNotice: liveSearch.searchNotice,
+      fallbackApplied: liveSearch.fallbackApplied,
     };
     let careerAdvisory = extractedCandidate
       ? buildCareerAlignmentReport(targetRole, locationLabel, extractedCandidate, relatedJobs)

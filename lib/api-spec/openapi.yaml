@@ -239,6 +239,10 @@ components:
       type: object
       required: [query, queriedBoards, liveResults]
       properties:
+        searchNotice:
+          type: string
+        fallbackApplied:
+          type: boolean
         query:
           type: string
         queriedBoards:

@@ -225,7 +225,7 @@ function strictListingScoreCeiling(candidate: JobScoringCandidate, job: LiveJobL
   if (professionalEngineeringTitle && hasIntroductoryNLevel && !hasEngineeringDegreeOrRegistration) return 10;
   if (requiresEngineeringDegree && !hasEngineeringDegreeOrRegistration) return 15;
 
-  const listingSenior = /\b(principal|lead|senior|manager|director|chief|executive)\b|\bhead of\b/i.test(job.title);
+  const listingSenior = /\b(principal|lead|senior|manager|director|chief|executive)\b|\bhead of\b/i.test(job.title) && !/\bexecutive assistant\b/i.test(job.title);
   if (listingSenior) {
     const minimumYears = /\b(?:principal|director|chief|executive)\b|\bhead of\b/i.test(job.title) ? 8 : /\b(?:lead|manager)\b/i.test(job.title) ? 5 : 4;
     const experienceText = (candidate.experienceRoles || []).join(" ");

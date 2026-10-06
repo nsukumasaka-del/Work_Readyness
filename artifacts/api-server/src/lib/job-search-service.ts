@@ -1,4 +1,4 @@
-import { searchTrustedJobBoards, type SearchInput } from './job-board-search';
+import { searchTrustedJobBoards, type SearchInput, type LiveJobListing } from './job-board-search';
 import { calibrateJobListingScores, scoreJobListingsWithGemini, type JobScoringCandidate } from './ai/gemini-client';
 import { extractCvDataFromText } from './cv-builder';
 import { estimateCareerYears } from './career-alignment';
@@ -17,29 +17,92 @@ export function candidateFromReport(value: unknown): JobScoringCandidate & { loc
   };
 }
 
+export function expandedSearchRoles(input: SearchInput) {
+  const role = input.role.trim();
+  const synonyms = /virtual assistant|remote assistant/i.test(role)
+    ? ['Administrative Assistant', 'Remote Assistant', 'Executive Assistant']
+    : /administrat|office assistant/i.test(role) ? ['Administrative Assistant', 'Office Administrator']
+    : /customer service|customer support/i.test(role) ? ['Customer Support', 'Client Support Representative'] : [];
+  const evidence = candidateRoleSuggestions({ experienceRoles: input.experienceRoles, skills: input.expertise })
+    .filter(item => item.basis !== 'target-role').map(item => item.title);
+  if (/data entry|excel|administrat|clerical/i.test((input.expertise || []).join(' '))) evidence.push('Data Entry Clerk');
+  const unique = (roles: string[]) => [...new Set(roles.map(title => title.trim()).filter(title => title && title.toLowerCase() !== role.toLowerCase()))];
+  return { synonyms: unique(synonyms).slice(0, 3), adjacent: unique(evidence).slice(0, 2) };
+}
+
+// One bounded request; two provider queries at a time. Never create vacancies.
 export async function searchWithLocationFallback(input: SearchInput, search = searchTrustedJobBoards) {
-  let result = await search(input);
-  let effectiveLocation = input.location || 'South Africa';
-  let fallbackApplied = false;
   const requested = input.limit ?? 1;
-  const combined = new Map(result.jobs.map(job => [job.url || String(job.id), job]));
-  const locations = /johannesburg|pretoria|centurion|sandton|midrand/i.test(effectiveLocation) ? ['Gauteng', 'South Africa'] : ['South Africa'];
-  for (const broader of locations) {
+  const requestedLocation = input.location || 'South Africa';
+  const roles = expandedSearchRoles(input);
+  const candidate = { targetRole: input.role, experienceRoles: input.experienceRoles, skills: input.expertise, credentials: input.credentials, yearsExperience: input.yearsExperience };
+  const hasEvidence = Boolean(input.experienceRoles?.length || input.expertise?.length || input.credentials?.length);
+  const combined = new Map<string, LiveJobListing>();
+  const identities = new Set<string>();
+  const boards = new Set<string>();
+  const links = new Map<string, { board: string; url: string }>();
+  const searchTiers: Array<{ tier: number; role: string; location: string; status: string }> = [];
+  let effectiveLocation = requestedLocation;
+  let minimumMatchScore = input.minimumMatchScore ?? (input.mode === 'recommendations' ? 60 : 35);
+  let fetchedCount = 0;
+  const deadline = Date.now() + 32_000;
+  const query = [input.role, requestedLocation].join(' · ');
+  const run = async (role: string, location: string, tier: number, floor = minimumMatchScore) => {
+    if (Date.now() >= deadline || input.signal?.aborted) return;
+    const controller = new AbortController();
+    const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
+    let timer: ReturnType<typeof setTimeout>;
+    try {
+      const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => {
+        controller.abort();
+        // Let allSettled preserve fast-source results after cancelling slow sources.
+        timer = setTimeout(() => reject(new Error('Search timeout')), 100);
+      }, Math.min(3500, deadline - Date.now())); });
+      const result = await Promise.race([search({ ...input, role, location, signal, progressive: true, minimumMatchScore: floor }), timeout]);
+      searchTiers.push({ tier, role, location, status: result.jobs.length ? 'results' : signal.aborted ? 'timeout' : 'empty' });
+      result.queriedBoards.forEach(board => boards.add(board));
+      result.boardSearchLinks.forEach(link => links.set(link.url, link));
+      fetchedCount += result.fetchedCount;
+      const scored = hasEvidence && input.mode !== 'search' ? calibrateJobListingScores(candidate, result.jobs) : result.jobs;
+      for (const job of scored) {
+        if (input.mode !== 'search' && job.match < floor) continue;
+        const url = job.url.replace(/#.*$/, '').toLowerCase();
+        const identity = `${job.title}|${job.company}|${job.location}`.toLowerCase().replace(/\s+/g, ' ');
+        if (combined.has(url) || identities.has(identity)) continue;
+        identities.add(identity); combined.set(url, job);
+      }
+      effectiveLocation = location;
+    } catch {
+      searchTiers.push({ tier, role, location, status: signal.aborted ? 'timeout' : 'unavailable' });
+    } finally { clearTimeout(timer!); controller.abort(); }
+  };
+  await run(input.role, requestedLocation, 1);
+  if (!combined.size) {
+    // Two synonyms per batch avoids an unbounded board fan-out.
+    for (let i = 0; i < roles.synonyms.length && !combined.size; i += 2) await Promise.all(roles.synonyms.slice(i, i + 2).map(role => run(role, requestedLocation, 2)));
+  }
+  const locations = /johannesburg|pretoria|centurion|sandton|midrand/i.test(requestedLocation) ? ['Gauteng', 'South Africa'] : ['South Africa'];
+  for (const location of locations) {
     if (combined.size >= requested) break;
-    if (broader.toLowerCase() !== effectiveLocation.toLowerCase()) {
-      result = await search({ ...input, location: broader });
-      for (const job of result.jobs) if (!combined.has(job.url || String(job.id))) combined.set(job.url || String(job.id), job);
-      effectiveLocation = broader;
-      fallbackApplied = true;
+    if (location.toLowerCase() !== requestedLocation.toLowerCase()) {
+      await run(input.role, location, 3);
+      if (!combined.size && roles.synonyms.length) await run(roles.synonyms.find(role => /remote/i.test(role)) || roles.synonyms[0], location, 3);
     }
   }
-  result.jobs = [...combined.values()].sort((a, b) => b.match - a.match).slice(0, input.limit ?? 10);
-  result.liveResults = result.jobs.length > 0;
-  const notices = [fallbackApplied ? `Search broadened to ${effectiveLocation}.` : ''];
-  if (!result.jobs.length) notices.push(result.fetchedCount && input.mode !== 'search'
-    ? 'Listings were found, but none met the evidence-based qualification requirements.'
-    : 'No verified listings were returned. Try another role or area; some job boards may be temporarily unavailable.');
-  return { ...result, effectiveLocation, fallbackApplied, searchNotice: notices.filter(Boolean).join(' ') };
+  if (!combined.size && hasEvidence && Date.now() < deadline) {
+    // A lower relevance floor is not a waiver of mandatory credentials or seniority.
+    minimumMatchScore = input.mode === 'recommendations' ? 60 : 30;
+    const adjacent = roles.adjacent.length ? roles.adjacent : roles.synonyms.slice(0, 2);
+    await Promise.all(adjacent.map(role => run(role, 'South Africa', 4, minimumMatchScore)));
+  }
+  const jobs = [...combined.values()].slice(0, input.limit ?? 10);
+  const fallbackApplied = searchTiers.some(item => item.tier > 1);
+  const exhausted = !jobs.length;
+  const searchNotice = [fallbackApplied ? 'Showing expanded job matches based on your target role skills and nationwide or remote opportunities.' : '',
+    exhausted ? 'No verified eligible vacancies were returned after expanded searches. Use the job-board search links or try again later; no listings were invented.' : '',
+    searchTiers.some(item => item.status === 'timeout' || item.status === 'unavailable') ? 'Some job sources were unavailable or reached the search time limit.' : ''].filter(Boolean).join(' ');
+  return { jobs, query, queriedBoards: [...boards], boardSearchLinks: [...links.values()], fetchedCount, liveResults: jobs.length > 0,
+    effectiveLocation, fallbackApplied, minimumMatchScore, searchTiers, searchNotice };
 }
 
 export function normalizeJobRequest(value: unknown) {
@@ -64,7 +127,8 @@ export async function searchCandidateJobs(input: Parameters<typeof searchManualJ
     credentials: candidate.credentials, yearsExperience: candidate.yearsExperience, adzunaAppId: input.adzunaAppId, adzunaAppKey: input.adzunaAppKey }, dependencies.search);
   let scored = null;
   try { scored = await dependencies.score({ apiKey: input.apiKey, model: input.model, candidateProfile: candidate, jobs: result.jobs }); } catch { /* Keep real listings and strict deterministic scores. */ }
-  const jobs = calibrateJobListingScores(candidate, scored || result.jobs).filter(job => job.match >= 35).slice(0, 10).map(job => ({ ...job, isAiMatch: true }));
+  const calibrated = calibrateJobListingScores(candidate, scored || result.jobs).filter(job => job.match >= result.minimumMatchScore);
+  const jobs = (calibrated.length ? calibrated : calibrateJobListingScores(candidate, result.jobs).filter(job => job.match >= result.minimumMatchScore)).slice(0, 10).map(job => ({ ...job, isAiMatch: true }));
   return { ...result, jobs, roleSuggestions: candidateRoleSuggestions({ ...candidate, targetRole: input.keywords || candidate.targetRole, location: input.location || candidate.location }), candidateProfile: candidate, liveResults: jobs.length > 0, scoring: scored ? 'gemini' : 'evidence-based-fallback', isFallback: !scored };
 }
 

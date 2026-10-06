@@ -3124,6 +3124,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
       {view === 'ai' ? (
         <div id="jobs-panel-ai" role="tabpanel" aria-labelledby="jobs-tab-ai" className="mx-auto w-full max-w-4xl space-y-4">
           <MatchCountBanner jobs={jobs} role={report.targetRole} />
+          {report.jobSearch?.searchNotice ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{report.jobSearch.searchNotice}</p> : null}
           <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
             <h3 className="text-sm font-bold text-slate-900">CV-matched vacancies</h3>
             <p className="mt-1 text-xs leading-5 text-slate-600">{report.jobSearch?.liveResults ? `Matches gathered for “${report.jobSearch.query}”.` : 'These recommendations are based on the latest CV review.'}</p>
@@ -3314,6 +3315,7 @@ function JobsPage() {
           ))}
         </div>
       ) : null}
+      {report.jobSearch?.searchNotice ? <p role="status" className="mb-5 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{report.jobSearch.searchNotice}</p> : null}
       {matches.length === 0 ? (
         <SuggestedRoles report={report} />
       ) : (

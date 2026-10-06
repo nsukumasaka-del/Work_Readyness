@@ -484,6 +484,8 @@ export function computeCvPageSpacers(root: HTMLElement, includePositionedBlocks 
   try {
     existing.forEach(el => { el.style.height = "0px"; el.style.minHeight = "0px"; });
     for (const el of Array.from(root.querySelectorAll<HTMLElement>("[data-a4-id]"))) {
+      // Flowing sections paginate their entry children, not the entire list.
+      if (el.dataset.a4Flow === "auto") continue;
       if (el.closest(".no-print, [data-preview-only='true'], [data-managed-pages-container]") || el.offsetParent === null) continue;
       // Free-positioned cards own their placement. Adding an automatic spacer
       // based on the translated bounds moves them a second time after a drag.

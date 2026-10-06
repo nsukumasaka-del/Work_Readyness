@@ -6,6 +6,11 @@ const require=createRequire(import.meta.url);
 const {chromium}=require(resolve(process.env.BONLIST_RUNTIME_MODULES,'playwright'));
 const {build}=require('../artifacts/api-server/node_modules/esbuild');
 const cv={id:1,structure:'single_column',title:'Badge regression',document:{fullName:'Regression Candidate',headline:'Freight Controller',email:'candidate@example.com',summary:'Experienced freight controller.',experiences:[],education:[],skills:['Freight & Import Coordination','Carrier Negotiation & Rate Management','Microsoft Excel & CRM / TMS Systems','Time Management & Multitasking Under Pressure','NAVIS'],languages:['English — Fluent (speaking)','itsonga — Native','Tshivenda — Intermediate (speaking)'],references:[],sections:[],skillGroups:[],keywords:[],footerNote:''}};
+if(process.env.PDF_TEST_STYLISH){
+ cv.structure='stylish';
+ cv.document.summary=Array(5).fill('Experienced logistics and customer service professional coordinating shipments, customer enquiries, documentation and daily operations.').join(' ');
+ cv.document.experiences=Array.from({length:3},(_,i)=>({id:'work-'+i,role:'Freight Controller '+i,company:'Example Logistics',startDate:'2020',endDate:'2024',bullets:Array(6).fill('Managed customer enquiries and shipment documentation, coordinating daily operations with carriers and stakeholders.')}));
+}
 const browser=await chromium.launch();
 try{
  const page=await browser.newPage({viewport:{width:1600,height:1400}});
@@ -18,12 +23,22 @@ try{
  await page.addScriptTag({content:bundle.outputFiles[0].text});
  const measure=()=>[...document.querySelectorAll('.cv-skill-chip')].map(el=>{const r=el.getBoundingClientRect(),root=el.closest('.cv-page-sheet,.a4-capture-source'),scale=root.getBoundingClientRect().width/parseFloat(getComputedStyle(root).width),range=document.createRange();range.selectNodeContents(el);return {text:el.textContent,width:r.width/scale,height:r.height/scale,lines:[...range.getClientRects()].map(r=>({width:r.width/scale,height:r.height/scale})),css:{width:getComputedStyle(el).width,padding:getComputedStyle(el).padding,boxSizing:getComputedStyle(el).boxSizing}};});
  const html=await page.evaluate(()=>PdfSnapshot.createCvPdfSnapshot('bonlist-cv-document'));
+ if(process.env.PDF_TEST_STYLISH){
+  const first=await page.locator('#bonlist-cv-document [data-a4-id="exp-0-header"]').evaluate(el=>{const root=document.getElementById('bonlist-cv-document'),r=root.getBoundingClientRect(),scale=r.width/parseFloat(getComputedStyle(root).width);return (el.getBoundingClientRect().top-r.top)/scale;});
+  assert(first<1000,'Stylish moved the entire Work Experience section to Page 2');
+ }
  const live=await page.evaluate(measure);
  const render=await browser.newPage();await render.emulateMedia({media:'print'});await render.setContent(html);await render.evaluate(()=>document.fonts.ready);
  const printed=await render.evaluate(measure);
  console.log(JSON.stringify({live,printed},null,2));
  mkdirSync('tmp/pdfs',{recursive:true});writeFileSync('tmp/pdfs/badge-parity.html',html);
  await render.pdf({path:'tmp/pdfs/badge-parity.pdf',format:'A4',printBackground:true,preferCSSPageSize:true});
+ if(process.env.PDF_TEST_STYLISH){
+  const firstFrame=render.locator('.a4-page-frame').first();
+  const job=await firstFrame.locator('[data-a4-id="exp-0-header"]').boundingBox();
+  const frame=await firstFrame.boundingBox();
+  assert(job.y>=frame.y && job.y+job.height<frame.y+frame.height,'First Stylish job is not fully on Page 1');
+ }
  await render.screenshot({path:'tmp/pdfs/badge-parity.png',fullPage:true});
  for(let i=0;i<live.length;i++){assert.equal(printed[i].lines.length,live[i].lines.length,'Badge wraps differently: '+live[i].text);assert(Math.abs(printed[i].height-live[i].height)<1,'Badge height differs: '+live[i].text);assert(Math.abs(printed[i].width-live[i].width)<1,'Badge width differs: '+live[i].text);}
  console.log('PASS: Skills and languages preserve preview text lines and badge dimensions');

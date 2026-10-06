@@ -920,6 +920,21 @@
   border-color: var(--cv-border);
 }
 
+/* Stylish experience flows between pages; only individual entries stay whole. */
+.template-stylish [data-a4-id="experience"],
+.template-stylish [data-a4-id="experience"] > div {
+  break-inside: auto !important;
+  page-break-inside: auto !important;
+  -webkit-column-break-inside: auto !important;
+  height: auto;
+  overflow: visible;
+}
+
+.template-stylish [data-a4-id="experience"] .group\/role {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
 #bonlist-cv-document .cv-badge-list {
   /* Keep the first badge row visibly clear of the section heading rule. */
   margin-block-start: 0.75rem !important;

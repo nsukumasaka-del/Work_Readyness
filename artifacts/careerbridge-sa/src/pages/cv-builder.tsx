@@ -7147,8 +7147,8 @@ export default function CvBuilderPage() {
 
                 const experienceSection = visibleSections.experience && cv.document.experiences.length > 0 && (
                   <>
-                  <A4PageSpacer id="experience" height={a4Spacers.experience || 0} />
-                  <section data-a4-id="experience" className="relative group/section space-y-4 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
+                  {!isStylish && <A4PageSpacer id="experience" height={a4Spacers.experience || 0} />}
+                  <section data-a4-id="experience" data-a4-flow={isStylish ? "auto" : undefined} className="relative group/section space-y-4 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
                     {/* Contextual Section Toolbar */}
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1.5 rounded-full border border-border bg-card/95 backdrop-blur-md px-2.5 py-0.5 shadow-sm">
                       <button
@@ -7184,9 +7184,10 @@ export default function CvBuilderPage() {
                         <Fragment key={exp.id || expIdx}>
                         <A4PageSpacer id={`exp-${expIdx}-header`} height={a4Spacers[`exp-${expIdx}-header`] || 0} />
                         <div
+                          data-a4-id={isStylish ? `exp-${expIdx}-header` : undefined}
                           className="group/role relative space-y-1.5"
                         >
-                        <div data-a4-id={`exp-${expIdx}-header`} className="experience-item cv-a4-keep relative space-y-1.5">
+                        <div data-a4-id={isStylish ? undefined : `exp-${expIdx}-header`} className="experience-item cv-a4-keep relative space-y-1.5">
                           {expIdx === 0 && renderSectionHeading(
                             isSerifClassic
                               ? "Experience"

@@ -42,6 +42,7 @@ CV documents use the existing D1 `users`, `career_profiles`, and `generated_cvs`
 
 ```bash
 npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0010_cv_documents.sql
+npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0026_cv_shares.sql
 npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0012_templates.sql
 ```
 

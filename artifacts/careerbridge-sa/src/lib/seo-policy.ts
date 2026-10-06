@@ -118,6 +118,9 @@ export function seoForPath(pathname: string): SeoState {
     }
   }
 
+  if (/^\/shared-cv\/[a-f0-9]{64}$/.test(pathname)) {
+    return { title: 'Shared CV | BonList', description: 'A read-only resume shared by its owner.', robots: 'noindex, nofollow' };
+  }
   if (pathname === '/jobs' || pathname.startsWith('/jobs/') || PRIVATE_ROUTE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
     return { title: 'BonList Workspace', description: 'Private BonList career workspace.', robots: 'noindex, nofollow' };
   }

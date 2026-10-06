@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CalendarDays, Copy, Download, FileText, LoaderCircle, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, Copy, Download, FileText, LoaderCircle, Pencil, Plus, Trash2, Share2, X } from "lucide-react";
 import { Link } from "wouter";
 import { authFetch } from "@/lib/auth-session";
 import { calculateCvCompletion } from "@/lib/cv-completion";
@@ -30,6 +30,27 @@ export default function CvDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [share, setShare] = useState<{ title: string; url: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const shareCv = async (item: CvDocumentCard) => {
+    if (!window.confirm('Create a view-only link? Anyone with the link can view this CV, including contact details, for 30 days.')) return;
+    setBusyId(item.id);
+    setError('');
+    setCopied(false);
+    try {
+      if (item.id < 0 || item.pendingSync) throw new Error('Save and sync this CV online before sharing it.');
+      const response = await authFetch(`/api/career/cv/documents/${item.id}/share`, { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok || typeof data.url !== 'string') throw new Error(data.error || 'Could not create a share link.');
+      const payload = { title: `My CV - ${item.title}`, text: 'Check out my resume', url: data.url };
+      if (navigator.share) {
+        try { await navigator.share(payload); return; }
+        catch (error) { if (error instanceof DOMException && error.name === 'AbortError') return; }
+      }
+      setShare({ title: item.title, url: data.url });
+    } catch (error) { setError(error instanceof Error ? error.message : 'Could not share this CV.'); }
+    finally { setBusyId(null); }
+  };
 
   const loadDocuments = useCallback(async () => {
     setLoading(true);
@@ -193,6 +214,7 @@ export default function CvDashboardPage() {
                       <div className="h-full rounded-full bg-[#00A884]" style={{ width: Math.max(0, Math.min(100, score)) + "%" }} />
                     </div>
                     <div className="mt-4 grid grid-cols-2 gap-2">
+                      <button type="button" disabled={busyId === item.id} onClick={() => void shareCv(item)} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50"><Share2 size={13} /> Share</button>
                       <Link href={editorUrl} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700">Edit</Link>
                       <Link href={editorUrl + "&view=preview"} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold hover:bg-slate-50">Preview</Link>
                       <Link href={editorUrl + "&view=preview&print=1"} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold hover:bg-slate-50"><Download size={13} /> Download</Link>
@@ -208,6 +230,17 @@ export default function CvDashboardPage() {
           </div>
         )}
       </div>
+      {share && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShare(null)}>
+        <section role="dialog" aria-modal="true" aria-label="Share CV" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl" onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Escape') setShare(null); }}>
+          <div className="flex items-center justify-between"><h2 className="font-bold">Share CV</h2><button autoFocus aria-label="Close sharing" onClick={() => setShare(null)}><X size={20} /></button></div>
+          <p className="my-3 text-sm text-slate-600">Anyone with this link can view {share.title}. Link expires in 30 days.</p>
+          <input aria-label="Share link" readOnly value={share.url} className="mb-3 w-full min-w-0 rounded border p-2 text-xs" onFocus={event => event.target.select()} />
+          <button className="w-full rounded-lg bg-slate-900 p-3 text-sm text-white" onClick={() => void Promise.resolve().then(() => navigator.clipboard.writeText(share.url)).then(() => setCopied(true)).catch(() => setError('Please select and copy the link manually.'))}>{copied ? 'Link copied to clipboard!' : 'Copy Share Link'}</button>
+          <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+            {Object.entries({ WhatsApp: `https://wa.me/?text=${encodeURIComponent('Check out my resume: ' + share.url)}`, LinkedIn: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(share.url)}`, Email: `mailto:?subject=${encodeURIComponent('My CV - ' + share.title)}&body=${encodeURIComponent(share.url)}`, 'X / Twitter': `https://twitter.com/intent/tweet?text=${encodeURIComponent('Check out my resume')}&url=${encodeURIComponent(share.url)}` }).map(([label, href]) => <a key={label} href={href} target="_blank" rel="noopener noreferrer" className="rounded-lg border p-3 text-center">{label}</a>)}
+          </div>
+        </section>
+      </div>}
     </main>
   );
 }

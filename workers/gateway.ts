@@ -666,7 +666,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     const headers = new Headers(assetResponse.headers);
     const contentType = (assetResponse.headers.get("Content-Type") || "").toLowerCase();
     headers.set("X-Content-Type-Options", "nosniff");
-    headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+    headers.set("Referrer-Policy", url.pathname.startsWith('/shared-cv/') ? "no-referrer" : "strict-origin-when-cross-origin");
 
     if (contentType.includes("text/html")) {
       // SPA navigation fallback is not a JavaScript/CSS asset. Returning HTML

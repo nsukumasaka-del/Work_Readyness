@@ -87,6 +87,7 @@ import { CookieConsent } from '@/components/CookieConsent';
 import { AdProvider } from '@/components/AdProvider';
 import { CareerAdviceCategoryPage, CareerAdviceIndexPage, CareerArticlePage } from '@/pages/CareerAdvice';
 import { PublicJobCategoryPage, PublicJobsIndexPage } from '@/pages/PublicJobs';
+import SharedCvPage from '@/pages/SharedCv';
 import { TrustPage } from '@/pages/TrustPages';
 import { findPublicJobCategory } from '@/content/public-jobs';
 import { directApplicationUrl, normalizeJobResults, toJobListing, type JobDetailsPayload, type JobListingSource } from '@/types/job';
@@ -4137,6 +4138,7 @@ function Router() {
       </RoutedErrorBoundary>
     );
   }
+  if (/^\/shared-cv\/[a-f0-9]{64}$/.test(pathname)) return <SharedCvPage />;
   if (pathname === '/payment/success' || pathname === '/payment/cancel') return <AppShell><PaymentResultPage /></AppShell>;
   if (!isKnownAppPath(pathname)) {
     return <RoutedErrorBoundary><AppShell><NotFound /></AppShell></RoutedErrorBoundary>;

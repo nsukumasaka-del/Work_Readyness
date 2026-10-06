@@ -255,6 +255,17 @@ async function handleCvDocuments(request: Request, env: D1Env, user: UserRow, pa
   }
 
   const suffix = path.slice(basePath.length).replace(/^\//, "");
+  const shareMatch = suffix.match(/^(\d+)\/share$/);
+  if (shareMatch && method === "POST") {
+    const row = await env.DB.prepare("SELECT id FROM generated_cvs WHERE id = ? AND user_id = ?")
+      .bind(Number(shareMatch[1]), user.id).first();
+    if (!row) return error(404, "CV document not found.");
+    const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+    const expiresAt = new Date(Date.now() + 30 * 86400000).toISOString();
+    await env.DB.prepare("INSERT INTO cv_shares (token, document_id, expires_at) VALUES (?, ?, ?)")
+      .bind(token, Number(shareMatch[1]), expiresAt).run();
+    return json({ url: `https://www.bonlist.site/shared-cv/${token}`, expiresAt });
+  }
   const duplicateMatch = suffix.match(/^(\d+)\/duplicate$/);
   const idMatch = suffix.match(/^(\d+)$/);
   if (duplicateMatch && method === "POST") {
@@ -1048,6 +1059,16 @@ async function handleLatestCv(request: Request, env: D1Env, user: UserRow): Prom
 }
 
 export async function handleD1Career(request: Request, env: D1Env): Promise<Response | null> {
+  const sharedPath = new URL(request.url).pathname.match(/^\/api\/career\/cv\/shared\/([a-f0-9]{64})$/);
+  if (sharedPath) {
+    if (request.method !== "GET") return error(405, "Read-only CV link.");
+    const row = await env.DB.prepare("SELECT c.* FROM generated_cvs c JOIN cv_shares s ON s.document_id = c.id WHERE s.token = ? AND s.expires_at > ?")
+      .bind(sharedPath[1], new Date().toISOString()).first<GeneratedCvRow>();
+    const response = row ? json({ title: row.title, document: JSON.parse(row.content_json) }) : error(404, "This CV link has expired or is unavailable.");
+    response.headers.set("Cache-Control", "no-store");
+    response.headers.set("X-Robots-Tag", "noindex, nofollow");
+    return response;
+  }
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const method = request.method.toUpperCase();
@@ -1085,7 +1106,7 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
     (method === "POST" && (path === "/api/career/jobs/search" || path === "/api/career/jobs/details")) ||
     (method === "PATCH" && path === "/api/career/profile") ||
     (method === "GET" && (path === "/api/career/diagnostic/latest" || path === "/api/career/cv/latest")) ||
-    (path === "/api/career/cv/documents" || /^\/api\/career\/cv\/documents\/\d+(?:\/duplicate)?$/.test(path));
+    (path === "/api/career/cv/documents" || /^\/api\/career\/cv\/documents\/\d+(?:\/(?:duplicate|share))?$/.test(path));
   if (!nativePath) return null;
   const user = await getAuthenticatedUser(request, env);
   if (!user && path === "/api/career/cv/parse-upload" && method === "POST") {

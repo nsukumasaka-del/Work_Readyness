@@ -8,7 +8,20 @@ export function d1PaymentStore(env: D1Env): PaymentStore {
     async attach(id, checkout) { await env.DB.prepare('UPDATE yoco_orders SET checkout_id = ? WHERE id = ? AND checkout_id IS NULL').bind(checkout,id).run(); },
     async get(id) { const row = await env.DB.prepare('SELECT * FROM yoco_orders WHERE id = ?').bind(id).first<Row>(); return row ? map(row) : null; },
     async byCheckout(id) { const row = await env.DB.prepare('SELECT * FROM yoco_orders WHERE checkout_id = ?').bind(id).first<Row>(); return row ? map(row) : null; },
-    async paid(userId) { const rows = await env.DB.prepare("SELECT * FROM yoco_orders WHERE user_id = ? AND status = 'paid'").bind(userId).all<Row>(); return rows.results.map(map); },
+    async paid(userId) {
+      try {
+        const rows = await env.DB.prepare("SELECT * FROM yoco_orders WHERE user_id = ? AND status = 'paid'").bind(userId).all<Row>();
+        return rows.results.map(map);
+      } catch (error) {
+        // A missing checkout migration must not discard an already generated
+        // free CV review. Fail closed: no paid access is granted without orders.
+        if (error instanceof Error && /no such table:\s*yoco_orders\b/i.test(error.message)) {
+          console.error('[payments] Missing yoco_orders migration; paid access remains locked.');
+          return [];
+        }
+        throw error;
+      }
+    },
     async complete(id, checkout, payment, paidAt, expires) { await env.DB.prepare("UPDATE yoco_orders SET status = 'paid',payment_id = ?,paid_at = ?,expires_at = ? WHERE id = ? AND checkout_id = ? AND status = 'pending'").bind(payment,paidAt,expires,id,checkout).run(); },
   };
 }
@@ -39,7 +52,7 @@ export async function handleD1Yoco(request: Request, env: D1Env): Promise<Respon
       const job = findOwnedJob(rows.results.map(row => row.report_json), id);
       if (!job) return Response.json({ error: 'This job match was not found in your saved reviews.' }, { status: 404 });
       const access = await d1PaymentAccess(env, user);
-      if (path.endsWith('/reveal-job')) return canRevealJob(access, job as { id: string; match: number }) ? Response.json(job) : Response.json({ error: 'Unlock this match for R20 or use Mega Access.' }, { status: 402 });
+      if (path.endsWith('/reveal-job')) return canRevealJob(access, job as { id: string; match: number }) ? Response.json(job) : Response.json({ error: 'Unlock this match with R30 daily access or use Mega Access.' }, { status: 402 });
       if (canRevealJob(access, job as { id: string; match: number })) return Response.json({ alreadyUnlocked: true, ...access });
     }
   }

@@ -1,6 +1,6 @@
 export const PAYMENT_PRODUCTS = {
   TEMPLATE_DOWNLOAD: { amount: 5000, name: 'CV template download', priceZar: 50 },
-  JOB_MATCH_UNLOCK: { amount: 2000, name: 'High-score job match', priceZar: 20 },
+  JOB_MATCH_UNLOCK: { amount: 3000, name: '24-hour job match access', priceZar: 30 },
   MEGA_ACCESS: { amount: 8000, name: 'Mega Access Promotion', priceZar: 80 },
 } as const;
 export type PaymentType = keyof typeof PAYMENT_PRODUCTS;
@@ -21,17 +21,20 @@ export function isPrimaryAdmin(user: PaymentUser | null, email?: string): boolea
 export function paymentAccess(user: PaymentUser, orders: PaymentOrder[], primaryEmail?: string, now = Date.now()) {
   const paid = orders.filter(order => order.userId === user.id && order.status === 'paid');
   const mega = paid.filter(order => order.itemType === 'MEGA_ACCESS' && Date.parse(order.expiresAt || '') > now);
+  const daily = paid.filter(order => order.itemType === 'JOB_MATCH_UNLOCK' && order.amount === 3000 && Date.parse(order.expiresAt || '') > now);
   return {
     adminBypass: isPrimaryAdmin(user, primaryEmail),
     megaAccessUntil: mega.map(order => order.expiresAt!).sort().at(-1) || null,
     megaAccessActive: mega.length > 0,
+    jobAccessUntil: daily.map(order => order.expiresAt!).sort().at(-1) || null,
+    jobAccessActive: daily.length > 0,
     ownedTemplateIds: [...new Set(paid.filter(order => order.itemType === 'TEMPLATE_DOWNLOAD').map(order => order.targetId))],
-    unlockedJobIds: [...new Set(paid.filter(order => order.itemType === 'JOB_MATCH_UNLOCK').map(order => order.targetId))],
+    unlockedJobIds: [...new Set(paid.filter(order => order.itemType === 'JOB_MATCH_UNLOCK' && order.amount === 2000 && !order.expiresAt).map(order => order.targetId))],
   };
 }
 export type PaymentAccess = ReturnType<typeof paymentAccess>;
 export const canDownloadTemplate = (access: PaymentAccess, id: string) => access.adminBypass || access.megaAccessActive || access.ownedTemplateIds.includes(id);
-export const canRevealJob = (access: PaymentAccess, job: { id: number | string; match: number }) => access.adminBypass || access.megaAccessActive || job.match < 50 || access.unlockedJobIds.includes(String(job.id));
+export const canRevealJob = (access: PaymentAccess, job: { id: number | string; match: number }) => access.adminBypass || access.megaAccessActive || access.jobAccessActive || job.match < 50 || access.unlockedJobIds.includes(String(job.id));
 export function protectJob<T extends { id: number | string; match: number }>(job: T, access: PaymentAccess): T & { locked: boolean } {
   if (canRevealJob(access, job)) return { ...job, locked: false };
   // Do not send paid content to the browser merely hidden by CSS.
@@ -86,7 +89,8 @@ export async function handleYoco(request: Request, store: PaymentStore, user: Pa
     if (!order) return json({ error: 'Checkout not recorded yet.' }, 503);
     if (payload.status !== 'succeeded' || payload.currency !== 'ZAR' || payload.amount !== order.amount || payload.mode !== order.mode) return json({ error: 'Payment does not match the order.' }, 400);
     const paidAt = new Date().toISOString();
-    const expiresAt = order.itemType === 'MEGA_ACCESS' ? new Date(Date.now() + 7 * 86400_000).toISOString() : null;
+    const duration = order.itemType === 'MEGA_ACCESS' ? 7 * 86400_000 : order.itemType === 'JOB_MATCH_UNLOCK' && order.amount === 3000 ? 86400_000 : 0;
+    const expiresAt = duration ? new Date(Date.parse(paidAt) + duration).toISOString() : null;
     await store.complete(order.id, checkoutId, payload.id, paidAt, expiresAt);
     return json({ received: true });
   }
@@ -98,7 +102,8 @@ export async function handleYoco(request: Request, store: PaymentStore, user: Pa
     const id = new URL(request.url).searchParams.get('order_id') || input.orderId;
     const order = typeof id === 'string' ? await store.get(id) : null;
     if (!order || order.userId !== user.id) return json({ error: 'Order not found.' }, 404);
-    return json({ status: order.status, itemType: order.itemType, targetId: order.targetId, ...access });
+    const currentAccess = paymentAccess(user, await store.paid(user.id), env.PRIMARY_ADMIN_EMAIL);
+    return json({ success: order.status === 'paid', status: order.status, itemType: order.itemType, targetId: order.targetId, hasActiveAccess: currentAccess.adminBypass || currentAccess.megaAccessActive || currentAccess.jobAccessActive, expiresAt: currentAccess.jobAccessUntil || currentAccess.megaAccessUntil, ...currentAccess });
   }
   if (!path.endsWith('/create-checkout') || request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405);
   const input = await request.json().catch(() => ({})) as Record<string, unknown>;
@@ -107,7 +112,7 @@ export async function handleYoco(request: Request, store: PaymentStore, user: Pa
   const type = itemType as PaymentType;
   const targetId = type === 'MEGA_ACCESS' ? '' : typeof input.targetId === 'string' || typeof input.targetId === 'number' ? String(input.targetId) : '';
   if (type !== 'MEGA_ACCESS' && !/^[a-zA-Z0-9_-]{1,80}$/.test(targetId)) return json({ error: 'A valid item ID is required.' }, 400);
-  if (access.adminBypass || access.megaAccessActive || (type === 'TEMPLATE_DOWNLOAD' && canDownloadTemplate(access, targetId)) || (type === 'JOB_MATCH_UNLOCK' && access.unlockedJobIds.includes(targetId))) return json({ alreadyUnlocked: true, ...access });
+  if (access.adminBypass || access.megaAccessActive || (type === 'TEMPLATE_DOWNLOAD' && canDownloadTemplate(access, targetId)) || (type === 'JOB_MATCH_UNLOCK' && access.jobAccessActive)) return json({ alreadyUnlocked: true, ...access });
   const key = env.YOCO_SECRET_KEY || '';
   if (!/^sk_(test|live)_/.test(key) || /dummy|placeholder/i.test(key) || !env.YOCO_WEBHOOK_SECRET) return json({ error: 'Payments are not configured yet. Please contact support.' }, 503);
   let origin: string;

@@ -6,7 +6,7 @@ export default function PricingPage() {
   const access = usePaidAccess();
   const offers = [
     { name: "Template download", price: 50, note: "Once per template · lifetime unlock", features: ["Preview and edit every template for free", "Download your unlocked template again anytime"], href: "/cv-builder/templates", action: "Browse templates" },
-    { name: "Job match unlock", price: 20, note: "Once per high-score match", features: ["Reveal matches scoring 50% or higher", "Matches below 50% remain free"], href: "/jobs", action: "View job matches" },
+    { name: "Daily job match access", price: 30, note: "24 hours of access to all 50%+ matches", features: ["Reveal matches scoring 50% or higher", "Matches below 50% remain free"], href: "/jobs", action: "View job matches" },
     { name: "Mega Access Promotion", price: 80, note: "Once-off · 7 days", features: ["Unlimited CV template downloads", "Unlimited high-score job match reveals", "Full AI CV diagnostic and cover letter access"], action: "Get Mega Access" },
   ];
   return <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-10 sm:px-6">

@@ -22,7 +22,7 @@ test('shared card contains original content and right action stack', () => {
 test('locked card retains score but does not expose employer, snippet or apply URL', () => {
   const html = renderToStaticMarkup(createElement(JobListingCard, { job, locked: true, onViewDetails() {} }));
   assert.match(html, /88% Match Rate/);
-  assert.match(html, /Unlock Match for R20/);
+  assert.match(html, /Unlock All Matches for R30/);
   assert.ok(!html.includes(job.applicationUrl!));
   assert.ok(!html.includes('Office tasks'));
   assert.ok(!html.includes('>Employer<'));

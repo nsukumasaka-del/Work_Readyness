@@ -1583,7 +1583,7 @@ function HeroProductVisual() {
             </div>
           ))}
           <div className="rounded-2xl border border-dashed border-primary/30 bg-secondary/50 px-4 py-3 text-xs leading-5 text-secondary-foreground">
-            After your CV review, view tailored roles. Matches below 50% are free; unlock higher-scoring matches for R20 or use seven-day Mega Access.
+            After your CV review, view tailored roles. Matches below 50% are free; unlock higher-scoring matches with R30 daily access or use seven-day Mega Access.
           </div>
         </div>
       </div>
@@ -3129,7 +3129,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
             <p className="mt-1 text-xs leading-5 text-slate-600">{report.jobSearch?.liveResults ? `Matches gathered for “${report.jobSearch.query}”.` : 'These recommendations are based on the latest CV review.'}</p>
           </div>
           {jobs.length ? jobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={!isJobUnlocked(job, paidAccess)} onUnlock={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: job.id })} onViewDetails={() => setActiveJobId(String(job.id))} />) : <SuggestedRoles report={report} />}
-          {jobs.some(job => !isJobUnlocked(job, paidAccess)) ? <p className="text-xs text-slate-500">Unlock 50%+ matches for R20 each, or get R80 Mega Access for 7 days.</p> : null}
+          {jobs.some(job => !isJobUnlocked(job, paidAccess)) ? <p className="text-xs text-slate-500">Unlock 50%+ matches with R30 daily access to all 50%+ matches, or get R80 Mega Access for 7 days.</p> : null}
         </div>
       ) : (
         <div id="jobs-panel-search" role="tabpanel" aria-labelledby="jobs-tab-search" className="space-y-5">
@@ -3200,7 +3200,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
         <section role="dialog" aria-modal="true" aria-labelledby="job-detail-title" className="flex h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:h-auto sm:max-h-[88dvh] sm:rounded-3xl">
           <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4"><h3 id="job-detail-title" className="text-sm font-bold text-slate-900">Job details</h3><button type="button" onClick={() => setActiveJobId(null)} aria-label="Close job details" className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"><X size={18} /></button></header>
           <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-            {!isJobUnlocked(activeJob, paidAccess) ? <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600"><p>Unlock this {activeJob.match}% match for R20, or get R80 Mega Access for 7 days.</p><button className="btn-primary mt-3" onClick={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: activeJob.id })}>Unlock Match for R20</button></div> : <>
+            {!isJobUnlocked(activeJob, paidAccess) ? <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600"><p>Unlock this {activeJob.match}% match with R30 daily access, or get R80 Mega Access for 7 days.</p><button className="btn-primary mt-3" onClick={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: activeJob.id })}>Unlock All Matches for R30</button></div> : <>
               <JobListingDetails job={toJobListing(activeJob)} loading={detailLoading} />
               {detailNotice ? <p className="mt-3 text-xs text-slate-500" role="status">{detailNotice}</p> : null}
               <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => toggleSavedJob(activeJob)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">{savedJobs.some((saved) => String(saved.id) === String(activeJob.id)) ? 'Saved job' : 'Save job'}</button>{view === 'ai' ? <button type="button" onClick={() => onOpenJob(activeJob)} className="rounded-lg border border-blue-200 px-4 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50">Scan match</button> : null}</div>
@@ -3332,7 +3332,7 @@ function JobsPage() {
       <p className="mt-5 text-center text-xs text-muted-foreground">
         {premiumUnlocked
           ? 'Administrator view includes all current matches.'
-          : 'Matches below 50% are free. Unlock higher-scoring matches for R20 each, or get seven-day Mega Access for R80.'}
+          : 'Matches below 50% are free. Unlock higher-scoring matches with R30 daily access to all 50%+ matches, or get seven-day Mega Access for R80.'}
       </p>
     </div>
   );
@@ -3378,7 +3378,7 @@ function JobCard({ job }: { job: JobMatch; premiumUnlocked?: boolean }) {
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-h-[85dvh] w-[calc(100%_-_2rem)] max-w-3xl overflow-y-auto">
           <DialogHeader><DialogTitle>Job details</DialogTitle><DialogDescription>{locked ? 'Unlock this match to view the employer and application details.' : 'Full job specification and evidence-based match reasoning.'}</DialogDescription></DialogHeader>
-          {locked ? <div className="space-y-3 text-sm"><p>Unlock this match for R20, or use R80 Mega Access for seven days.</p><button type="button" className="btn-primary" onClick={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: job.id })}>Unlock Match for R20</button></div> : <JobListingDetails job={toJobListing({ ...visibleJob, ...details })} loading={loading} />}
+          {locked ? <div className="space-y-3 text-sm"><p>Unlock this match with R30 daily access, or use R80 Mega Access for seven days.</p><button type="button" className="btn-primary" onClick={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: job.id })}>Unlock All Matches for R30</button></div> : <JobListingDetails job={toJobListing({ ...visibleJob, ...details })} loading={loading} />}
         </DialogContent>
       </Dialog>
     </div>

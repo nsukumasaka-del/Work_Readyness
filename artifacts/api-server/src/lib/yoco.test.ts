@@ -66,3 +66,38 @@ test('missing secrets fail closed and administrator never contacts provider', as
   const response = await handleYoco(request(), store, { ...user, isAdmin: true }, {}, (() => { throw Error('Must not call'); }) as typeof fetch);
   assert.equal((await response.json()).alreadyUnlocked, true);
 });
+
+test('R30 verified payment unlocks every high-score job for exactly 24 hours, not templates', async () => {
+  const { store, orders } = memoryStore();
+  let amount = 0;
+  const provider = (async (_url: any, init: any) => { amount = JSON.parse(init.body).amount; return Response.json({ id: 'daily_checkout', redirectUrl: 'https://c.yoco.com/daily' }); }) as typeof fetch;
+  await handleYoco(new Request('https://bonlist.example/api/payments/yoco/create-checkout', { method: 'POST', body: JSON.stringify({ itemType: 'JOB_MATCH_UNLOCK', targetId: 'job1', amount: 1 }) }), store, user, env, provider);
+  assert.equal(amount, 3000);
+  const order = [...orders.values()][0];
+  const verify = () => handleYoco(new Request('https://bonlist.example/api/payments/yoco/verify?order_id=' + order.id), store, user, env);
+  assert.equal((await (await verify()).json()).hasActiveAccess, false);
+  const raw = JSON.stringify({ type: 'payment.succeeded', payload: { id: 'daily_payment', status: 'succeeded', amount: 3000, currency: 'ZAR', mode: 'test', metadata: { checkoutId: 'daily_checkout' } } });
+  const deliver = async () => handleYoco(new Request('https://bonlist.example/api/payments/yoco/webhook', { method: 'POST', body: raw, headers: await signed(raw) }), store, null, env);
+  assert.equal((await deliver()).status, 200);
+  const expiry = order.expiresAt!;
+  assert.equal(Date.parse(expiry) - Date.parse(order.paidAt!), 86400000);
+  await deliver();
+  assert.equal(order.expiresAt, expiry);
+  const verified = await (await verify()).json();
+  assert.equal(verified.success, true);
+  assert.equal(verified.hasActiveAccess, true);
+  assert.equal(verified.expiresAt, expiry);
+  const access = paymentAccess(user, [order], undefined, Date.parse(expiry) - 1);
+  for (const id of ['job1', 'different-job', 'future-job']) assert.equal(protectJob({ id, match: 90 }, access).locked, false);
+  assert.equal(canDownloadTemplate(access, 'classic'), false);
+  assert.equal(protectJob({ id: 'job1', match: 50 }, paymentAccess(user, [order], undefined, Date.parse(expiry))).locked, true);
+  assert.equal(paymentAccess({ ...user, id: 'other' }, [order]).jobAccessActive, false);
+});
+
+test('legacy R20 purchases remain permanent per-job, never daily access', () => {
+  const order = { userId: user.id, status: 'paid', itemType: 'JOB_MATCH_UNLOCK', targetId: 'old-job', amount: 2000, expiresAt: null } as PaymentOrder;
+  const access = paymentAccess(user, [order]);
+  assert.equal(access.jobAccessActive, false);
+  assert.equal(protectJob({ id: 'old-job', match: 90 }, access).locked, false);
+  assert.equal(protectJob({ id: 'other-job', match: 90 }, access).locked, true);
+});

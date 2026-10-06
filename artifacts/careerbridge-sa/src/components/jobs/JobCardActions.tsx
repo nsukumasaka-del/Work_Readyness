@@ -10,7 +10,7 @@ export function JobCardActions({ job, locked, onViewDetails, onUnlock }: { job: 
   return <aside className="grid min-w-0 grid-cols-2 gap-2 border-t border-slate-100 pt-3 md:flex md:flex-col md:border-l md:border-t-0 md:pl-4 md:pt-0">
     <span className="max-w-full break-words rounded bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-700">{locked ? 'Verified listing' : job.sourceBoard}</span>
     <button type="button" onClick={onViewDetails} className="min-h-10 text-xs font-semibold text-indigo-700 hover:text-indigo-900">View details ›</button>
-    {locked ? <button type="button" onClick={onUnlock || onViewDetails} className="col-span-2 min-h-10 rounded-lg border border-amber-300 bg-amber-400 px-3 py-2 text-xs font-bold text-amber-950 hover:bg-amber-500">Unlock Match for R20</button> : null}
+    {locked ? <button type="button" onClick={onUnlock || onViewDetails} className="col-span-2 min-h-10 rounded-lg border border-amber-300 bg-amber-400 px-3 py-2 text-xs font-bold text-amber-950 hover:bg-amber-500">Unlock All Matches for R30</button> : null}
     {!locked ? <button type="button" onClick={() => { setLetter(draft()); setCopyStatus(''); setLetterOpen(true); }} className="min-h-10 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Cover Letter</button> : null}
     {!locked && job.applicationUrl ? <a href={job.applicationUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center justify-center rounded-lg bg-slate-950 px-3 py-2 text-center text-xs font-bold text-white hover:bg-slate-800">Apply on job board ↗</a> : null}
     <Dialog open={letterOpen && !locked} onOpenChange={open => { setLetterOpen(open); if (!open) setCopyStatus(''); }}>

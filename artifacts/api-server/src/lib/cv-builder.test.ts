@@ -1,4 +1,4 @@
-import { buildGeneratedCv, CV_PARSER_SYSTEM_PROMPT, evaluateAts, extractCvDataFromText, generateCandidateBiography, type GeneratedCvDocument } from "./cv-builder";
+import { buildGeneratedCv, CV_PARSER_SYSTEM_PROMPT, evaluateAts, extractCvDataFromText, finalizeExtractedCvData, generateCandidateBiography, type GeneratedCvDocument } from "./cv-builder";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { reconstructPdfTextFromItems } from "./pdf-layout-text";
@@ -184,6 +184,47 @@ describe("complex CV import layout extraction", () => {
     assert.ok(CV_PARSER_RESPONSE_SCHEMA.required.includes("additional_sections"));
     assert.match(CV_PARSER_SYSTEM_PROMPT, /opening narrative paragraph[\s\S]+professional_summary/i);
     assert.match(CV_PARSER_SYSTEM_PROMPT, /multi-column[\s\S]+additional_sections/i);
+    assert.match(CV_PARSER_SYSTEM_PROMPT, /NEVER place a spoken or written human language inside education or work_experience/i);
+    const languageSchema = CV_PARSER_RESPONSE_SCHEMA.properties.languages.items;
+    assert.deepEqual(languageSchema.required, ["language", "proficiency"]);
+  });
+
+  it("routes headerless language proficiencies away from nearby education", () => {
+    const extracted = extractCvDataFromText(`Jane Doe
+Email: jane@example.com
+Education
+National Senior Certificate | Makhado High School
+2021
+English: Fluent
+isiZulu: Intermediate
+XiTsonga: Native
+Tshivenda: Intermediate speaking/reading, basic writing`);
+
+    assert.equal(extracted.education.length, 1);
+    assert.doesNotMatch(extracted.education.map((item) => `${item.degree} ${item.institution} ${item.details || ""}`).join(" "), /English|isiZulu|XiTsonga|Tshivenda/i);
+    assert.ok(extracted.languages.includes("English: Fluent"));
+    assert.ok(extracted.languages.includes("isiZulu: Intermediate"));
+    assert.ok(extracted.languages.includes("XiTsonga: Native"));
+    assert.ok(extracted.languages.includes("Tshivenda: Intermediate speaking/reading, basic writing"));
+  });
+
+  it("repairs language entries returned inside education or work experience", () => {
+    const source = `Jane Doe
+English: Fluent
+XiTsonga: Native`;
+    const contaminated = extractCvDataFromText(source);
+    contaminated.education = [{ id: "edu-bad", degree: "English: Fluent", institution: "", graduationYear: "", classification: "VERIFIED" }];
+    contaminated.experiences = [{ id: "exp-bad", role: "", company: "", startDate: "", endDate: "", bullets: ["XiTsonga: Native"], classification: "VERIFIED" }];
+    contaminated.languages = [];
+    contaminated.cv_content.education = contaminated.education;
+    contaminated.cv_content.experiences = contaminated.experiences;
+    contaminated.cv_content.languages = [];
+
+    const repaired = finalizeExtractedCvData(contaminated, source);
+    assert.deepEqual(repaired.education, []);
+    assert.deepEqual(repaired.experiences, []);
+    assert.ok(repaired.languages.includes("English: Fluent"));
+    assert.ok(repaired.languages.includes("XiTsonga: Native"));
   });
 
   it("carries unmatched source sections into generated CV custom sections", () => {

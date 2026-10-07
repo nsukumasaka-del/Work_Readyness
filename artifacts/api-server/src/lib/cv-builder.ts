@@ -133,6 +133,97 @@ export interface CvCertificationItem {
   year?: string;
 }
 
+const HUMAN_LANGUAGE_NAMES = [
+  "English", "isiZulu", "Zulu", "XiTsonga", "Xitsonga", "Tsonga", "Tshivenda", "Venda",
+  "isiXhosa", "Xhosa", "Sesotho", "Sotho", "Sepedi", "Northern Sotho", "Setswana", "Tswana",
+  "siSwati", "Swati", "isiNdebele", "Ndebele", "Afrikaans", "French", "Spanish", "Portuguese",
+  "German", "Italian", "Dutch", "Arabic", "Mandarin", "Chinese", "Hindi", "Urdu", "Swahili",
+] as const;
+const HUMAN_LANGUAGE_PATTERN = HUMAN_LANGUAGE_NAMES
+  .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .sort((left, right) => right.length - left.length)
+  .join("|");
+const LANGUAGE_PROFICIENCY_PATTERN = /^(?:native|mother[ -]?tongue|first language|fluent|proficient|advanced|intermediate|conversational|working proficiency|elementary|basic|beginner|good|very good|excellent|speaking|reading|writing|spoken|written|speak|read|write)(?:\b|[\s,/&-])/i;
+
+/** Return source-faithful language declarations, including proficiency text. */
+export function extractHumanLanguageDeclarations(value: string): string[] {
+  const clean = String(value || "")
+    .replace(/^[\s•\-*▪▫►]+/, "")
+    .replace(/^(?:languages?|language proficiency|languages spoken)\s*:\s*/i, "")
+    .trim();
+  if (!clean) return [];
+  const parts = clean.split(new RegExp(`\\s*(?:[;•|]|,(?=\\s*(?:${HUMAN_LANGUAGE_PATTERN})\\b))\\s*`, "i"));
+  return parts.filter((part) => {
+    const match = part.match(new RegExp(`^(?:${HUMAN_LANGUAGE_PATTERN})\\b(?:\\s*[:\\-–—]\\s*|\\s+)?(.*)$`, "i"));
+    if (!match) return false;
+    const suffix = String(match[1] || "").trim();
+    return !suffix || LANGUAGE_PROFICIENCY_PATTERN.test(suffix);
+  });
+}
+
+function languageIdentity(value: string): string {
+  return value.match(new RegExp(`^(?:${HUMAN_LANGUAGE_PATTERN})\\b`, "i"))?.[0]?.toLocaleLowerCase() || value.toLocaleLowerCase();
+}
+
+function mergeLanguageDeclarations(values: string[]): string[] {
+  const byLanguage = new Map<string, string>();
+  for (const value of values.map((item) => String(item || "").trim()).filter(Boolean)) {
+    const identity = languageIdentity(value);
+    const existing = byLanguage.get(identity);
+    if (!existing || value.length > existing.length) byLanguage.set(identity, value);
+  }
+  return [...byLanguage.values()];
+}
+
+function separateLanguagesFromEducation(
+  education: CvEducationItem[],
+  languages: string[],
+): { education: CvEducationItem[]; languages: string[] } {
+  const correctedEducation: CvEducationItem[] = [];
+  const correctedLanguages = [...languages];
+  for (const item of education || []) {
+    const degreeLanguages = extractHumanLanguageDeclarations(item.degree || "");
+    const institutionLanguages = extractHumanLanguageDeclarations(item.institution || "");
+    const detailLines = String(item.details || "").split(/\n|;|•/).map((line) => line.trim()).filter(Boolean);
+    const languageDetails = detailLines.flatMap(extractHumanLanguageDeclarations);
+    const academicInstitution = /\b(?:university|college|school|institute|academy|faculty|campus)\b/i.test(item.institution || "");
+    const degreeIsOnlyLanguage = degreeLanguages.length > 0 && !academicInstitution;
+    const institutionIsOnlyLanguage = institutionLanguages.length > 0 && /^(?:|course|qualification|language)$/i.test(item.degree || "");
+    correctedLanguages.push(...degreeLanguages, ...institutionLanguages, ...languageDetails);
+    if (degreeIsOnlyLanguage || institutionIsOnlyLanguage) continue;
+    const retainedDetails = detailLines.filter((line) => extractHumanLanguageDeclarations(line).length === 0);
+    correctedEducation.push({ ...item, details: retainedDetails.join("\n") || undefined });
+  }
+  return { education: correctedEducation, languages: mergeLanguageDeclarations(correctedLanguages) };
+}
+
+function separateLanguagesFromExperience(
+  experiences: CvExperienceItem[],
+  languages: string[],
+): { experiences: CvExperienceItem[]; languages: string[] } {
+  const correctedLanguages = [...languages];
+  const correctedExperiences = (experiences || []).flatMap((item): CvExperienceItem[] => {
+    const roleLanguages = extractHumanLanguageDeclarations(item.role || "");
+    const companyLanguages = extractHumanLanguageDeclarations(item.company || "");
+    const retainedBullets = (item.bullets || []).filter((bullet) => {
+      const declarations = extractHumanLanguageDeclarations(bullet);
+      correctedLanguages.push(...declarations);
+      return declarations.length === 0;
+    });
+    correctedLanguages.push(...roleLanguages, ...companyLanguages);
+    const roleIsLanguage = roleLanguages.length > 0;
+    const companyIsLanguage = companyLanguages.length > 0;
+    if ((roleIsLanguage || companyIsLanguage) && !retainedBullets.length && !item.startDate && !item.endDate) return [];
+    return [{
+      ...item,
+      role: roleIsLanguage ? "" : item.role,
+      company: companyIsLanguage ? "" : item.company,
+      bullets: retainedBullets,
+    }];
+  });
+  return { experiences: correctedExperiences, languages: mergeLanguageDeclarations(correctedLanguages) };
+}
+
 const formalEducationCredentialRe = /\b(?:matric(?:ulation)?|grade\s*12|national\s+senior\s+certificate|senior\s+certificate|n\s*[1-6]\b|ncv\b|national\s+certificate\s*\(?vocational\)?|higher\s+certificate|national\s+diploma|diploma|bachelor(?:'s)?|master(?:'s)?|doctorate|degree|b\.?sc\.?|b\.?com\.?|b\.?tech\.?|ph\.?d\.?)\b|\bcertificate\s*[-–—]\s*(?:mechanical|electrical|civil)(?:\s+engineering)?\b/i;
 
 function qualificationKey(value: string): string {
@@ -527,17 +618,24 @@ CRITICAL PARSING RULES:
    - Map headings by meaning, not exact wording: for example, Where I've Worked to work_experience, Academics to education, and Toolbelt or Tech Stack to skills.
    - Recognize entries presented as bullets, paragraphs, tables, timelines, sidebars, or mixed layouts.
 
-4. ZERO DATA LOSS:
+4. CRITICAL SECTION SEPARATION:
+   - LANGUAGES: NEVER place a spoken or written human language inside education or work_experience. English, isiZulu, XiTsonga, Tshivenda, Afrikaans, French, Spanish, and every other human language belong exclusively in languages, together with their exact proficiency such as Native, Fluent, Intermediate, Basic, or a speaking/reading/writing description.
+   - Emit each language as an object, for example {"language":"English","proficiency":"Fluent"} or {"language":"Tshivenda","proficiency":"Intermediate speaking/reading, basic writing"}. Use null proficiency only when the source gives none.
+   - EDUCATION: education may contain only academic institutions, formal degrees, certificates, diplomas, high-school qualifications, and field-specific courses such as N3 Mechanical Engineering, National Senior Certificate, or Engineering Drawing. Never use a language or proficiency as a degree, institution, or filler value.
+   - PROFESSIONAL SUMMARY: introductory statements, objectives, biographies, and profile overviews belong exclusively in professional_summary, never in education or work_experience.
+   - Before emitting JSON, perform a semantic validation pass. Remove every human-language item from education and work_experience and place it in languages. Confirm every remaining item matches its schema category.
+
+5. ZERO DATA LOSS:
    - Every meaningful source fragment is critical. Never silently discard text because it does not fit a standard section.
    - Preserve unmatched awards, volunteering, memberships, publications, interests, availability, licences, achievements, training, and any other content in additional_sections using the source heading when available.
    - Preserve responsibilities and descriptions verbatim and in source order. Do not summarize, combine away details, or truncate.
 
-5. ZERO HALLUCINATION:
+6. ZERO HALLUCINATION:
    - Extract only facts explicitly present in the document. Never infer missing employers, dates, credentials, skills, metrics, or contact data.
    - Use null for an absent nullable scalar and [] for an absent list. Never emit placeholders such as N/A, Unknown, Candidate, Company, or Institution.
    - Keep candidate content separate from critique. Do not output recommendations, ATS feedback, or commentary.
 
-6. OUTPUT:
+7. OUTPUT:
    - Return only valid JSON conforming exactly to the supplied JSON Schema, with no markdown, preamble, or postscript.`;
 export interface CvContentData {
   personal: {
@@ -2271,6 +2369,14 @@ export function verifyExtractedDataAgainstRawText(
   const normalizedRaw = rawText.toLowerCase();
   const droppedHallucinations: string[] = [];
   const verifiedEntities: string[] = [];
+  const separatedSections = separateLanguagesFromEducation(
+    extracted.education || extracted.cv_content?.education || [],
+    extracted.languages || extracted.cv_content?.languages || [],
+  );
+  const separatedExperience = separateLanguagesFromExperience(
+    extracted.experiences || extracted.cv_content?.experiences || [],
+    separatedSections.languages,
+  );
 
   const textHasTerm = (term: string, minMatchRatio: number = 0.4): boolean => {
     if (!term || term.trim().length < 2) return false;
@@ -2286,7 +2392,7 @@ export function verifyExtractedDataAgainstRawText(
 
   // 1. Verify Education (Zero false-positive drops: verify against either degree or institution)
   const verifiedEducation: CvEducationItem[] = [];
-  for (const edu of extracted.education) {
+  for (const edu of separatedSections.education) {
     const inst = edu.institution || "";
     const deg = edu.degree || "";
     const isSyntheticPlaceholder =
@@ -2329,7 +2435,7 @@ export function verifyExtractedDataAgainstRawText(
 
   // 2. Verify Experiences (Verify role OR company against source document)
   const verifiedExperiences: CvExperienceItem[] = [];
-  for (const exp of extracted.experiences) {
+  for (const exp of separatedExperience.experiences) {
     const comp = exp.company || "";
     const role = exp.role || "";
     const isSyntheticComp =
@@ -2415,9 +2521,16 @@ export function verifyExtractedDataAgainstRawText(
   });
 
   // 6. Verify Languages & References
-  const verifiedLanguages = extracted.languages && extracted.languages.length > 0
-    ? extracted.languages
-    : [];
+  const sourceLanguageByIdentity = new Map(
+    rawText.split(/\r?\n/).flatMap(extractHumanLanguageDeclarations)
+      .map((declaration) => [languageIdentity(declaration), declaration] as const),
+  );
+  const verifiedLanguages = mergeLanguageDeclarations(separatedExperience.languages.flatMap((language) => {
+    const sourceDeclaration = sourceLanguageByIdentity.get(languageIdentity(language));
+    if (sourceDeclaration) return [sourceDeclaration];
+    const languageName = language.match(new RegExp(`^(?:${HUMAN_LANGUAGE_PATTERN})\\b`, "i"))?.[0] || "";
+    return languageName && normalizedRaw.includes(languageName.toLocaleLowerCase()) ? [language] : [];
+  }));
 
   const verifiedReferences = extracted.references && extracted.references.length > 0
     ? extracted.references
@@ -2780,8 +2893,7 @@ function extractCvDataFromTextInternal(rawText: string, fileName?: string): Extr
   const isKnownSectionHeading = (line: string) =>
     /^(?:personal(?:\s+(?:details|information))?|contact(?:\s+details)?|professional\s+summary|summary|profile|about me|professional statement|executive summary|career objective|biography|key impact(?:\s+at\s+.+)?|key achievements|selected achievements|career highlights|highlights|work history|employment history|career history|professional experience|work experience|relevant experience|previous employment|experience|education(?:\s*(?:and|&)\s*qualifications)?|qualifications|academic history|tertiary education|academic background|studies|education\s*&\s*training|academic qualifications|professional skills|skills(?:\s*(?:and|&)\s*competencies)?|core competencies|competencies|tools\s*&\s*technologies|tools and technologies|technical skills|key skills|technologies|software\s*&\s*tools|expertise|core skills|hard\s*&\s*soft skills|systems|projects|key projects|portfolio|notable projects|personal projects|selected projects|certifications?(?:\s*[,/&]\s*(?:licen[cs]es?|languages?))?|certificates|licen[cs]es?(?:\s*[,/&]\s*(?:certifications?|languages?))?|accreditations|courses(?:\s*&\s*certifications)?|professional certifications|languages?(?:\s*(?:spoken|skills|proficiency))?|references|referees|testimonials)\s*:?$/i.test(line.trim());
   const credentialLineRe = /\b(?:driver'?s?\s+licen[cs]e|code\s*(?:8|10|b|c1)\b|PDP\b|PSIRA\b|certificat(?:e|ion)\b|certified\b|licen[cs]e\b|licen[cs]ed\b|accreditation\b|first\s+aid\b)\b/i;
-  const languageNames = ["English", "Zulu", "isiZulu", "Xhosa", "isiXhosa", "Sotho", "Sesotho", "Afrikaans", "Tswana", "Setswana", "Sepedi", "Northern Sotho", "Venda", "Tshivenda", "Tsonga", "itsonga", "Swati", "siSwati", "Ndebele", "isiNdebele"];
-  const languageNameRe = new RegExp(`\\b(?:${languageNames.join("|")})\\b`, "ig");
+  const languageNameRe = new RegExp(`\\b(?:${HUMAN_LANGUAGE_PATTERN})\\b`, "ig");
   const isReferenceDataLine = (line: string) => {
     const value = line.trim();
     if (!value || isDocumentEndOrNoise(value)) return false;
@@ -2917,6 +3029,14 @@ function extractCvDataFromTextInternal(rawText: string, fileName?: string): Extr
       continue;
     } else if (/^(?:references|referees|testimonials)\s*$/i.test(lower) && line.length < 40) {
       currentSection = "references";
+      continue;
+    }
+
+    // Semantic routing wins over physical proximity. Language declarations
+    // printed beneath school details still belong exclusively to Languages.
+    const declaredLanguages = extractHumanLanguageDeclarations(line);
+    if (declaredLanguages.length > 0) {
+      for (const declaration of declaredLanguages) assignSectionLine(languageLines, declaration);
       continue;
     }
 
@@ -3420,7 +3540,7 @@ function extractCvDataFromTextInternal(rawText: string, fileName?: string): Extr
       .map((l) => l.replace(/^[\s•\-\*▪▫►]+/, "").trim())
       .filter((l) => l.length > 1 && l.length < 80 && !/^(languages|language skills|proficiency)$/i.test(l) && !isPageMarker(l));
     if (rawLang.length > 0) {
-      languages = Array.from(new Set(rawLang));
+      languages = mergeLanguageDeclarations(rawLang);
     }
   }
   // Parse References

@@ -94,7 +94,18 @@ export const CV_PARSER_RESPONSE_SCHEMA = {
         },
       },
     },
-    languages: { type: "array", items: { type: "string" } },
+    languages: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["language", "proficiency"],
+        properties: {
+          language: { type: "string" },
+          proficiency: nullableString,
+        },
+      },
+    },
     references: { type: "array", items: { type: "string" } },
     additional_sections: {
       type: "array",
@@ -212,7 +223,14 @@ function toExtractedCvData(raw: GeminiCvExtraction, fallback: ExtractedCvData): 
   const mergedAdditional = mergeRecords(additionalSections, fallback.additionalSections || fallbackContent.additionalSections || [],
     (item) => key(item.heading));
   const skills = unique([...list(raw.skills), ...fallback.skills, ...fallback.toolsAndSoftware]);
-  const languages = unique([...list(raw.languages), ...fallback.languages]);
+  const structuredLanguages = (raw.languages || []).flatMap((item): string[] => {
+    if (typeof item === "string") return clean(item) ? [clean(item)] : [];
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const language = clean((item as Record<string, unknown>).language);
+    const proficiency = clean((item as Record<string, unknown>).proficiency);
+    return language ? [`${language}${proficiency ? `: ${proficiency}` : ""}`] : [];
+  });
+  const languages = unique([...structuredLanguages, ...fallback.languages]);
   const references = unique([...list(raw.references), ...fallback.references]);
 
   const cvContent = {

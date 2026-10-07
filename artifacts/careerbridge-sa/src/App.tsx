@@ -303,6 +303,7 @@ function HeaderAuthActions({
         {(!workspaceMode || compact) ? <button
           type="button"
           onClick={onLogout}
+          data-mobile-logout={compact ? "true" : undefined}
           className={`pointer-events-auto min-h-11 touch-manipulation rounded-xl px-2.5 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground xl:px-3 ${
             compact ? 'w-full border border-border' : ''
           }`}
@@ -1349,6 +1350,12 @@ function AppShell({ children }: { children: ReactNode }) {
               ref={mobileMenuRef}
               onClickCapture={(event) => {
                 const target = event.target;
+                if (target instanceof Element && target.closest('[data-mobile-logout]')) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void handleLogout();
+                  return;
+                }
                 if (target instanceof Element && target.closest('a, button') && !target.closest('[data-mobile-menu-stay-open]')) {
                   setMenuOpen(false);
                 }

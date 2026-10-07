@@ -32,10 +32,10 @@ PRIMARY_ADMIN_NAME = "Ntokozo Sukumasaka"
 # Used for password-reset links + OAuth redirect_uri base.
 APP_BASE_URL = "https://www.bonlist.site"
 # Android update metadata must match the versionCode/versionName in the published APK.
-ANDROID_LATEST_VERSION = "1.2.4"
-ANDROID_VERSION_CODE = "7"
+ANDROID_LATEST_VERSION = "1.2.6"
+ANDROID_VERSION_CODE = "9"
 ANDROID_APK_URL = "https://www.bonlist.site/downloads/BonList.apk"
-ANDROID_RELEASE_NOTES = "BonList Android 1.2.4: review another CV from the results page with an in-place upload and live AI review progress."
+ANDROID_RELEASE_NOTES = "BonList Android 1.2.6: reliable sign out from the mobile navigation menu."
 
 # ---------------------------------------------------------------------------
 # Secrets (never commit) — set with:

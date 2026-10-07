@@ -1,8 +1,8 @@
 {
   "applicationId": "com.bonlist.careerbridge",
-  "latestVersion": "1.2.5",
-  "versionCode": 8,
-  "fileSizeBytes": 7604552,
-  "checksumSha256": "ed64759c6723010e72280664312ff49855c59aefe58d38a263e20ae900c24c7c",
+  "latestVersion": "1.2.6",
+  "versionCode": 9,
+  "fileSizeBytes": 7604629,
+  "checksumSha256": "899921ca41007ae53772848cabaaf0067492c491416300ac2be57c7fa933bc4b",
   "fileName": "BonList.apk"
 }

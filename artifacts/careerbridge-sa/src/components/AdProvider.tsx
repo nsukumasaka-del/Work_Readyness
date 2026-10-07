@@ -4,7 +4,8 @@ import { advertisingAllowedForPath, advertisingConfig } from '@/lib/advertising'
 import { CONSENT_UPDATED_EVENT, readConsentPreferences, type ConsentPreferences } from '@/lib/consent';
 import { isNativeApp } from '@/lib/platform';
 
-const SCRIPT_ID = 'bonlist-adsense-script';
+const ADSENSE_SCRIPT_ID = 'bonlist-adsense-script';
+const DIRECT_SCRIPT_ID_PREFIX = 'bonlist-direct-ad-script';
 
 type AdContextValue = { active: boolean; publisherId: string };
 const AdContext = createContext<AdContextValue>({ active: false, publisherId: '' });
@@ -26,17 +27,39 @@ export function AdProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const existing = document.getElementById(SCRIPT_ID);
+    const removeAdvertisingScripts = () => {
+      document.getElementById(ADSENSE_SCRIPT_ID)?.remove();
+      advertisingConfig.directScripts.forEach((_, index) => {
+        document.getElementById(`${DIRECT_SCRIPT_ID_PREFIX}-${index}`)?.remove();
+      });
+    };
     if (!active) {
-      existing?.remove();
+      removeAdvertisingScripts();
       // Removing a script does not unload executed third-party JavaScript.
       // Reload before mounting private content or continuing after revocation.
       if (runtimeStarted.current) window.location.reload();
       return;
     }
-    if (existing) return;
+
+    if (advertisingConfig.provider === 'direct-script') {
+      advertisingConfig.directScripts.forEach((src, index) => {
+        const id = `${DIRECT_SCRIPT_ID_PREFIX}-${index}`;
+        if (document.getElementById(id)) return;
+        const script = document.createElement('script');
+        script.id = id;
+        script.async = true;
+        script.setAttribute('data-cfasync', 'false');
+        script.referrerPolicy = 'strict-origin-when-cross-origin';
+        script.src = src;
+        document.body.appendChild(script);
+      });
+      runtimeStarted.current = true;
+      return removeAdvertisingScripts;
+    }
+
+    if (document.getElementById(ADSENSE_SCRIPT_ID)) return;
     const script = document.createElement('script');
-    script.id = SCRIPT_ID;
+    script.id = ADSENSE_SCRIPT_ID;
     script.async = true;
     script.crossOrigin = 'anonymous';
     script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(advertisingConfig.publisherId)}`;

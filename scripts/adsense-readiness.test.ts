@@ -63,14 +63,14 @@ test('robots.txt permits public content and identifies the sitemap', async () =>
   assert.doesNotMatch(robots, /Disallow: \/career-advice/);
 });
 
-test('advertising uses an explicit public-content allowlist and stays off without real configuration', () => {
+test('advertising uses an explicit public-content allowlist', () => {
   for (const path of ['/', '/admin', '/dashboard', '/cv-builder', '/diagnostic', '/jobs', '/job-matches', '/checkout', '/login', '/account', '/does-not-exist']) {
     assert.equal(isAdvertisingContentPath(path), false, path);
     assert.equal(advertisingAllowedForPath(path), false, path);
   }
   assert.equal(isAdvertisingContentPath('/jobs/explore'), true);
   assert.equal(isAdvertisingContentPath(`/career-advice/${CAREER_ARTICLES[0]!.slug}`), true);
-  assert.equal(advertisingAllowedForPath('/jobs/explore'), false);
+  assert.equal(advertisingAllowedForPath('/jobs/explore'), true);
 });
 
 test('edge HTML contains route-specific metadata and protects private pages before JavaScript runs', async () => {

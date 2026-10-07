@@ -5,12 +5,21 @@ export type AdPlacement = 'article-top' | 'article-middle' | 'article-bottom' | 
 
 const buildEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env || {};
 const publisherId = String(buildEnv.VITE_ADSENSE_CLIENT_ID || '').trim();
+const provider = buildEnv.VITE_ADS_PROVIDER === 'none'
+  ? 'none'
+  : buildEnv.VITE_ADS_PROVIDER === 'google-adsense'
+    ? 'google-adsense'
+    : 'direct-script';
 
 export const advertisingConfig = {
-  enabled: buildEnv.VITE_ADS_ENABLED === 'true',
-  provider: buildEnv.VITE_ADS_PROVIDER === 'none' ? 'none' : 'google-adsense',
+  enabled: buildEnv.VITE_ADS_ENABLED !== 'false',
+  provider,
   publisherId,
   validPublisherId: /^ca-pub-\d{10,20}$/.test(publisherId),
+  directScripts: [
+    'https://abscloud.org/1/c028cfc9c0755b720045d7eb2cb20afe',
+    'https://bauval.org/14/e9fde6e16b6d6753259a22f92f1a992e',
+  ],
   slots: {
     'article-top': String(buildEnv.VITE_ADSENSE_SLOT_ARTICLE_TOP || '').trim(),
     'article-middle': String(buildEnv.VITE_ADSENSE_SLOT_ARTICLE_MIDDLE || '').trim(),
@@ -27,10 +36,9 @@ const ELIGIBLE_PATHS = new Set([
 ]);
 
 export function advertisingAllowedForPath(pathname: string) {
-  return advertisingConfig.enabled &&
-    advertisingConfig.provider === 'google-adsense' &&
-    advertisingConfig.validPublisherId &&
-    isAdvertisingContentPath(pathname);
+  if (!advertisingConfig.enabled || !isAdvertisingContentPath(pathname)) return false;
+  if (advertisingConfig.provider === 'direct-script') return advertisingConfig.directScripts.length > 0;
+  return advertisingConfig.provider === 'google-adsense' && advertisingConfig.validPublisherId;
 }
 
 export function isAdvertisingContentPath(pathname: string) {

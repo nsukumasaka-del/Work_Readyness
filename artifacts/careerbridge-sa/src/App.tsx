@@ -66,11 +66,6 @@ import {
   type Entitlement,
 } from '@/lib/entitlements';
 import { ensureCvProfile } from '@/lib/cv-profile';
-import {
-  EMPTY_MONETIZATION,
-  fetchMonetizationStatus,
-  type MonetizationStatus,
-} from '@/lib/monetization';
 import { buildParseUploadBody, readFileAsDataUrl } from '@/lib/cv-parse-upload';
 import {
   announceJobMatches,
@@ -1600,7 +1595,6 @@ function Home() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileReady, setProfileReady] = useState(false);
   const [entitlement, setEntitlement] = useState<Entitlement>(defaultEntitlement());
-  const [monetization, setMonetization] = useState<MonetizationStatus>(EMPTY_MONETIZATION);
   const [latestReport, setLatestReport] = useState<DiagnosticReport | null>(() => {
     try {
       const stored = sessionStorage.getItem(REPORT_KEY) || sessionStorage.getItem('bonlist-report');
@@ -1665,17 +1659,6 @@ function Home() {
     refreshEntitlement();
     window.addEventListener('careerbridge-entitlement-updated', refreshEntitlement);
     return () => window.removeEventListener('careerbridge-entitlement-updated', refreshEntitlement);
-  }, [profile?.id]);
-
-  useEffect(() => {
-    if (!profile?.id) {
-      setMonetization(EMPTY_MONETIZATION);
-      return;
-    }
-    const refresh = () => void fetchMonetizationStatus().then(setMonetization).catch(() => setMonetization(EMPTY_MONETIZATION));
-    refresh();
-    window.addEventListener('bonlist-monetization-updated', refresh);
-    return () => window.removeEventListener('bonlist-monetization-updated', refresh);
   }, [profile?.id]);
 
   useEffect(() => {
@@ -1831,9 +1814,6 @@ function Home() {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <span>Pick up where you left off and take the next step toward your target role.</span>
-              <Link href="/pricing" className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-primary/40 hover:text-primary dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                {monetization.adminBypass ? 'Admin access' : `${monetization.credits} BonList credits`}
-              </Link>
             </div>
           </div>
         </section>

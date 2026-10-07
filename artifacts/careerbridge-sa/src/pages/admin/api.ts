@@ -9,7 +9,6 @@ export type AdminRange = "today" | "7d" | "30d" | "90d" | "all";
 export type SectionKey =
   | "overview"
   | "users"
-  | "diagnostics"
   | "coaching"
   | "traffic"
   | "jobs"
@@ -50,7 +49,6 @@ export const ADMIN_ROLES = [
 
 export const PERMISSIONS = {
   users: "manage_users",
-  diagnostics: "manage_diagnostics",
   coaching: "manage_coaching",
   jobs: "manage_jobs",
   templates: "manage_templates",
@@ -84,8 +82,10 @@ export type OverviewKpis = {
   usersTotal: number;
   activeUsers?: number;
   inactiveUsers?: number;
-  cvReviews: number;
-  cvReviewsTotal: number;
+  successfulTransactions: number;
+  processedPayments: number;
+  revenueCents: number;
+  paymentConversionRate: number;
   coachingApplications: number;
   coachingTotal: number;
   coachingPending: number;
@@ -95,8 +95,6 @@ export type OverviewKpis = {
   jobsDraft?: number;
   jobsArchived?: number;
   activeTemplates?: number;
-  avgAuthenticity: number;
-  avgAts: number;
 };
 
 export type ActivityItem = {
@@ -108,31 +106,18 @@ export type ActivityItem = {
   section?: string | null;
 };
 
-export type OverviewSignals = {
-  profileCount: number;
-  diagnosticScore: number | null;
-  interviewCompletedCount: number;
-  latestRole: string | null;
-};
-
 export type OverviewResponse = {
   range: string;
   kpis: OverviewKpis;
-  signals?: OverviewSignals;
   visitsByDay: Array<{ day: string; visits: number }>;
   topPaths: Array<{ path: string; visits: number }>;
   topReferrers?: Array<{ referrer: string | null; visits: number }>;
-  activity: ActivityItem[];
   health: HealthEntry | HealthEntry[];
 };
 
 export type AdminUser = {
   id: number;
-  name: string;
-  email: string;
-  phone: string | null;
-  location: string | null;
-  targetRole: string | null;
+  candidateRef?: string;
   status?: string | null;
   createdAt: string;
   lastLoginAt?: string | null;
@@ -147,26 +132,9 @@ export type AdminUser = {
 
 export type AdminUserDetail = AdminUser & Record<string, unknown>;
 
-export type AdminDiagnostic = {
-  id: number;
-  fileName: string;
-  authenticityScore: number;
-  atsScore: number;
-  createdAt: string;
-  userId?: number | null;
-  userEmail?: string | null;
-  userName?: string | null;
-};
-
-export type AdminDiagnosticDetail = AdminDiagnostic & Record<string, unknown>;
-
 export type AdminCoaching = {
   id: number;
-  name: string;
-  email: string;
-  phone?: string | null;
-  experience: string;
-  goals: string;
+  candidateRef?: string;
   paymentPlan: string;
   status: string;
   priority?: string | null;
@@ -237,7 +205,6 @@ export type AdminVisit = {
   id: number;
   path: string;
   referrer: string | null;
-  visitorId: string;
   createdAt: string;
   device?: string | null;
   browser?: string | null;
@@ -311,9 +278,6 @@ export type SearchResultItem = {
 
 export type SearchResponse = {
   results?: SearchResultItem[];
-  users?: SearchResultItem[];
-  diagnostics?: SearchResultItem[];
-  coaching?: SearchResultItem[];
   jobs?: SearchResultItem[];
 };
 
@@ -499,7 +463,6 @@ export async function exportEntity(token: string, entity: string) {
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   admin: [
     PERMISSIONS.users,
-    PERMISSIONS.diagnostics,
     PERMISSIONS.coaching,
     PERMISSIONS.jobs,
     PERMISSIONS.templates,
@@ -507,7 +470,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     PERMISSIONS.settings,
     PERMISSIONS.audit,
   ],
-  moderator: [PERMISSIONS.users, PERMISSIONS.diagnostics, PERMISSIONS.coaching, PERMISSIONS.audit],
+  moderator: [PERMISSIONS.users, PERMISSIONS.coaching, PERMISSIONS.audit],
   content_manager: [PERMISSIONS.jobs, PERMISSIONS.templates, PERMISSIONS.audit],
 };
 
@@ -541,7 +504,6 @@ export function notificationText(notification: AdminNotification) {
 export function sectionForActivity(item: { type?: string | null; section?: string | null }): SectionKey {
   const raw = (item.section || item.type || "").toLowerCase();
   if (raw.includes("user")) return "users";
-  if (raw.includes("diagnostic") || raw.includes("cv") || raw.includes("review")) return "diagnostics";
   if (raw.includes("coach")) return "coaching";
   if (raw.includes("job")) return "jobs";
   if (raw.includes("template")) return "templates";

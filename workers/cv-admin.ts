@@ -7,15 +7,6 @@ function json(status: number, body: unknown): Response {
   });
 }
 
-type ReportRow = {
-  id: number;
-  user_id: string;
-  report_json: string;
-  created_at: string;
-  user_email: string | null;
-  user_name: string | null;
-};
-
 type CountRow = { count: number };
 type TemplateRow = Record<string, unknown> & {
   id: string | number;
@@ -70,8 +61,11 @@ function templateInput(value: unknown): TemplateInput | null {
 
 async function insertTemplate(db: D1Database, input: TemplateInput) {
   return db.prepare(
-    `INSERT INTO templates (id, name, description, category, preview_url, active, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    `INSERT INTO templates (id, name, description, category, preview_url, active, created_at, updated_at, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), NULL)
+     ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description,
+       category=excluded.category, preview_url=excluded.preview_url, active=excluded.active,
+       updated_at=datetime('now'), deleted_at=NULL`,
   ).bind(input.id, input.name, input.description, input.category, input.previewUrl, input.active).run();
 }
 
@@ -84,8 +78,14 @@ async function ensureTemplatesTable(db: D1Database): Promise<void> {
     preview_url TEXT,
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    deleted_at TEXT
   )`).run();
+  try {
+    await db.prepare("ALTER TABLE templates ADD COLUMN deleted_at TEXT").run();
+  } catch (error) {
+    if (!String(error).toLowerCase().includes("duplicate column")) throw error;
+  }
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_templates_created ON templates(created_at DESC)").run();
 }
 
@@ -110,83 +110,110 @@ async function countRows(db: D1Database, table: string, start: string | null): P
   return Number(row?.count || 0);
 }
 
+async function safeFirst<T>(statement: D1PreparedStatement, fallback: T): Promise<T> {
+  try { return (await statement.first<T>()) ?? fallback; } catch { return fallback; }
+}
+
+async function safeAll<T>(statement: D1PreparedStatement): Promise<T[]> {
+  try { return (await statement.all<T>()).results || []; } catch { return []; }
+}
+
+function dateClause(start: string | null, column = "created_at") {
+  return start ? ` WHERE ${column} >= '${start.replace(/'/g, "") } 00:00:00'` : "";
+}
+
+function safeAggregatePath(value: string) {
+  return String(value || "/").split(/[?#]/, 1)[0].slice(0, 240) || "/";
+}
+
+function safeReferrerOrigin(value: string | null) {
+  if (!value || value === "direct") return value;
+  try { return new URL(value).origin.slice(0, 200); } catch { return null; }
+}
+
 async function buildOverview(db: D1Database, url: URL) {
   await ensureTemplatesTable(db);
   const start = rangeStart(url);
-  const [users, usersTotal, cvReviews, cvReviewsTotal, coaching, coachingTotal, coachingPending, coachingApproved, templates] = await Promise.all([
+  const where = dateClause(start);
+  const [users, usersTotal, activeUsers, templates, traffic, jobs, payments, legacyPayments, visitsByDay, topPaths, topReferrers] = await Promise.all([
     countRows(db, "users", start),
     countRows(db, "users", null),
-    countRows(db, "cv_reports", start),
-    countRows(db, "cv_reports", null),
-    countRows(db, "coaching_applications", start),
-    countRows(db, "coaching_applications", null),
-    db.prepare("SELECT COUNT(*) AS count FROM coaching_applications WHERE status = 'pending'").first<CountRow>().then((row) => Number(row?.count || 0)),
-    db.prepare("SELECT COUNT(*) AS count FROM coaching_applications WHERE status = 'approved'").first<CountRow>().then((row) => Number(row?.count || 0)),
-    countRows(db, "templates", null),
+    safeFirst(db.prepare("SELECT COUNT(DISTINCT user_id) AS count FROM sessions WHERE expires_at > datetime('now')"), { count: 0 }),
+    safeFirst(db.prepare("SELECT COUNT(*) AS count FROM templates WHERE deleted_at IS NULL AND active = 1"), { count: 0 }),
+    safeFirst(db.prepare(`SELECT COUNT(*) AS visits, COUNT(DISTINCT visitor_id) AS uniqueVisitors FROM site_visits${where}`), { visits: 0, uniqueVisitors: 0 }),
+    safeFirst(db.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) AS published FROM career_jobs"), { total: 0, published: 0 }),
+    safeFirst(db.prepare(`SELECT COUNT(*) AS processed, SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS successful, SUM(CASE WHEN status = 'paid' THEN amount_cents ELSE 0 END) AS revenue FROM payment_records${where}`), { processed: 0, successful: 0, revenue: 0 }),
+    safeFirst(db.prepare(`SELECT COUNT(*) AS processed, SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS successful, SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS revenue FROM yoco_orders${where}`), { processed: 0, successful: 0, revenue: 0 }),
+    safeAll<{ day: string; visits: number }>(db.prepare(`SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS visits FROM site_visits${where} GROUP BY substr(created_at, 1, 10) ORDER BY day`)),
+    safeAll<{ path: string; visits: number }>(db.prepare(`SELECT path, COUNT(*) AS visits FROM site_visits${where} GROUP BY path ORDER BY visits DESC LIMIT 10`)),
+    safeAll<{ referrer: string | null; visits: number }>(db.prepare(`SELECT referrer, COUNT(*) AS visits FROM site_visits${where} GROUP BY referrer ORDER BY visits DESC LIMIT 10`)),
   ]);
-
-  const latestProfile = await db.prepare(
-    "SELECT target_role FROM career_profiles ORDER BY created_at DESC, id DESC LIMIT 1",
-  ).first<{ target_role: string | null }>();
+  const successfulTransactions = Number(payments.successful || 0) + Number(legacyPayments.successful || 0);
+  const processedPayments = Number(payments.processed || 0) + Number(legacyPayments.processed || 0);
+  const revenueCents = Number(payments.revenue || 0) + Number(legacyPayments.revenue || 0);
 
   return {
     range: url.searchParams.get("range") || "all",
     kpis: {
-      visits: 0,
-      uniqueVisitors: 0,
+      visits: Number(traffic.visits || 0),
+      uniqueVisitors: Number(traffic.uniqueVisitors || 0),
       users,
       usersTotal,
-      activeUsers: usersTotal,
-      inactiveUsers: 0,
-      cvReviews,
-      cvReviewsTotal,
-      coachingApplications: coaching,
-      coachingTotal,
-      coachingPending,
-      coachingApproved,
-      jobsCatalog: 0,
-      jobsPublished: 0,
+      activeUsers: Number(activeUsers.count || 0),
+      inactiveUsers: Math.max(0, usersTotal - Number(activeUsers.count || 0)),
+      successfulTransactions,
+      processedPayments,
+      revenueCents,
+      paymentConversionRate: processedPayments ? (successfulTransactions / processedPayments) * 100 : 0,
+      coachingApplications: 0,
+      coachingTotal: 0,
+      coachingPending: 0,
+      coachingApproved: 0,
+      jobsCatalog: Number(jobs.total || 0),
+      jobsPublished: Number(jobs.published || 0),
       jobsDraft: 0,
       jobsArchived: 0,
-      avgAuthenticity: 0,
-      avgAts: 0,
-      activeTemplates: templates,
+      activeTemplates: Number(templates.count || 0),
     },
-    signals: {
-      profileCount: usersTotal,
-      diagnosticScore: null,
-      interviewCompletedCount: cvReviewsTotal,
-      latestRole: latestProfile?.target_role || null,
-    },
-    visitsByDay: [],
-    topPaths: [],
-    topReferrers: [],
-    activity: [],
+    visitsByDay,
+    topPaths: topPaths.map((row) => ({ ...row, path: safeAggregatePath(row.path) })),
+    topReferrers: topReferrers.map((row) => ({ ...row, referrer: safeReferrerOrigin(row.referrer) })),
     health: { api: "ok", database: "ok", jobSearch: "available", checkedAt: new Date().toISOString() },
     updatedAt: new Date().toISOString(),
-  };
-}
-
-function publicRow(row: ReportRow) {
-  const report = JSON.parse(row.report_json) as Record<string, unknown>;
-  return {
-    ...report,
-    id: row.id,
-    createdAt: row.created_at,
-    userId: row.user_id,
-    userEmail: row.user_email,
-    userName: row.user_name,
   };
 }
 
 export async function handleCvAdmin(request: Request, env: D1Env): Promise<Response | null> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "");
+  if (path === "/api/analytics/visit") {
+    if (request.method !== "POST") return json(405, { error: "Method not allowed" });
+    if (!env.DB) return json(503, { error: "Analytics storage is unavailable." });
+    const body = await request.json().catch(() => null) as Record<string, unknown> | null;
+    const pagePath = String(body?.path || "/").split(/[?#]/, 1)[0].slice(0, 240);
+    if (pagePath.startsWith("/admin")) return new Response(null, { status: 204 });
+    const rawVisitor = String(body?.visitorId || "anonymous").slice(0, 160);
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawVisitor));
+    const visitorHash = Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 32);
+    let referrer: string | null = null;
+    try { referrer = body?.referrer ? new URL(String(body.referrer)).origin.slice(0, 200) : null; } catch { referrer = null; }
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS site_visits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, referrer TEXT,
+      visitor_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_site_visits_created ON site_visits(created_at DESC)").run();
+    await env.DB.prepare("INSERT INTO site_visits (path, referrer, visitor_id) VALUES (?, ?, ?)").bind(pagePath, referrer, visitorHash).run();
+    return new Response(null, { status: 204 });
+  }
   if (!path.startsWith("/api/admin/")) return null;
   if (!env.DB) return json(503, { error: "The BonList database is unavailable." });
   const user = await getAuthenticatedUser(request, env);
   if (!user) return json(401, { error: "Please sign in as an administrator." });
   if (!user.is_admin) return json(403, { error: "Administrator access is required." });
+
+  if (path.startsWith("/api/admin/diagnostics")) {
+    return json(410, { error: "CV review records are not available in the admin console." });
+  }
 
   if (path === "/api/admin/me") {
     return request.method === "GET"
@@ -203,7 +230,11 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
           data: {
             visits: overview.kpis.visits,
             totalUsers: overview.kpis.usersTotal,
-            cvReviews: overview.kpis.cvReviewsTotal,
+            uniqueVisitors: overview.kpis.uniqueVisitors,
+            successfulTransactions: overview.kpis.successfulTransactions,
+            processedPayments: overview.kpis.processedPayments,
+            revenueCents: overview.kpis.revenueCents,
+            paymentConversionRate: overview.kpis.paymentConversionRate,
             activeTemplates: overview.kpis.activeTemplates,
             updatedAt: overview.updatedAt,
           },
@@ -215,7 +246,11 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
         data: {
           visits: overview.kpis.visits,
           totalUsers: overview.kpis.usersTotal,
-          cvReviews: overview.kpis.cvReviewsTotal,
+          uniqueVisitors: overview.kpis.uniqueVisitors,
+          successfulTransactions: overview.kpis.successfulTransactions,
+          processedPayments: overview.kpis.processedPayments,
+          revenueCents: overview.kpis.revenueCents,
+          paymentConversionRate: overview.kpis.paymentConversionRate,
           activeTemplates: overview.kpis.activeTemplates,
           updatedAt: overview.updatedAt,
         },
@@ -226,12 +261,40 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
     }
   }
 
+  if (path === "/api/admin/traffic" && request.method === "GET") {
+    try {
+      const overview = await buildOverview(env.DB, url);
+      const start = rangeStart(url);
+      const where = dateClause(start);
+      const repeat = await safeFirst(env.DB.prepare(
+        `SELECT SUM(CASE WHEN hits > 1 THEN 1 ELSE 0 END) AS returningVisitors,
+                SUM(CASE WHEN hits = 1 THEN 1 ELSE 0 END) AS newVisitors
+         FROM (SELECT visitor_id, COUNT(*) AS hits FROM site_visits${where} GROUP BY visitor_id)`,
+      ), { returningVisitors: 0, newVisitors: 0 });
+      return json(200, {
+        range: overview.range,
+        totals: {
+          visits: overview.kpis.visits,
+          uniqueVisitors: overview.kpis.uniqueVisitors,
+          returningVisitors: Number(repeat.returningVisitors || 0),
+          newVisitors: Number(repeat.newVisitors || 0),
+        },
+        visitsByDay: overview.visitsByDay,
+        topPaths: overview.topPaths,
+        topReferrers: overview.topReferrers,
+      });
+    } catch (error) {
+      console.error("[admin] Could not load aggregate traffic", error);
+      return json(500, { error: "Could not load aggregate traffic." });
+    }
+  }
+
   if (path === "/api/admin/templates" && request.method === "GET") {
     try {
       await ensureTemplatesTable(env.DB);
       const term = (url.searchParams.get("q") || "").trim().slice(0, 100);
       const category = (url.searchParams.get("category") || "").trim().slice(0, 80);
-      const filters: string[] = [];
+      const filters: string[] = ["deleted_at IS NULL"];
       const bindings: string[] = [];
       if (term) {
         filters.push("(id LIKE ? OR name LIKE ? OR description LIKE ?)");
@@ -241,11 +304,11 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
         filters.push("category = ? COLLATE NOCASE");
         bindings.push(category);
       }
-      const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+      const where = `WHERE ${filters.join(" AND ")}`;
       const rows = await env.DB.prepare(`SELECT * FROM templates ${where} ORDER BY created_at DESC`)
         .bind(...bindings).all<TemplateRow>();
       const categories = await env.DB.prepare(
-        "SELECT DISTINCT category FROM templates WHERE category <> '' ORDER BY category COLLATE NOCASE",
+        "SELECT DISTINCT category FROM templates WHERE deleted_at IS NULL AND category <> '' ORDER BY category COLLATE NOCASE",
       ).all<{ category: string }>();
       return json(200, { success: true, templates: rows.results || [], categories: (categories.results || []).map((row) => row.category) });
     } catch (error) {
@@ -267,8 +330,11 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
         await env.DB.batch(inputs.map((item) => {
           const template = item as TemplateInput;
           return env.DB.prepare(
-            `INSERT INTO templates (id, name, description, category, preview_url, active, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+            `INSERT INTO templates (id, name, description, category, preview_url, active, created_at, updated_at, deleted_at)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), NULL)
+             ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description,
+               category=excluded.category, preview_url=excluded.preview_url, active=excluded.active,
+               updated_at=datetime('now'), deleted_at=NULL`,
           ).bind(template.id, template.name, template.description, template.category, template.previewUrl, template.active);
         }));
       } catch (error) {
@@ -289,7 +355,7 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
       await ensureTemplatesTable(env.DB);
       let seeded = 0;
       for (const template of DEFAULT_TEMPLATES) {
-        const existing = await env.DB.prepare("SELECT id FROM templates WHERE id = ? LIMIT 1").bind(template.id).first();
+        const existing = await env.DB.prepare("SELECT id FROM templates WHERE id = ? AND deleted_at IS NULL LIMIT 1").bind(template.id).first();
         if (existing) continue;
         await insertTemplate(env.DB, template);
         seeded += 1;
@@ -307,7 +373,7 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
     if (!id || id.length > 160) return json(400, { success: false, error: "Invalid template id." });
     try {
       await ensureTemplatesTable(env.DB);
-      const existing = await env.DB.prepare("SELECT * FROM templates WHERE id = ? LIMIT 1").bind(id).first<TemplateRow>();
+      const existing = await env.DB.prepare("SELECT * FROM templates WHERE id = ? AND deleted_at IS NULL LIMIT 1").bind(id).first<TemplateRow>();
       if (!existing) return json(404, { success: false, error: "Template not found." });
       if (request.method === "GET") return json(200, { success: true, template: existing });
       if (request.method === "PATCH" || request.method === "PUT") {
@@ -316,67 +382,20 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
         if (!input) return json(400, { success: false, error: "A valid template name is required." });
         await env.DB.prepare(
           `UPDATE templates SET name = ?, description = ?, category = ?, preview_url = ?, active = ?, updated_at = datetime('now')
-           WHERE id = ?`,
+           WHERE id = ? AND deleted_at IS NULL`,
         ).bind(input.name, input.description, input.category, input.previewUrl, input.active, id).run();
-        const updated = await env.DB.prepare("SELECT * FROM templates WHERE id = ? LIMIT 1").bind(id).first<TemplateRow>();
+        const updated = await env.DB.prepare("SELECT * FROM templates WHERE id = ? AND deleted_at IS NULL LIMIT 1").bind(id).first<TemplateRow>();
         return json(200, { success: true, template: updated });
       }
       if (request.method === "DELETE") {
-        await env.DB.prepare("DELETE FROM templates WHERE id = ?").bind(id).run();
-        return json(200, { success: true, message: `Template ${id} deleted successfully.` });
+        await env.DB.prepare("UPDATE templates SET active = 0, deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND deleted_at IS NULL").bind(id).run();
+        return json(200, { success: true, id, deleted: true });
       }
       return json(405, { success: false, error: "Method not allowed." });
     } catch (error) {
       console.error("[admin] Could not manage template", error);
       return json(500, { success: false, error: error instanceof Error ? error.message : "Could not manage template." });
     }
-  }
-
-  if (path === "/api/admin/diagnostics" && request.method === "GET") {
-    const page = Math.max(1, Number.parseInt(url.searchParams.get("page") || "1", 10) || 1);
-    const limit = Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get("limit") || "25", 10) || 25));
-    const term = (url.searchParams.get("q") || "").trim().slice(0, 100);
-    const where = term ? "WHERE r.report_json LIKE ? OR u.email LIKE ? OR u.name LIKE ?" : "";
-    const bindings = term ? [`%${term}%`, `%${term}%`, `%${term}%`] : [];
-    const count = await env.DB.prepare(
-      `SELECT COUNT(*) AS total FROM cv_reports r JOIN users u ON u.id = r.user_id ${where}`,
-    ).bind(...bindings).first<{ total: number }>();
-    const rows = await env.DB.prepare(
-      `SELECT r.id, r.user_id, r.report_json, r.created_at, u.email AS user_email, u.name AS user_name
-       FROM cv_reports r JOIN users u ON u.id = r.user_id ${where}
-       ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?`,
-    ).bind(...bindings, limit, (page - 1) * limit).all<ReportRow>();
-    return json(200, {
-      reports: (rows.results || []).map(publicRow),
-      total: count?.total || 0,
-      page, limit,
-    });
-  }
-
-  if (path === "/api/admin/diagnostics/bulk-delete" && request.method === "POST") {
-    const body = await request.json().catch(() => null) as { ids?: unknown } | null;
-    const ids = Array.isArray(body?.ids)
-      ? body.ids.filter((id): id is number => Number.isSafeInteger(id) && id > 0).slice(0, 100)
-      : [];
-    if (!ids.length) return json(400, { error: "No valid report IDs were supplied." });
-    await env.DB.prepare(`DELETE FROM cv_reports WHERE id IN (${ids.map(() => "?").join(",")})`)
-      .bind(...ids).run();
-    return json(200, { deleted: ids.length });
-  }
-
-  const match = /^\/api\/admin\/diagnostics\/(\d+)$/.exec(path);
-  if (match) {
-    const id = Number(match[1]);
-    if (request.method === "DELETE") {
-      await env.DB.prepare("DELETE FROM cv_reports WHERE id = ?").bind(id).run();
-      return json(200, { deleted: true });
-    }
-    if (request.method !== "GET") return json(405, { error: "Method not allowed" });
-    const row = await env.DB.prepare(
-      `SELECT r.id, r.user_id, r.report_json, r.created_at, u.email AS user_email, u.name AS user_name
-       FROM cv_reports r JOIN users u ON u.id = r.user_id WHERE r.id = ? LIMIT 1`,
-    ).bind(id).first<ReportRow>();
-    return row ? json(200, publicRow(row)) : json(404, { error: "CV review not found." });
   }
 
   return json(404, { error: "Admin route not found." });

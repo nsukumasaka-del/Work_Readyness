@@ -23,6 +23,7 @@ import {
   programmesTable,
   siteVisitsTable,
   subscriptionsTable,
+  yocoOrdersTable,
 } from "@workspace/db";
 import {
   ADMIN_ROLES,
@@ -56,14 +57,120 @@ import {
   writeAuditLog,
 } from "../lib/admin-ops";
 import { daysBetween, resolveEntitlement } from "../lib/billing";
+import { createHash } from "node:crypto";
 
 const router: IRouter = Router();
+
+function anonymousCandidateRef(id: unknown) {
+  const value = String(id ?? "unknown");
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `candidate_${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function safeCandidate(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    candidateRef: anonymousCandidateRef(row.id),
+    status: row.status,
+    priority: row.priority,
+    paymentPlan: row.paymentPlan,
+    plan: row.plan,
+    programmeStatus: row.programmeStatus,
+    programmeDaysRemaining: row.programmeDaysRemaining,
+    programmeEndDate: row.programmeEndDate,
+    accessLevel: row.accessLevel,
+    lastLoginAt: row.lastLoginAt,
+    scheduledAt: row.scheduledAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function safeTrafficLabel(value: unknown, kind: "path" | "referrer") {
+  const raw = String(value || "");
+  if (!raw) return kind === "referrer" ? null : "/";
+  if (kind === "path") return raw.split(/[?#]/, 1)[0].slice(0, 240) || "/";
+  try { return new URL(raw).origin.slice(0, 200); } catch { return raw === "direct" ? "direct" : null; }
+}
+
+function sanitizeTrafficAggregates(source: Record<string, unknown>) {
+  return {
+    ...source,
+    topPaths: Array.isArray(source.topPaths) ? source.topPaths.map((entry) => {
+      const row = entry as Record<string, unknown>;
+      return { path: safeTrafficLabel(row.path, "path"), visits: row.visits };
+    }) : [],
+    topReferrers: Array.isArray(source.topReferrers) ? source.topReferrers.map((entry) => {
+      const row = entry as Record<string, unknown>;
+      return { referrer: safeTrafficLabel(row.referrer, "referrer"), visits: row.visits };
+    }) : [],
+  };
+}
+
+function sanitizeAdminPayload(path: string, body: unknown): unknown {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+  const source = body as Record<string, unknown>;
+  if (path.startsWith("/admin/users")) {
+    return {
+      ...source,
+      users: Array.isArray(source.users) ? source.users.map((row) => safeCandidate(row as Record<string, unknown>)) : source.users,
+      user: source.user && typeof source.user === "object" ? safeCandidate(source.user as Record<string, unknown>) : source.user,
+      diagnostics: undefined,
+      coaching: undefined,
+    };
+  }
+  if (path.startsWith("/admin/coaching")) {
+    return {
+      ...source,
+      applications: Array.isArray(source.applications) ? source.applications.map((row) => safeCandidate(row as Record<string, unknown>)) : source.applications,
+      application: source.application && typeof source.application === "object" ? safeCandidate(source.application as Record<string, unknown>) : source.application,
+    };
+  }
+  if (path === "/admin/traffic") {
+    const { visits: _visits, total: _total, page: _page, limit: _limit, conversions: _conversions, ...aggregates } = source;
+    return sanitizeTrafficAggregates(aggregates);
+  }
+  if (path === "/admin/overview") return sanitizeTrafficAggregates(source);
+  if (path === "/admin/audit") {
+    return {
+      ...source,
+      logs: Array.isArray(source.logs) ? source.logs.map((entry) => {
+        const row = entry as Record<string, unknown>;
+        return { id: row.id, action: row.action, entity: row.entity ?? row.entityType, entityId: row.entityId, createdAt: row.createdAt, summary: "Administrative event" };
+      }) : [],
+    };
+  }
+  if (path === "/admin/notifications") return { notifications: [] };
+  if (path === "/admin/search") return { jobs: source.jobs ?? [], admins: source.admins ?? [], results: [] };
+  if (path.startsWith("/admin/export/") && !path.endsWith("/jobs")) {
+    return { rows: [], filename: "privacy-protected.csv" };
+  }
+  return body;
+}
+
+router.use("/admin", (req, res, next) => {
+  const sendJson = res.json.bind(res);
+  const adminPath = (req.originalUrl.split("?", 1)[0] || req.path).replace(/^\/api(?=\/admin(?:\/|$))/, "");
+  res.json = ((body: unknown) => sendJson(sanitizeAdminPayload(adminPath, body))) as typeof res.json;
+  next();
+});
+
+router.use("/admin/diagnostics", requireAdmin, (_req, res) => {
+  res.status(410).json({ error: "CV review records are not available in the admin console." });
+});
+
+router.use("/admin/visits", requireAdmin, (_req, res) => {
+  res.status(410).json({ error: "Individual visit records are not available; use aggregate traffic metrics." });
+});
 
 const ALL_PERMISSIONS: AdminPermission[] = [
   "manage_admins",
   "manage_users",
   "manage_coaching",
-  "manage_diagnostics",
   "manage_jobs",
   "manage_settings",
   "view_audit",
@@ -432,6 +539,7 @@ router.get("/admin/overview", requireAdmin, async (req, res) => {
   const profileFilter = rangeConditions(profilesTable.createdAt, range);
   const diagnosticFilter = rangeConditions(diagnosticReportsTable.createdAt, range);
   const coachingFilter = rangeConditions(coachingApplicationsTable.createdAt, range);
+  const paymentFilter = rangeConditions(yocoOrdersTable.createdAt, range);
 
   const [
     visitRows,
@@ -539,50 +647,16 @@ router.get("/admin/overview", requireAdmin, async (req, res) => {
     db.select().from(adminAuditLogTable).orderBy(desc(adminAuditLogTable.createdAt)).limit(8),
   ]);
 
-  const activity = [
-    ...recentProfiles.map((profile) => ({
-      type: "user" as const,
-      id: profile.id,
-      title: `${profile.name} created a profile`,
-      detail: profile.email,
-      at: profile.createdAt,
-      section: "users" as const,
-    })),
-    ...recentDiagnostics.map((report) => ({
-      type: "diagnostic" as const,
-      id: report.id,
-      title: `CV review · ${report.fileName}`,
-      detail: `ATS ${report.atsScore} · Authenticity ${report.authenticityScore}`,
-      at: report.createdAt,
-      section: "diagnostics" as const,
-    })),
-    ...recentCoaching.map((app) => ({
-      type: "coaching" as const,
-      id: app.id,
-      title: `Coaching application · ${app.name}`,
-      detail: `${app.paymentPlan} · ${normalizeCoachingStatus(app.status)}`,
-      at: app.createdAt,
-      section: "coaching" as const,
-    })),
-    ...recentJobs.map((job) => ({
-      type: "job" as const,
-      id: job.id,
-      title: `Job · ${job.title}`,
-      detail: `${job.company} · ${job.status}`,
-      at: job.updatedAt,
-      section: "jobs" as const,
-    })),
-    ...recentAudit.map((log) => ({
-      type: "audit" as const,
-      id: log.id,
-      title: log.summary,
-      detail: `${log.adminEmail} · ${log.action}`,
-      at: log.createdAt,
-      section: "admins" as const,
-    })),
-  ]
-    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
-    .slice(0, 25);
+  const successfulPaymentFilter = paymentFilter
+    ? and(paymentFilter, eq(yocoOrdersTable.status, "paid"))
+    : eq(yocoOrdersTable.status, "paid");
+  const [processedPaymentRows, successfulPaymentRows, revenueRows] = await Promise.all([
+    db.select({ value: count() }).from(yocoOrdersTable).where(paymentFilter),
+    db.select({ value: count() }).from(yocoOrdersTable).where(successfulPaymentFilter),
+    db.select({ value: sql<number>`coalesce(sum(${yocoOrdersTable.amount}), 0)` }).from(yocoOrdersTable).where(successfulPaymentFilter),
+  ]);
+  const processedPayments = Number(processedPaymentRows[0]?.value || 0);
+  const successfulTransactions = Number(successfulPaymentRows[0]?.value || 0);
 
   const health = await liveHealth();
 
@@ -595,8 +669,10 @@ router.get("/admin/overview", requireAdmin, async (req, res) => {
       usersTotal: Number(totalProfiles[0]?.value || 0),
       activeUsers: Number(activeUsers[0]?.value || 0),
       inactiveUsers: Number(inactiveUsers[0]?.value || 0),
-      cvReviews: Number(diagnosticRows[0]?.value || 0),
-      cvReviewsTotal: Number(totalDiagnostics[0]?.value || 0),
+      successfulTransactions,
+      processedPayments,
+      revenueCents: Number(revenueRows[0]?.value || 0),
+      paymentConversionRate: processedPayments ? (successfulTransactions / processedPayments) * 100 : 0,
       coachingApplications: Number(coachingRows[0]?.value || 0),
       coachingTotal: Number(totalCoaching[0]?.value || 0),
       coachingPending: Number(coachingPending[0]?.value || 0),
@@ -605,14 +681,6 @@ router.get("/admin/overview", requireAdmin, async (req, res) => {
       jobsPublished: Number(jobsPublished[0]?.value || 0),
       jobsDraft: Number(jobsDraft[0]?.value || 0),
       jobsArchived: Number(jobsArchived[0]?.value || 0),
-      avgAuthenticity: Math.round(Number(scoreRows[0]?.avgAuthenticity || 0)),
-      avgAts: Math.round(Number(scoreRows[0]?.avgAts || 0)),
-    },
-    signals: {
-      profileCount: Number(totalProfiles[0]?.value || 0),
-      diagnosticScore: recentDiagnostics[0]?.authenticityScore ?? null,
-      interviewCompletedCount: recentDiagnostics.length > 0 ? recentDiagnostics.length : 0,
-      latestRole: recentProfiles.find((p) => p.targetRole?.trim())?.targetRole || null,
     },
     visitsByDay: visitsByDay.map((row) => ({
       day: row.day,
@@ -626,7 +694,7 @@ router.get("/admin/overview", requireAdmin, async (req, res) => {
       referrer: row.referrer,
       visits: Number(row.visits),
     })),
-    activity,
+    activity: [],
     health,
   });
 });
@@ -634,25 +702,12 @@ router.get("/admin/overview", requireAdmin, async (req, res) => {
 // ─── Users ──────────────────────────────────────────────────────────────────
 
 router.get("/admin/users", requireAdmin, async (req, res) => {
-  const q = String(req.query.q || "")
-    .trim()
-    .toLowerCase();
   const status = String(req.query.status || "").trim().toLowerCase();
   const { page, limit, offset } = parsePagination(req);
 
   const filters = [];
   if (status && USER_STATUSES.includes(status as (typeof USER_STATUSES)[number])) {
     filters.push(eq(profilesTable.status, status));
-  }
-  if (q) {
-    filters.push(
-      or(
-        ilike(profilesTable.name, `%${q}%`),
-        ilike(profilesTable.email, `%${q}%`),
-        ilike(profilesTable.targetRole, `%${q}%`),
-        ilike(profilesTable.location, `%${q}%`),
-      ),
-    );
   }
   const where = filters.length ? and(...filters) : undefined;
 
@@ -1064,12 +1119,7 @@ router.get("/admin/coaching", requireAdmin, async (req, res) => {
   }
   if (q) {
     filters.push(
-      or(
-        ilike(coachingApplicationsTable.name, `%${q}%`),
-        ilike(coachingApplicationsTable.email, `%${q}%`),
-        ilike(coachingApplicationsTable.paymentPlan, `%${q}%`),
-        ilike(coachingApplicationsTable.goals, `%${q}%`),
-      ),
+      ilike(coachingApplicationsTable.paymentPlan, `%${q}%`),
     );
   }
   const where = filters.length ? and(...filters) : undefined;
@@ -1717,78 +1767,18 @@ router.post("/admin/notifications/:id/read", requireAdmin, async (req, res) => {
 router.get("/admin/search", requireAdmin, async (req, res) => {
   const q = String(req.query.q || "").trim();
   if (!q) {
-    res.json({ users: [], diagnostics: [], coaching: [], jobs: [], admins: [] });
+    res.json({ jobs: [], admins: [], results: [] });
     return;
   }
   const pattern = `%${q}%`;
 
-  const [users, diagnostics, coaching, jobs, admins] = await Promise.all([
-    db
-      .select()
-      .from(profilesTable)
-      .where(
-        or(
-          ilike(profilesTable.name, pattern),
-          ilike(profilesTable.email, pattern),
-          ilike(profilesTable.targetRole, pattern),
-        ),
-      )
-      .orderBy(desc(profilesTable.createdAt))
-      .limit(8),
-    db
-      .select()
-      .from(diagnosticReportsTable)
-      .where(
-        or(
-          ilike(diagnosticReportsTable.fileName, pattern),
-          ilike(diagnosticReportsTable.profileEmail, pattern),
-          ilike(diagnosticReportsTable.targetRole, pattern),
-        ),
-      )
-      .orderBy(desc(diagnosticReportsTable.createdAt))
-      .limit(8),
-    db
-      .select()
-      .from(coachingApplicationsTable)
-      .where(
-        or(
-          ilike(coachingApplicationsTable.name, pattern),
-          ilike(coachingApplicationsTable.email, pattern),
-          ilike(coachingApplicationsTable.goals, pattern),
-        ),
-      )
-      .orderBy(desc(coachingApplicationsTable.createdAt))
-      .limit(8),
-    db
-      .select()
-      .from(jobsTable)
-      .where(
-        or(
-          ilike(jobsTable.title, pattern),
-          ilike(jobsTable.company, pattern),
-          ilike(jobsTable.location, pattern),
-          ilike(jobsTable.sector, pattern),
-        ),
-      )
-      .orderBy(desc(jobsTable.updatedAt))
-      .limit(8),
-    db
-      .select()
-      .from(adminUsersTable)
-      .where(
-        or(ilike(adminUsersTable.name, pattern), ilike(adminUsersTable.email, pattern)),
-      )
-      .orderBy(asc(adminUsersTable.name))
-      .limit(8),
+  const [safeJobs, safeAdmins] = await Promise.all([
+    db.select().from(jobsTable).where(or(ilike(jobsTable.title, pattern), ilike(jobsTable.company, pattern), ilike(jobsTable.location, pattern), ilike(jobsTable.sector, pattern))).orderBy(desc(jobsTable.updatedAt)).limit(8),
+    db.select().from(adminUsersTable).where(or(ilike(adminUsersTable.name, pattern), ilike(adminUsersTable.email, pattern))).orderBy(asc(adminUsersTable.name)).limit(8),
   ]);
+  res.json({ jobs: safeJobs, admins: safeAdmins.map(toPublicAdmin), results: [] });
+  return;
 
-  res.json({
-    users: users.map(stripPassword),
-    diagnostics,
-    coaching: coaching.map(normalizeCoachingRow),
-    jobs,
-    admins: admins.map(toPublicAdmin),
-  });
 });
 
 // ─── Settings ───────────────────────────────────────────────────────────────
@@ -1842,6 +1832,11 @@ router.get("/admin/export/:entity", requireAdmin, async (req, res) => {
     .trim()
     .toLowerCase();
   const stamp = new Date().toISOString().slice(0, 10);
+
+  if (entity !== "jobs") {
+    res.status(403).json({ error: "Exports containing candidate, CV, visit or audit records are disabled." });
+    return;
+  }
 
   if (entity === "users") {
     const rows = await db.select().from(profilesTable).orderBy(desc(profilesTable.createdAt));
@@ -1898,13 +1893,18 @@ router.get("/admin/export/:entity", requireAdmin, async (req, res) => {
 // ─── Analytics ──────────────────────────────────────────────────────────────
 
 router.post("/analytics/visit", async (req, res) => {
-  const pathName = String(req.body?.path || "/").slice(0, 240);
+  const pathName = String(req.body?.path || "/").split(/[?#]/, 1)[0].slice(0, 240);
   if (pathName.startsWith("/admin")) {
     res.status(204).end();
     return;
   }
-  const visitorId = String(req.body?.visitorId || "anonymous").slice(0, 120);
-  const referrer = req.body?.referrer ? String(req.body.referrer).slice(0, 400) : null;
+  const visitorId = createHash("sha256").update(String(req.body?.visitorId || "anonymous").slice(0, 160)).digest("hex").slice(0, 32);
+  let referrer: string | null = null;
+  try {
+    referrer = req.body?.referrer ? new URL(String(req.body.referrer)).origin.slice(0, 200) : null;
+  } catch {
+    referrer = null;
+  }
   const userAgent = (req.header("user-agent") || "").slice(0, 300);
 
   await db.insert(siteVisitsTable).values({

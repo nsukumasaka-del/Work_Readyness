@@ -6,7 +6,6 @@ import {
   CheckCheck,
   ClipboardList,
   Eye,
-  FileText,
   LayoutDashboard,
   LayoutTemplate,
   Lock,
@@ -48,7 +47,6 @@ import {
 import AdminsSection from "./sections/AdminsSection";
 import AuditSection from "./sections/AuditSection";
 import CoachingSection from "./sections/CoachingSection";
-import DiagnosticsSection from "./sections/DiagnosticsSection";
 import JobsSection from "./sections/JobsSection";
 import OverviewSection from "./sections/OverviewSection";
 import SettingsSection from "./sections/SettingsSection";
@@ -71,19 +69,13 @@ const NAV: NavItem[] = [
     id: "overview",
     label: "Overview",
     icon: <LayoutDashboard size={16} />,
-    description: "Operational view of visits, users, diagnostics and coaching demand.",
+    description: "Privacy-safe traffic, payment and operational health metrics.",
   },
   {
     id: "users",
     label: "Users",
     icon: <Users size={16} />,
     description: "Search, review and manage registered candidate profiles.",
-  },
-  {
-    id: "diagnostics",
-    label: "CV reviews",
-    icon: <FileText size={16} />,
-    description: "Every CV diagnostic report generated on the platform.",
   },
   {
     id: "coaching",
@@ -95,7 +87,7 @@ const NAV: NavItem[] = [
     id: "traffic",
     label: "Traffic",
     icon: <Eye size={16} />,
-    description: "Traffic analytics, top pages and the raw visit log.",
+    description: "Aggregate traffic analytics without individual visitor records.",
   },
   {
     id: "jobs",
@@ -156,9 +148,6 @@ function AdminGate() {
 function flattenSearch(payload: SearchResponse | null): Array<SearchResultItem & { section: SectionKey }> {
   if (!payload) return [];
   const groups: Array<[SectionKey, SearchResultItem[] | undefined]> = [
-    ["users", payload.users],
-    ["diagnostics", payload.diagnostics],
-    ["coaching", payload.coaching],
     ["jobs", payload.jobs],
   ];
   const collected: Array<SearchResultItem & { section: SectionKey }> = [];
@@ -175,7 +164,7 @@ function flattenSearch(payload: SearchResponse | null): Array<SearchResultItem &
 
 export function AdminApp() {
   const [token, setToken] = useState<string | null>(() => getAdminToken() || getSessionToken());
-  const [section, setSection] = useState<SectionKey>("diagnostics");
+  const [section, setSection] = useState<SectionKey>("overview");
   const [range, setRange] = useState<AdminRange>("30d");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -738,17 +727,6 @@ export function AdminApp() {
             />
           ) : null}
 
-          {section === "diagnostics" ? (
-            <DiagnosticsSection
-              token={sectionProps.token}
-              can={sectionProps.can}
-              refreshTick={sectionProps.refreshTick}
-              focusId={sectionProps.focusId}
-              onFocusHandled={sectionProps.onFocusHandled}
-              onMutated={sectionProps.onMutated}
-            />
-          ) : null}
-
           {section === "coaching" ? (
             <CoachingSection
               token={sectionProps.token}
@@ -829,7 +807,7 @@ export function AdminApp() {
         <DialogContent className="max-w-xl rounded-2xl">
           <DialogHeader>
             <DialogTitle>Search the console</DialogTitle>
-            <DialogDescription>Find users, CV reviews, coaching applications and job listings.</DialogDescription>
+            <DialogDescription>Find job listings and other non-candidate operational records.</DialogDescription>
           </DialogHeader>
 
           <label className="relative block">

@@ -68,6 +68,7 @@ export default function TemplatesSection({ token, can, refreshTick, onMutated }:
   const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [optimisticallyDeleted, setOptimisticallyDeleted] = useState<Set<string>>(() => new Set());
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const debouncedSearch = useDebouncedValue(search);
   const canWrite = can(PERMISSIONS.templates);
@@ -78,7 +79,7 @@ export default function TemplatesSection({ token, can, refreshTick, onMutated }:
     refreshTick,
   );
 
-  const templates = data?.templates ?? [];
+  const templates = (data?.templates ?? []).filter((template) => !optimisticallyDeleted.has(String(template.id)));
   const categoryOptions = useMemo(() => [
     { value: "", label: "All categories" },
     ...(data?.categories ?? []).map((value) => ({ value, label: value })),
@@ -159,15 +160,28 @@ export default function TemplatesSection({ token, can, refreshTick, onMutated }:
   }
 
   async function handleDelete() {
-    if (!deleteTarget) return;
+    if (!deleteTarget || deleting) return;
+    const deletedId = String(deleteTarget.id);
+    const deletedName = templateName(deleteTarget);
+    setOptimisticallyDeleted((current) => new Set(current).add(deletedId));
     setDeleting(true);
     try {
-      await adminFetch(`/admin/templates/${encodeURIComponent(String(deleteTarget.id))}`, token, { method: "DELETE" });
-      toast({ title: "Template deleted", description: templateName(deleteTarget) });
+      await adminFetch(`/admin/templates/${encodeURIComponent(deletedId)}`, token, { method: "DELETE" });
+      toast({ title: "Template deleted", description: `${deletedName} was removed from the active catalog.` });
       setDeleteTarget(null);
       await reload(true);
+      setOptimisticallyDeleted((current) => {
+        const next = new Set(current);
+        next.delete(deletedId);
+        return next;
+      });
       onMutated();
     } catch (err) {
+      setOptimisticallyDeleted((current) => {
+        const next = new Set(current);
+        next.delete(deletedId);
+        return next;
+      });
       toast({ title: "Delete failed", description: errorMessage(err), variant: "destructive" });
     } finally {
       setDeleting(false);
@@ -225,7 +239,7 @@ export default function TemplatesSection({ token, can, refreshTick, onMutated }:
         </DialogContent>
       </Dialog>
 
-      <ConfirmDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }} title="Delete this template?" description={deleteTarget ? `${templateName(deleteTarget)} will be permanently removed from the D1 catalog.` : undefined} confirmLabel={deleting ? "Deleting…" : "Delete template"} onConfirm={() => void handleDelete()} />
+      <ConfirmDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }} title="Remove this template?" description={deleteTarget ? `${templateName(deleteTarget)} will be removed from the active catalog and retained as a recoverable record.` : undefined} confirmLabel={deleting ? "Removing…" : "Remove template"} onConfirm={() => void handleDelete()} />
     </>
   );
 }

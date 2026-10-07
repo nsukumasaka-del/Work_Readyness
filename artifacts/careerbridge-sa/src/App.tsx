@@ -842,7 +842,6 @@ function AppShell({ children }: { children: ReactNode }) {
       // Optional cache/cookie cleanup must not interrupt the navigation reset.
       try {
         markJobMatchesRead();
-        document.cookie = 'bonlist_session=; Path=/; Max-Age=0; SameSite=Lax';
         void queryClient.cancelQueries().catch(error => console.warn('[Auth] Query cancellation failed', error));
         queryClient.clear();
       } catch (error) {

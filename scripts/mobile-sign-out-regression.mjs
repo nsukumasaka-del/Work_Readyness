@@ -22,7 +22,7 @@ const bundle = await build({ stdin: { resolveDir: resolve('artifacts/careerbridg
   b.onResolve({filter:/^@capacitor\/preferences$/},()=>({path:'preferences',namespace:'mock'}));
   b.onResolve({filter:/^@capacitor\/app$/},()=>({path:'app',namespace:'mock'}));
   b.onResolve({filter:/api-base$/},()=>({path:'api',namespace:'mock'}));
-  b.onLoad({filter:/.*/,namespace:'mock'},args=>({loader:'js',contents: args.path==='core' ? `export const Capacitor={isNativePlatform:()=>true};export const CapacitorCookies={deleteCookie:async args=>{window.cookieDeletes.push(args);}};` : args.path==='preferences' ? `export const Preferences={remove:async args=>{window.preferenceDeletes.push(args.key);}};` : args.path==='app' ? `export const App={addListener:async(name,callback)=>{window.nativeBack=callback;return {remove:async()=>{window.nativeBack=null;}};},exitApp:async()=>{window.exited=true;}};` : `export const apiUrl=path=>path;`}));
+  b.onLoad({filter:/.*/,namespace:'mock'},args=>({loader:'js',contents: args.path==='core' ? `export const Capacitor={isNativePlatform:()=>true};` : args.path==='preferences' ? `export const Preferences={remove:async args=>{window.preferenceDeletes.push(args.key);}};` : args.path==='app' ? `export const App={addListener:async(name,callback)=>{window.nativeBack=callback;return {remove:async()=>{window.nativeBack=null;}};},exitApp:async()=>{window.exited=true;}};` : `export const apiUrl=path=>path;`}));
 }}] });
 const browser = await chromium.launch();
 try {
@@ -30,7 +30,7 @@ try {
   await page.route('https://bonlist.example/**',route=>route.fulfill({contentType:'text/html',body:'<main>Logout regression</main>'}));
   await page.goto('https://bonlist.example/dashboard');
   await page.evaluate(()=>{
-    window.cookieDeletes=[];window.preferenceDeletes=[];window.requests=[];
+    window.preferenceDeletes=[];window.requests=[];
     for(const store of [localStorage,sessionStorage]){
       store.setItem('careerbridge-profile',JSON.stringify({id:'user1',email:'test@example.com'}));
       store.setItem('careerbridge-session-token','saved-token');store.setItem('careerbridge-admin-token','admin-token');store.setItem('careerbridge-is-admin','1');
@@ -64,13 +64,11 @@ try {
     auth.persistSessionToken('stale-hydration');auth.persistProfile({id:'user1',email:'test@example.com'});
     await completion;
     const removed=[localStorage,sessionStorage].every(s=>['careerbridge-profile','careerbridge-session-token','careerbridge-admin-token','careerbridge-is-admin','careerbridge-report','bonlist-yoco-pending'].every(key=>s.getItem(key)===null));
-    return {immediate,removed,elapsed:Date.now()-started,aborted:await inFlight,cookieDeletes:window.cookieDeletes,preferenceDeletes:window.preferenceDeletes,requests:window.requests,theme:localStorage.getItem('theme')};
+    return {immediate,removed,elapsed:Date.now()-started,aborted:await inFlight,preferenceDeletes:window.preferenceDeletes,requests:window.requests,theme:localStorage.getItem('theme')};
   });
   assert.deepEqual(result.immediate,{profile:null,token:null,admin:false,events:1});
   assert.ok(result.removed);assert.ok(result.elapsed<4500);assert.equal(result.aborted,'AbortError');assert.equal(result.theme,'light');
   assert.equal(result.requests.find(r=>r.url.endsWith('/logout')).authorization,'Bearer saved-token');
-  assert.equal(result.cookieDeletes.length,9);
-  assert.ok(result.cookieDeletes.some(cookie=>cookie.url==='https://bonlist.example'),'local WebView origin cookies must be cleared');
   const authKeys = await page.evaluate(()=>[...window.testAuth.AUTH_STORAGE_KEYS,'bonlist.native.offline-workstation.v1']);
   assert.deepEqual(result.preferenceDeletes,authKeys,'remove the same account keys from native and WebView storage without clearing saved CV preferences');
   await page.evaluate(()=>{history.replaceState({},'', '/login?signingOut=1');window.testAuth.mountQueryView();});
@@ -90,15 +88,13 @@ try {
   const bridgeFailure = await page.evaluate(async()=>{
     // Older/offline WebViews may throw synchronously instead of rejecting fetch.
     window.fetch=()=>{throw new Error('Native network bridge unavailable');};
-    const cookiesBefore=window.cookieDeletes.length;
     window.preferenceDeletes.push=()=>{throw new Error('Native preference bridge unavailable');};
     const started=Date.now();
     await window.testAuth.beginSignOut();
-    return {token:window.testAuth.getSessionToken(),profile:window.testAuth.readProfile(),elapsed:Date.now()-started,cookiesAttempted:window.cookieDeletes.length-cookiesBefore};
+    return {token:window.testAuth.getSessionToken(),profile:window.testAuth.readProfile(),elapsed:Date.now()-started};
   });
   assert.equal(bridgeFailure.token,null);
   assert.equal(bridgeFailure.profile,null);
-  assert.equal(bridgeFailure.cookiesAttempted,9,'a synchronous preference failure must not skip cookie cleanup');
   assert.ok(bridgeFailure.elapsed<4500,'synchronous network failures must not strand logout');
   await page.evaluate(()=>window.testAuth.clearAuthSession());
   await page.goto('https://bonlist.example/login?signedOut=1');

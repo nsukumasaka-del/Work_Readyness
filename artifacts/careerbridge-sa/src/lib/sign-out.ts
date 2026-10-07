@@ -1,4 +1,4 @@
-import { Capacitor, CapacitorCookies } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import { App as NativeApp } from '@capacitor/app';
 import { apiUrl } from './api-base';
@@ -48,8 +48,6 @@ export function beginSignOut() {
   const nativeCleanup = (async () => { if (!Capacitor.isNativePlatform()) return; const results = await Promise.allSettled([
     // Remove only account-specific data, never native CV documents/preferences.
     ...[...AUTH_STORAGE_KEYS, 'bonlist.native.offline-workstation.v1'].map(key => Promise.resolve().then(() => Preferences.remove({ key }))),
-    ...Array.from(new Set(['https://www.bonlist.site', 'https://bonlist.site', window.location.origin])).flatMap(url =>
-      ['bonlist_session', 'session_token', 'session'].map(key => Promise.resolve().then(() => CapacitorCookies.deleteCookie({ url, key })))),
   ]); if (results.some(result => result.status === 'rejected')) console.warn('[Auth] Some native cleanup calls failed; local access remains revoked'); })();
   // Native plugins can also stall. They must never block local logout/navigation.
   let navigationTimer: ReturnType<typeof setTimeout>;

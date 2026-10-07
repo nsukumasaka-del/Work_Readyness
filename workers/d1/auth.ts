@@ -88,13 +88,12 @@ type ChallengeRow = {
 };
 
 function json(data: unknown, status = 200, headers?: HeadersInit): Response {
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set("content-type", "application/json; charset=utf-8");
+  responseHeaders.set("cache-control", "no-store");
   return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-      ...headers,
-    },
+    headers: responseHeaders,
   });
 }
 
@@ -158,18 +157,19 @@ export function sessionCookie(token: string, expiresAt: Date, secure: boolean, r
   return parts.join("; ");
 }
 
-function clearSessionCookie(secure: boolean, request?: Request): string {
+function clearSessionCookie(request?: Request): string {
   const parts = [
     `${SESSION_COOKIE}=`,
     "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
-    "Max-Age=0",
   ];
   const domain = request ? cookieDomainForRequest(request) : null;
   if (domain) parts.push(`Domain=${domain}`);
-  if (secure) parts.push("Secure");
+  parts.push(
+    "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    "HttpOnly",
+    "Secure",
+    "SameSite=Lax",
+  );
   return parts.join("; ");
 }
 
@@ -565,10 +565,15 @@ export async function handleMe(request: Request, env: D1Env): Promise<Response> 
 export async function handleLogout(request: Request, env: D1Env): Promise<Response> {
   const token = readSessionToken(request);
   if (token) {
-    await env.DB.prepare("DELETE FROM sessions WHERE token = ?").bind(token).run();
+    try {
+      await env.DB.prepare("DELETE FROM sessions WHERE token = ?").bind(token).run();
+    } catch (error) {
+      // Cookie invalidation must never depend on a successful token lookup or D1 write.
+      console.warn("[auth] Session revocation failed during logout", error);
+    }
   }
   const headers = new Headers();
-  headers.append("Set-Cookie", clearSessionCookie(isSecureRequest(request), request));
+  headers.append("Set-Cookie", clearSessionCookie(request));
   return json({ ok: true }, 200, headers);
 }
 

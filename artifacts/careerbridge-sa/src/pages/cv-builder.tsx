@@ -1915,7 +1915,7 @@ function TemplateThumbnail({
       onClick={onSelect}
       aria-label={`${tpl.name}${selected ? ", currently selected" : ", select template"}`}
       aria-pressed={selected}
-      className={`group relative flex w-full flex-col rounded-2xl border p-2 text-left transition-all duration-200 hover:scale-[1.015] ${
+      className={`cv-template-thumbnail group relative flex w-full flex-col rounded-2xl border p-2 text-left transition-[border-color,background-color,box-shadow] duration-150 ${
         selected
           ? "border-primary bg-primary/5 ring-2 ring-primary/40 shadow-md"
           : "border-border bg-card hover:border-primary/50 hover:bg-secondary/40 hover:shadow-sm"
@@ -5871,13 +5871,13 @@ export default function CvBuilderPage() {
               return <button key={category} type="button" role="tab" aria-selected={active} onClick={() => setTemplateFilter(key)} className={`shrink-0 rounded-full border px-4 py-2 text-xs font-semibold transition ${active ? "border-slate-950 bg-slate-950 text-white dark:border-indigo-500 dark:bg-indigo-600" : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"}`}>{category}</button>;
             })}
           </div>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="cv-template-scroll-region grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             <button type="button" onClick={() => { handleTemplateChange("serif_classic"); setLocation("/cv-builder/edit?intake=1"); }} className="flex min-h-[330px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white/60 p-6 text-center transition hover:border-indigo-500 hover:bg-indigo-50/60 dark:border-slate-700 dark:bg-slate-900/50 dark:hover:bg-indigo-950/20"><span className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-slate-100 text-3xl font-light text-slate-500 dark:bg-slate-800 dark:text-slate-300">+</span><strong className="text-base">Start from Scratch</strong><span className="mt-2 max-w-48 text-xs leading-5 text-slate-500 dark:text-slate-400">Open the editor and enter your information in a clean ATS-friendly layout.</span></button>
             {catalogTemplates.map((template, index) => {
               const premium = ["editorial_gold", "creative", "stylish", "polished", "high_performer"].includes(template.id);
               const access = templateAccess(monetization, template.id);
               const categoryLabel = template.category === "Traditional" ? "PROFESSIONAL" : template.category.toUpperCase();
-              return <article key={template.id} className="group relative rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900">
+              return <article key={template.id} className="group relative rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition-[border-color,box-shadow] hover:border-indigo-300 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900">
                 <span className={`absolute right-5 top-5 z-10 rounded-full px-2.5 py-1 text-[9px] font-black tracking-wide shadow-sm ${access.owned ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : premium ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"}`}>{access.owned ? "✓ OWNED" : premium ? "R50 · LIFETIME" : "FREE"}</span>
                 <TemplateThumbnail tpl={template} selected={selectedTemplate === template.id} onSelect={() => selectLandingTemplate(template.id)} doc={cv?.document} />
                 <div className="mt-3 flex items-start justify-between gap-2"><div className="min-w-0"><span className="text-[9px] font-bold tracking-[0.12em] text-indigo-600 dark:text-indigo-300">{categoryLabel}</span><h2 className="mt-1 truncate text-sm font-bold">{template.name}</h2><p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500 dark:text-slate-400">{template.tagline}</p></div><span className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-[9px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{index === 0 ? "1–2 pages" : template.pageDensity}</span></div>
@@ -5995,7 +5995,7 @@ export default function CvBuilderPage() {
                 </button>
               ))}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+            <div className="cv-template-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
               <label className="mb-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 dark:border-slate-700 dark:bg-slate-950">
                 <Search size={16} className="shrink-0 text-slate-400" />
                 <input value={templateSearch} onChange={(event) => setTemplateSearch(event.target.value)} className="min-h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Search templates" aria-label="Search templates" />
@@ -6004,7 +6004,7 @@ export default function CvBuilderPage() {
                 {filteredTemplates.map((template) => {
                   const access = templateAccess(monetization, template.id);
                   return (
-                  <article key={template.id} className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-700 hover:shadow-lg">
+                  <article key={template.id} className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 p-3 shadow-sm transition-[border-color,box-shadow] hover:border-slate-700 hover:shadow-lg">
                     <span className={`absolute right-5 top-5 z-10 rounded-full px-2.5 py-1 text-[9px] font-black tracking-wide shadow-sm ${access.owned ? "bg-emerald-100 text-emerald-800" : access.premium ? "bg-amber-100 text-amber-800" : "bg-white text-slate-700"}`}>
                       {access.owned ? "✓ YOURS FOR LIFE" : access.premium ? "R50 · LIFETIME" : "FREE"}
                     </span>
@@ -6154,7 +6154,7 @@ export default function CvBuilderPage() {
                 </div>
 
                 {/* Templates Grid — visible mini A4 thumbnails */}
-                <div className="grid grid-cols-2 gap-2.5 max-h-[calc(100vh-150px)] overflow-y-auto pr-1">
+                <div className="cv-template-scroll-region grid grid-cols-2 gap-2.5 max-h-[calc(100vh-150px)] overflow-y-auto overscroll-contain pr-1">
                   {filteredTemplates.map((tpl) => (
                     <TemplateThumbnail
                       key={tpl.id}

@@ -889,6 +889,20 @@
   animation: cv-toast-life 3.5s ease-in-out forwards;
 }
 
+/* Template cards contain a scaled, full-document preview. Let Chromium skip
+   layout and paint work for cards outside the scroll viewport so the catalog
+   remains responsive on lower-powered Android devices. */
+.cv-template-thumbnail {
+  content-visibility: auto;
+  contain: layout paint style;
+  contain-intrinsic-size: auto 180px;
+}
+
+.cv-template-scroll-region {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 #bonlist-cv-document .cv-inline-bullet {
   padding-inline-start: 1rem !important;
   background-image: radial-gradient(circle, currentColor 0 2px, transparent 2.5px);

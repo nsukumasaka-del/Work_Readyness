@@ -2389,6 +2389,16 @@ function DiagnosticPage() {
   const [location, setLocation] = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [activeWorkstationTab, setActiveWorkstationTab] = useState<'review' | 'jobs' | 'advice'>('review');
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [reviewFile, setReviewFile] = useState<File | null>(null);
+  const [reviewFileName, setReviewFileName] = useState('');
+  const [reviewRole, setReviewRole] = useState('');
+  const [reviewArea, setReviewArea] = useState('');
+  const [reviewDragging, setReviewDragging] = useState(false);
+  const [reviewInProgress, setReviewInProgress] = useState(false);
+  const [reviewProgressStep, setReviewProgressStep] = useState(0);
+  const [reviewUploadError, setReviewUploadError] = useState('');
+  const reviewFileInputRef = useRef<HTMLInputElement | null>(null);
   const unreadMatchesCount = useUnreadJobMatches();
 
   useEffect(() => {
@@ -2450,6 +2460,94 @@ function DiagnosticPage() {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     setMobileSidebarOpen(false);
     setLocation('/cv-builder?intake=1');
+  };
+
+  useEffect(() => {
+    if (!reviewInProgress) {
+      setReviewProgressStep(0);
+      return;
+    }
+    setReviewProgressStep(1);
+    const timer = window.setInterval(() => {
+      setReviewProgressStep((current) => (current >= 4 ? 1 : current + 1));
+    }, 900);
+    return () => window.clearInterval(timer);
+  }, [reviewInProgress]);
+
+  const openReviewDialog = () => {
+    const profile = readProfile();
+    setReviewFile(null);
+    setReviewFileName('');
+    setReviewRole(profile?.targetRole || report?.targetRole || '');
+    setReviewArea(profile?.location || '');
+    setReviewDragging(false);
+    setReviewUploadError('');
+    if (reviewFileInputRef.current) reviewFileInputRef.current.value = '';
+    setReviewDialogOpen(true);
+  };
+
+  const selectReviewFile = (file: File | null) => {
+    if (!file) return;
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
+    const allowedExtensions = ['pdf', 'docx', 'txt'];
+    const allowedMimeTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'application/octet-stream',
+    ];
+    if (!allowedExtensions.includes(extension) || (file.type && !allowedMimeTypes.includes(file.type))) {
+      setReviewFile(null);
+      setReviewFileName('');
+      setReviewUploadError('Choose a PDF, Word (.docx), or text (.txt) CV file.');
+      if (reviewFileInputRef.current) reviewFileInputRef.current.value = '';
+      return;
+    }
+    setReviewFile(file);
+    setReviewFileName(file.name);
+    setReviewUploadError('');
+  };
+
+  const submitAnotherDiagnostic = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!reviewFile || !reviewFileName) return;
+    setReviewInProgress(true);
+    setReviewUploadError('');
+    try {
+      const profile = readProfile();
+      const parseBody = await buildParseUploadBody(reviewFile);
+      const response = await authFetch('/api/career/diagnostic', {
+        method: 'POST',
+        body: JSON.stringify({
+          fileName: reviewFileName,
+          fileData: parseBody.fileData,
+          text: parseBody.text,
+          role: reviewRole || profile?.targetRole || undefined,
+          location: reviewArea || profile?.location || undefined,
+        }),
+      });
+      const payload = await readApiJson(response);
+      if (!response.ok) {
+        throw new Error(payload.error || 'We could not review that CV. Please try again.');
+      }
+      sessionStorage.setItem(REPORT_KEY, JSON.stringify(payload));
+      try {
+        sessionStorage.setItem('bonlist-report', JSON.stringify(payload));
+      } catch {
+        // ignore
+      }
+      sessionStorage.setItem('bonlist-report-updated-at', new Date().toISOString());
+      const nextReport = reportForCurrentViewer(payload as DiagnosticReport);
+      setReport(nextReport);
+      setActiveWorkstationTab('review');
+      window.dispatchEvent(new Event('careerbridge-report-updated'));
+      announceJobMatches(Array.isArray(nextReport?.relatedJobs) ? nextReport.relatedJobs.length : 0);
+      setReviewDialogOpen(false);
+    } catch (error) {
+      setReviewUploadError(error instanceof Error ? error.message : 'We could not review that CV. Please try again.');
+    } finally {
+      setReviewInProgress(false);
+    }
   };
 
   useEffect(() => {
@@ -2809,13 +2907,124 @@ function DiagnosticPage() {
       {activeWorkstationTab === 'review' && <div className="mt-6 text-center">
         <button
           type="button"
-          onClick={() => setLocation('/')}
+          onClick={openReviewDialog}
           className="text-xs font-semibold text-muted-foreground hover:text-primary"
           data-testid="button-review-another-cv"
         >
           Review another CV
         </button>
       </div>}
+      <Dialog open={reviewDialogOpen} onOpenChange={(open) => { if (!reviewInProgress) setReviewDialogOpen(open); }}>
+        <DialogContent className="max-h-[92dvh] overflow-y-auto border-slate-200 p-0 sm:max-w-xl">
+          {reviewInProgress ? (
+            <div className="overflow-hidden rounded-[inherit] bg-slate-950 text-white" data-testid="review-another-progress">
+              <div className="relative isolate overflow-hidden px-6 py-10 text-center sm:px-10 sm:py-12">
+                <div className="absolute -left-16 -top-20 h-56 w-56 rounded-full bg-blue-500/25 blur-3xl" />
+                <div className="absolute -bottom-24 -right-16 h-64 w-64 rounded-full bg-violet-500/25 blur-3xl" />
+                <div className="relative mx-auto h-36 w-28 rounded-2xl border border-white/20 bg-white/10 p-3 shadow-2xl backdrop-blur">
+                  <div className="space-y-2 pt-2">
+                    <div className="h-2 w-14 rounded-full bg-white/70" />
+                    <div className="h-1.5 w-full rounded-full bg-white/25" />
+                    <div className="h-1.5 w-4/5 rounded-full bg-white/25" />
+                    <div className="h-1.5 w-full rounded-full bg-white/25" />
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <div className="h-8 rounded-lg bg-blue-400/25" />
+                      <div className="h-8 rounded-lg bg-violet-400/25" />
+                    </div>
+                  </div>
+                  <div className="absolute inset-x-2 top-3 h-8 animate-pulse rounded-lg bg-gradient-to-b from-transparent via-cyan-300/50 to-transparent shadow-[0_0_22px_rgba(103,232,249,0.6)]" />
+                  <span className="absolute -right-3 -top-3 grid h-9 w-9 place-items-center rounded-xl bg-blue-500 shadow-lg shadow-blue-500/40">
+                    <Sparkles className="animate-pulse" size={17} />
+                  </span>
+                </div>
+                <p className="mt-6 text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">AI review in progress</p>
+                <DialogTitle className="mt-2 text-xl font-semibold text-white sm:text-2xl">Turning your CV into clear next steps</DialogTitle>
+                <DialogDescription className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-300">
+                  Keep this window open while we read the document, check its evidence, and match it to your target role.
+                </DialogDescription>
+                <div className="mx-auto mt-7 max-w-sm">
+                  <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-blue-500 to-violet-500 transition-all duration-700" style={{ width: `${reviewProgressStep * 25}%` }} />
+                  </div>
+                  <div className="mt-4 grid gap-2 text-left">
+                    {[
+                      'Reading document structure',
+                      'Checking ATS and authenticity signals',
+                      'Measuring evidence against your target role',
+                      'Preparing your updated action plan',
+                    ].map((label, index) => {
+                      const active = reviewProgressStep >= index + 1;
+                      return (
+                        <div key={label} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-xs transition ${active ? 'border-cyan-300/25 bg-white/10 text-white' : 'border-white/5 bg-white/[0.03] text-slate-500'}`}>
+                          <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${active ? 'bg-cyan-300 text-slate-950' : 'bg-white/10 text-slate-500'}`}>
+                            {active ? <Check size={12} strokeWidth={3} /> : index + 1}
+                          </span>
+                          {label}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={submitAnotherDiagnostic} className="p-5 sm:p-7" data-testid="review-another-form">
+              <DialogHeader className="text-left">
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-blue-600">Fresh CV review</p>
+                <DialogTitle className="text-xl text-slate-950">Upload another CV</DialogTitle>
+                <DialogDescription>Choose the latest version and we’ll replace this report when the new review is ready.</DialogDescription>
+              </DialogHeader>
+
+              <label
+                className="mt-6 block"
+                onDragOver={(event) => { event.preventDefault(); setReviewDragging(true); }}
+                onDragEnter={(event) => { event.preventDefault(); setReviewDragging(true); }}
+                onDragLeave={(event) => { event.preventDefault(); setReviewDragging(false); }}
+                onDrop={(event) => { event.preventDefault(); setReviewDragging(false); selectReviewFile(event.dataTransfer.files?.[0] ?? null); }}
+              >
+                <span className="mb-2 block text-xs font-semibold text-foreground">Upload your current CV</span>
+                <span className={`flex min-h-20 cursor-pointer items-center gap-3 rounded-2xl border border-dashed px-4 py-4 transition ${reviewDragging ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-500/15' : reviewFileName ? 'border-emerald-400 bg-emerald-50/70' : 'border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50/50'}`}>
+                  <input
+                    ref={reviewFileInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                    className="sr-only"
+                    onChange={(event) => selectReviewFile(event.target.files?.[0] ?? null)}
+                    data-testid="input-review-another-file"
+                  />
+                  <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${reviewFileName ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-500 shadow-sm'}`}>
+                    {reviewFileName ? <CheckCircle2 size={20} /> : <FileText size={20} />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-slate-800">{reviewFileName || 'PDF or Word document'}</span>
+                    <span className="mt-0.5 block text-xs text-slate-500">{reviewFileName ? 'Ready for review' : 'Click to choose or drag and drop'}</span>
+                  </span>
+                  <span className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700 shadow-sm">Choose</span>
+                </span>
+              </label>
+
+              <label className="mt-4 block">
+                <span className="mb-2 block text-xs font-semibold text-foreground">Role you are targeting <span className="font-normal text-muted-foreground">(optional)</span></span>
+                <input value={reviewRole} onChange={(event) => setReviewRole(event.target.value)} placeholder="e.g. Operations coordinator" className="field-input" data-testid="input-review-another-role" />
+              </label>
+              <label className="mt-4 block">
+                <span className="mb-2 block text-xs font-semibold text-foreground">Your area <span className="font-normal text-muted-foreground">(optional)</span></span>
+                <select value={reviewArea} onChange={(event) => setReviewArea(event.target.value)} className="field-input" data-testid="select-review-another-location">
+                  <option value="">All South Africa</option>
+                  <option value="Cape Town">Cape Town / Western Cape</option>
+                  <option value="Johannesburg">Johannesburg / Gauteng</option>
+                  <option value="Durban">Durban / KZN</option>
+                  <option value="Hybrid">Hybrid / Remote</option>
+                </select>
+              </label>
+              {reviewUploadError ? <p className="mt-3 text-xs text-destructive" role="alert">{reviewUploadError}</p> : null}
+              <button type="submit" disabled={!reviewFile || !reviewFileName} className="btn-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-50" data-testid="button-submit-review-another">
+                Run AI CV review <ArrowRight size={16} />
+              </button>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>,
   );
 }

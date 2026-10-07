@@ -192,7 +192,7 @@ export async function handleCvDiagnostic(request: Request, env: D1Env): Promise<
   const parse = await handleCvParseUpload(new Request(request.url.replace("/diagnostic", "/cv/parse-upload"), {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ fileName, text: body.text, fileData: body.fileData }),
-  }));
+  }), { apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL });
   if (!parse.ok) return parse;
   const extracted = await parse.json() as ExtractedCvData;
   const role = value(body.role) || value(body.targetRole) || extracted.personal?.professionalTitle || "Professional";

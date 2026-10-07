@@ -88,7 +88,28 @@ import { findPublicJobCategory } from '@/content/public-jobs';
 import { directApplicationUrl, normalizeJobResults, toJobListing, type JobDetailsPayload, type JobListingSource } from '@/types/job';
 
 const CvBuilderPage = lazy(() => import('@/pages/cv-builder'));
-const AdminRoute = lazy(() => import('@/pages/admin/AdminDashboard').then((module) => ({ default: module.AdminRoute })));
+const ADMIN_CHUNK_RELOAD_KEY = 'bonlist-admin-chunk-reload';
+const AdminRoute = lazy(async () => {
+  try {
+    const module = await import('@/pages/admin/AdminDashboard');
+    try { sessionStorage.removeItem(ADMIN_CHUNK_RELOAD_KEY); } catch { /* Storage is optional. */ }
+    return { default: module.AdminRoute };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/dynamically imported module|loading chunk|chunkloaderror/i.test(message)) {
+      try {
+        if (sessionStorage.getItem(ADMIN_CHUNK_RELOAD_KEY) !== __BONLIST_BUNDLE_VERSION__) {
+          sessionStorage.setItem(ADMIN_CHUNK_RELOAD_KEY, __BONLIST_BUNDLE_VERSION__);
+          window.location.reload();
+          return await new Promise<never>(() => undefined);
+        }
+      } catch {
+        // If storage is unavailable, retain the normal error boundary instead of looping.
+      }
+    }
+    throw error;
+  }
+});
 
 import { isNativeApp } from '@/lib/platform';
 import { describeApiMisconfiguration } from '@/lib/api-base';

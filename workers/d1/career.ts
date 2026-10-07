@@ -746,16 +746,18 @@ async function handleProfile(request: Request, env: D1Env, user: UserRow): Promi
 }
 
 async function handleParse(request: Request, env: D1Env, user?: UserRow): Promise<Response> {
-  void env;
   void user;
-  return handleCvParseUpload(request);
+  return handleCvParseUpload(request, { apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL });
 }
 
 async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Promise<Response> {
   const input = await body(request);
   const fileName = clean(input.fileName);
   if (!fileName) return error(400, "fileName is required.");
-  const parsed = await handleCvParseUpload(new Request(request.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }));
+  const parsed = await handleCvParseUpload(
+    new Request(request.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }),
+    { apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL },
+  );
   if (!parsed.ok) return parsed;
   const data = await parsed.json() as ExtractedCv;
   const role = clean(input.role) || clean(input.targetRole);

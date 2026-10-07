@@ -1,8 +1,9 @@
-import { buildGeneratedCv, evaluateAts, extractCvDataFromText, generateCandidateBiography, type GeneratedCvDocument } from "./cv-builder";
+import { buildGeneratedCv, CV_PARSER_SYSTEM_PROMPT, evaluateAts, extractCvDataFromText, generateCandidateBiography, type GeneratedCvDocument } from "./cv-builder";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { reconstructPdfTextFromItems } from "./pdf-layout-text";
 import { calibrateJobListingScores } from "./ai/gemini-client";
+import { CV_PARSER_RESPONSE_SCHEMA } from "./ai/cv-parser";
 
 function expect<T>(actual: T) {
   const includes = (value: unknown, expected: unknown) =>
@@ -178,6 +179,21 @@ NAVIS`);
 });
 
 describe("complex CV import layout extraction", () => {
+  it("requires summary and zero-loss custom sections in Gemini structured output", () => {
+    assert.ok(CV_PARSER_RESPONSE_SCHEMA.required.includes("professional_summary"));
+    assert.ok(CV_PARSER_RESPONSE_SCHEMA.required.includes("additional_sections"));
+    assert.match(CV_PARSER_SYSTEM_PROMPT, /opening narrative paragraph[\s\S]+professional_summary/i);
+    assert.match(CV_PARSER_SYSTEM_PROMPT, /multi-column[\s\S]+additional_sections/i);
+  });
+
+  it("carries unmatched source sections into generated CV custom sections", () => {
+    const extracted = extractCvDataFromText("Jane Doe\nEmail: jane@example.com\nProfile\nOperations specialist.");
+    extracted.additionalSections = [{ heading: "Volunteer Experience", content: ["Weekend food-bank coordinator"] }];
+    extracted.cv_content.additionalSections = extracted.additionalSections;
+    const document = buildGeneratedCv({ profile: { name: "Jane Doe", email: "jane@example.com" }, extracted });
+    assert.deepEqual(document.sections, [{ heading: "Volunteer Experience", items: ["Weekend food-bank coordinator"] }]);
+  });
+
   it("reconstructs positioned two-column PDF text in column order", () => {
     const positioned = [
       [

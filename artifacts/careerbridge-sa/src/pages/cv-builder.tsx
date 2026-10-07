@@ -977,6 +977,7 @@ export interface CvContentData {
   projects?: CvProjectItem[];
   references?: string[];
   referenceDetails?: CvReferenceDetail[];
+  additionalSections?: Array<{ heading: string; content: string[] }>;
 }
 
 export interface AiFeedbackData {
@@ -1018,6 +1019,7 @@ export interface ExtractedCvData {
   projects: CvProjectItem[];
   references: string[];
   referenceDetails?: CvReferenceDetail[];
+  additionalSections?: Array<{ heading: string; content: string[] }>;
   verificationBreakdown: {
     personal: { verified: boolean; missingFields: string[] };
     experience: { count: number; verifiedDates: boolean; verifiedCompanies: boolean };
@@ -1091,6 +1093,7 @@ function normalizeExtractedCvData(value: unknown): ExtractedCvData {
     projects: chooseArray(nested.projects, raw.projects),
     references: chooseArray(nested.references, raw.references),
     referenceDetails: chooseArray(nested.referenceDetails, raw.referenceDetails),
+    additionalSections: chooseArray(nested.additionalSections, raw.additionalSections),
   };
   return {
     ...raw,
@@ -1107,6 +1110,7 @@ function normalizeExtractedCvData(value: unknown): ExtractedCvData {
     projects: content.projects || [],
     references: content.references || [],
     referenceDetails: content.referenceDetails || [],
+    additionalSections: content.additionalSections || [],
     verificationBreakdown: raw.verificationBreakdown || {
       personal: { verified: Boolean(personal.fullName && (personal.email || personal.phone)), missingFields: [] },
       experience: { count: content.experiences.length, verifiedDates: false, verifiedCompanies: content.experiences.length > 0 },
@@ -1166,7 +1170,9 @@ async function parseCvUpload(file: File, onProgress?: (message: string) => void)
     ? normalizeExtractedCvData(extractCvDataFromText(parseBody.text, file.name))
     : null;
   const requestController = new AbortController();
-  const requestTimeout = setTimeout(() => requestController.abort(), 18_000);
+  // Allow the structured Gemini pass to complete; the Worker still falls back
+  // to deterministic extraction if the model times out or is unavailable.
+  const requestTimeout = setTimeout(() => requestController.abort(), 32_000);
   try {
     const response = await authFetch("/api/career/cv/parse-upload", {
       method: "POST",
@@ -1191,7 +1197,7 @@ async function parseCvUpload(file: File, onProgress?: (message: string) => void)
             return true;
           });
       };
-      const mergeRecords = <T extends { id?: string }>(
+      const mergeRecords = <T,>(
         primary: T[] | null | undefined,
         secondary: T[] | null | undefined,
         identity: (item: T) => string,
@@ -1244,7 +1250,9 @@ async function parseCvUpload(file: File, onProgress?: (message: string) => void)
           website: remoteContent.personal.website || localContent.personal.website,
           professionalTitle: remoteContent.personal.professionalTitle || localContent.personal.professionalTitle,
         },
-        summary: [remoteContent.summary, localContent.summary].filter((value) => value?.trim()).sort((a, b) => b.length - a.length)[0] || "",
+        // The remote value has completed Gemini extraction plus source
+        // verification; prefer it over a longer local heuristic misclassification.
+        summary: remoteContent.summary?.trim() || localContent.summary || "",
         experiences: mergeRecords(remoteContent.experiences, localContent.experiences, experienceIdentity, mergeExperience),
         education: mergeRecords(remoteContent.education, localContent.education, educationIdentity, mergeEducation),
         skills: mergeStrings(remoteContent.skills, remoteContent.toolsAndSoftware, remoteContent.competencies, localContent.skills, localContent.toolsAndSoftware, localContent.competencies),
@@ -1264,6 +1272,9 @@ async function parseCvUpload(file: File, onProgress?: (message: string) => void)
         referenceDetails: mergeRecords(remoteContent.referenceDetails, localContent.referenceDetails,
           (item) => [item.name, item.company, item.phone].map(normalizeKey).filter(Boolean).join("|"),
           (preferred, other) => ({ ...other, ...preferred, id: preferred.id || other.id, name: preferred.name || other.name, title: preferred.title || other.title, company: preferred.company || other.company, phone: preferred.phone || other.phone })),
+        additionalSections: mergeRecords(remoteContent.additionalSections, localContent.additionalSections,
+          (item) => normalizeKey(item.heading),
+          (preferred, other) => ({ heading: preferred.heading || other.heading, content: mergeStrings(preferred.content, other.content) })),
       };
       // Run through the canonicalizer to keep nested and legacy flat fields in sync.
       return normalizeExtractedCvData({

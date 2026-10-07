@@ -1,6 +1,7 @@
 import { extractCvDataFromText } from "../artifacts/api-server/src/lib/cv-builder";
 import { sanitizeExtractedCvText } from "../artifacts/api-server/src/lib/cv-text-sanitize";
 import { extractEdgePdfText } from "../artifacts/api-server/src/lib/edge-pdf-text";
+import { parseCvTextWithGemini } from "../artifacts/api-server/src/lib/ai/cv-parser";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -107,7 +108,10 @@ function parseError(status: number, error: string, code: string): Response {
 }
 
 /** CV text is extracted in the browser, then structured at the edge. D1 is not needed here. */
-export async function handleCvParseUpload(request: Request): Promise<Response> {
+export async function handleCvParseUpload(
+  request: Request,
+  ai?: { apiKey?: string; model?: string },
+): Promise<Response> {
   if (request.method !== "POST") return json(405, { error: "Method not allowed" });
 
   const contentLength = Number(request.headers.get("content-length") || 0);
@@ -163,7 +167,24 @@ export async function handleCvParseUpload(request: Request): Promise<Response> {
     // Pass the original extracted text into the shared parser. It repairs PDF
     // replacement glyphs used for date separators and bullets before its own
     // sanitization step; passing `text` here would erase those markers first.
-    return json(200, extractCvDataFromText(rawText, fileName));
+    const fallback = extractCvDataFromText(rawText, fileName);
+    const apiKey = String(ai?.apiKey || "").trim();
+    if (!apiKey) return json(200, fallback);
+    try {
+      const extracted = await parseCvTextWithGemini({
+        apiKey,
+        model: ai?.model,
+        text,
+        fileName,
+        fallback,
+      });
+      return json(200, extracted);
+    } catch (error) {
+      // CV intake remains available during Gemini quota, timeout, or service
+      // incidents. The deterministic result is source-derived and safe.
+      console.warn("Gemini CV extraction failed; using deterministic fallback", error);
+      return json(200, fallback);
+    }
   } catch (error) {
     console.error("CV parse failed", error);
     return json(500, { error: "Could not structure the CV text. Please try again." });

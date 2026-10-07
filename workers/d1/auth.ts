@@ -140,6 +140,16 @@ function readSessionToken(request: Request): string | null {
   return readBearer(request) || cookies[SESSION_COOKIE] || cookies.session_token || cookies.session || null;
 }
 
+function readSessionTokens(request: Request): string[] {
+  const cookies = parseCookies(request.headers.get("cookie"));
+  return Array.from(new Set([
+    readBearer(request),
+    cookies[SESSION_COOKIE],
+    cookies.session_token,
+    cookies.session,
+  ].filter((token): token is string => Boolean(token))));
+}
+
 export function sessionCookie(token: string, expiresAt: Date, secure: boolean, request?: Request, rememberMe = true): string {
   const parts = [
     `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
@@ -157,12 +167,11 @@ export function sessionCookie(token: string, expiresAt: Date, secure: boolean, r
   return parts.join("; ");
 }
 
-function clearSessionCookie(request?: Request): string {
+function clearSessionCookie(domain?: string): string {
   const parts = [
     `${SESSION_COOKIE}=`,
     "Path=/",
   ];
-  const domain = request ? cookieDomainForRequest(request) : null;
   if (domain) parts.push(`Domain=${domain}`);
   parts.push(
     "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
@@ -454,7 +463,7 @@ export async function handleVerifySignup(request: Request, env: D1Env): Promise<
   const user = (await findUserByEmail(env.DB, challenge.email))!;
   const { token, expiresAt } = await createSession(env.DB, user.id);
   const headers = new Headers();
-  headers.append("Set-Cookie", sessionCookie(token, expiresAt, isSecureRequest(request)));
+  headers.append("Set-Cookie", sessionCookie(token, expiresAt, isSecureRequest(request), request));
   return json(toAuthPayload(user, token), 200, headers);
 }
 
@@ -563,8 +572,7 @@ export async function handleMe(request: Request, env: D1Env): Promise<Response> 
 }
 
 export async function handleLogout(request: Request, env: D1Env): Promise<Response> {
-  const token = readSessionToken(request);
-  if (token) {
+  for (const token of readSessionTokens(request)) {
     try {
       await env.DB.prepare("DELETE FROM sessions WHERE token = ?").bind(token).run();
     } catch (error) {
@@ -573,7 +581,11 @@ export async function handleLogout(request: Request, env: D1Env): Promise<Respon
     }
   }
   const headers = new Headers();
-  headers.append("Set-Cookie", clearSessionCookie(request));
+  // Clear both scopes: older/signup sessions used a host-only cookie, while
+  // current login and OAuth sessions use Domain=.bonlist.site.
+  headers.append("Set-Cookie", clearSessionCookie());
+  const domain = cookieDomainForRequest(request);
+  if (domain) headers.append("Set-Cookie", clearSessionCookie(domain));
   return json({ ok: true }, 200, headers);
 }
 

@@ -88,8 +88,30 @@ test("logout expires the same parent-domain cookie used by production login", as
     env as never,
   );
 
-  assert.equal(
-    response.headers.get("set-cookie"),
+  const cookies = response.headers.getSetCookie();
+  assert.deepEqual(cookies, [
+    EXPIRED_COOKIE,
     "bonlist_session=; Path=/; Domain=.bonlist.site; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax",
+  ]);
+});
+
+test("logout revokes distinct bearer and cookie sessions", async () => {
+  const revoked: string[] = [];
+  const { env } = envWithRun(async token => {
+    revoked.push(token);
+    return { success: true };
+  });
+  const response = await handleLogout(
+    new Request("https://www.bonlist.site/api/auth/logout", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer bearer-token",
+        cookie: "bonlist_session=cookie-token",
+      },
+    }),
+    env as never,
   );
+
+  assert.deepEqual(revoked, ["bearer-token", "cookie-token"]);
+  assert.equal(response.status, 200);
 });

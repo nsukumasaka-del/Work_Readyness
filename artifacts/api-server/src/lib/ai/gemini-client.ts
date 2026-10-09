@@ -286,6 +286,63 @@ export type JobScoringCandidate = {
   yearsExperience?: number;
 };
 
+export type TargetRoleValidation = {
+  target_role_aligned: boolean;
+  original_target_role: string;
+  recommended_search_role: string;
+  user_message_banner: string | null;
+};
+
+/** Validate an aspirational target before any job-board query is executed. */
+export async function validateTargetRoleWithGemini(input: {
+  apiKey?: string;
+  model?: string;
+  targetRole: string;
+  candidateEvidence: JobScoringCandidate;
+}): Promise<TargetRoleValidation | null> {
+  if (!input.apiKey?.trim() || !input.targetRole.trim()) return null;
+  try {
+    const result = await generateGeminiJson<TargetRoleValidation>({
+      apiKey: input.apiKey,
+      model: input.model,
+      instruction: `You are an expert ATS Career Alignment Specialist.
+
+INPUT DATA:
+- Candidate CV evidence
+- Candidate Target Role
+
+INSTRUCTIONS:
+1. Compare the candidate's actual work experience, qualifications, and licences against the requested target role.
+2. Determine whether the candidate meets the basic minimum background prerequisites for that target role. For example, Pilot without flight hours, an aviation licence, or pilot experience means target_role_aligned is false.
+3. If target_role_aligned is false, extract the candidate's true primary role from dominant documented work history and skills. Never recommend a role based only on the aspirational target.
+4. Do not invent experience, credentials, licences, qualifications, or job titles.
+
+Return strict JSON only:
+{
+  "target_role_aligned": boolean,
+  "original_target_role": string,
+  "recommended_search_role": string,
+  "user_message_banner": "If misaligned: Your specified target role ([original role]) does not align with the experience on your CV. Below, we have generated job matches tailored specifically to your true career background ([recommended role]). Otherwise null."
+}`,
+      evidence: { candidateCv: input.candidateEvidence, targetRole: input.targetRole },
+      maxOutputTokens: 500,
+      timeoutMs: 8_000,
+    });
+    if (typeof result.target_role_aligned !== "boolean" || typeof result.recommended_search_role !== "string") return null;
+    const recommended = result.recommended_search_role.trim().slice(0, 120);
+    if (!recommended) return null;
+    return {
+      target_role_aligned: result.target_role_aligned,
+      original_target_role: input.targetRole.trim().slice(0, 120),
+      recommended_search_role: result.target_role_aligned ? input.targetRole.trim().slice(0, 120) : recommended,
+      user_message_banner: result.target_role_aligned ? null : String(result.user_message_banner || "").trim().slice(0, 700) || null,
+    };
+  } catch (error) {
+    console.error("Gemini target-role validation failed; using deterministic CV alignment.", error);
+    return null;
+  }
+}
+
 function strictListingScoreCeiling(candidate: JobScoringCandidate, job: LiveJobListing): number {
   // A desired targetRole is an aspiration, not evidence of experience. Never
   // use it to lift or uncap a match score.

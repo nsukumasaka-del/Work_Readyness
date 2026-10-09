@@ -89,6 +89,49 @@ test('AI matching requires CV evidence rather than trusting request user privile
   await assert.rejects(searchCandidateJobs({ keywords: 'Lawyer', location: 'Gauteng', report: { user: { email: 'nsukumasaka@gmail.com' } } }), /Upload a readable CV/);
 });
 
+test('pilot aspiration is replaced with the primary CV role before any board query', async () => {
+  const queriedRoles: string[] = [];
+  const candidateProfile = { targetRole: 'Pilot', experienceRoles: ['Customer Service Representative'], skills: ['CRM', 'Customer enquiries'], credentials: ['Matric'] };
+  const response = await searchManualJobs({ keywords: 'Pilot', location: 'Johannesburg', report: { candidateProfile } }, {
+    search: async input => {
+      queriedRoles.push(input.role);
+      return result(Array.from({ length: 10 }, (_, index) => ({ ...job, id: index + 1, title: 'Customer Service Representative', sector: 'Customer Service', description: 'CRM customer enquiries', url: `https://www.pnet.co.za/jobs/customer-${index + 1}` })));
+    },
+    score: async input => input.jobs,
+    validate: async () => ({ target_role_aligned: false, original_target_role: 'Pilot', recommended_search_role: 'Customer Service Representative', user_message_banner: 'mismatch' }),
+  });
+  assert.equal(queriedRoles[0], 'Customer Service Representative');
+  assert.equal(response.targetRoleAligned, false);
+  assert.equal(response.recommendedRole, 'Customer Service Representative');
+  assert.match(response.noticeBanner || '', /Pilot.*Customer Service Representative/);
+});
+
+test('deterministic credential gate overrides a mistaken Gemini approval', async () => {
+  let queriedRole = '';
+  const candidateProfile = { targetRole: 'Pilot', experienceRoles: ['Customer Service Representative'], skills: ['CRM'], credentials: ['Matric'] };
+  const response = await searchCandidateJobs({ keywords: 'Pilot', location: 'Gauteng', report: { candidateProfile } }, {
+    search: async input => { queriedRole ||= input.role; return result([]); },
+    score: async input => input.jobs,
+    validate: async () => ({ target_role_aligned: true, original_target_role: 'Pilot', recommended_search_role: 'Pilot', user_message_banner: null }),
+  });
+  assert.equal(queriedRole, 'Customer Service Representative');
+  assert.equal(response.targetRoleAligned, false);
+  assert.equal(response.recommendedRole, 'Customer Service Representative');
+});
+
+test('aligned target role remains the board query', async () => {
+  let queriedRole = '';
+  const candidateProfile = { targetRole: 'Customer Service Representative', experienceRoles: ['Customer Service Representative'], skills: ['CRM'], credentials: ['Matric'] };
+  const response = await searchManualJobs({ keywords: 'Customer Service Representative', location: 'Gauteng', report: { candidateProfile } }, {
+    search: async input => { queriedRole ||= input.role; return result([]); },
+    score: async input => input.jobs,
+    validate: async () => ({ target_role_aligned: true, original_target_role: 'Customer Service Representative', recommended_search_role: 'Customer Service Representative', user_message_banner: null }),
+  });
+  assert.equal(queriedRole, 'Customer Service Representative');
+  assert.equal(response.targetRoleAligned, true);
+  assert.equal(response.noticeBanner, null);
+});
+
 test('partial city results broaden and merge up to ten distinct real listings', async () => {
   const calls: string[] = [];
   const response = await searchWithLocationFallback({ role: 'Customer Service', location: 'Johannesburg', limit: 10, mode: 'candidate-options' }, async input => {

@@ -3117,6 +3117,7 @@ function postedWithin(postedValue: string, range: string): boolean {
 }
 
 function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJob }: JobOpeningsSearchProps) {
+  const alignment = report as unknown as { noticeBanner?: string | null; recommendedRole?: string; jobSearch?: { noticeBanner?: string | null; recommendedRole?: string } };
   const paidAccess = usePaidAccess();
   const [searchEntitlement, setSearchEntitlement] = useState<Entitlement>(defaultEntitlement(readProfile()?.id || 0));
   const premiumSearch = premiumUnlocked || searchEntitlement.features.premiumJobs;
@@ -3164,6 +3165,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
   const [searchedBoardLabels, setSearchedBoardLabels] = useState<string[]>([]);
   const [searchScoring, setSearchScoring] = useState('');
   const [searchNotice, setSearchNotice] = useState('');
+  const [alignmentNotice, setAlignmentNotice] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
   const searchResultsRef = useRef<HTMLDivElement>(null);
@@ -3306,6 +3308,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
     setSearchLoading(true);
     setSearchError('');
     setSearchNotice('');
+    setAlignmentNotice('');
     setSearchResults([]);
     setHasSearched(false);
     setActiveJobId(null);
@@ -3322,8 +3325,9 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
       setSearchedBoardLabels(Array.isArray(payload.queriedBoards) ? payload.queriedBoards as string[] : []);
       setSearchScoring(typeof payload.scoring === 'string' ? payload.scoring : '');
       setSearchNotice(typeof payload.searchNotice === 'string' ? payload.searchNotice : '');
+      setAlignmentNotice(typeof payload.noticeBanner === 'string' ? payload.noticeBanner : '');
       setResultLimit(typeof payload.resultLimit === 'number' ? payload.resultLimit : premiumSearch ? 100 : 50);
-      setKeywords(searchTerms);
+      setKeywords(typeof payload.recommendedRole === 'string' && payload.recommendedRole.trim() ? payload.recommendedRole : searchTerms);
       refreshSearchHistory();
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : 'Job search could not be completed.');
@@ -3381,7 +3385,8 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
 
       {view === 'ai' ? (
         <div id="jobs-panel-ai" role="tabpanel" aria-labelledby="jobs-tab-ai" className="mx-auto w-full max-w-4xl space-y-4">
-          <MatchCountBanner jobs={jobs} role={report.targetRole} />
+          <MatchCountBanner jobs={jobs} role={alignment.recommendedRole || alignment.jobSearch?.recommendedRole || report.targetRole} />
+          {alignment.noticeBanner || alignment.jobSearch?.noticeBanner ? <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium leading-6 text-amber-950">{alignment.noticeBanner || alignment.jobSearch?.noticeBanner}</p> : null}
           {report.jobSearch?.searchNotice ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{report.jobSearch.searchNotice}</p> : null}
           <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
             <h3 className="text-sm font-bold text-slate-900">CV-matched vacancies</h3>
@@ -3419,6 +3424,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
               </label>
             </div>
             {searchError ? <p role="alert" className="text-xs font-medium text-rose-700">{searchError}</p> : null}
+            {alignmentNotice ? <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium leading-6 text-amber-950">{alignmentNotice}</p> : null}
             {searchNotice ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{searchNotice}</p> : null}
             {hasSearched && !searchError ? <p className="text-[11px] text-slate-500">Live board search checked {searchedBoardLabels.length ? searchedBoardLabels.join(', ') : 'available South African boards'}. {searchScoring === 'gemini' ? 'Gemini scored results against your CV.' : 'Match scores use available CV evidence.'}</p> : null}
             <div className="grid grid-cols-1 gap-2 border-t border-slate-200/70 pt-3 sm:grid-cols-2 lg:grid-cols-4">

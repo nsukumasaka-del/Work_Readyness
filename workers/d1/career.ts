@@ -24,7 +24,7 @@ import { handleCvParseUpload } from "../cv-parse";
 import { candidateRoleSuggestions } from '../../artifacts/api-server/src/lib/candidate-role-suggestions';
 import { d1PaymentAccess } from './yoco';
 import { protectReport } from '../../artifacts/api-server/src/lib/yoco';
-import { normalizeJobRequest, searchCandidateJobs, searchManualJobs, searchWithLocationFallback } from "../../artifacts/api-server/src/lib/job-search-service";
+import { normalizeJobRequest, resolveValidatedSearchRole, searchCandidateJobs, searchManualJobs, searchWithLocationFallback } from "../../artifacts/api-server/src/lib/job-search-service";
 
 type CareerProfileRow = {
   id: number;
@@ -859,8 +859,22 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
   const searchRole = role || data.personal.professionalTitle || data.experiences[0]?.role || 'Professional';
   const searchLocation = location || data.personal.location || 'South Africa';
   const id = 0;
+  const candidateProfile = {
+    targetRole: searchRole,
+    summary: data?.summary || "",
+    experienceRoles: data?.experiences.map((entry) => entry.role).filter(Boolean) || [],
+    skills: data?.skills || [],
+    systems: data?.toolsAndSoftware || [],
+    credentials: [
+      ...(data?.certifications || []).map((entry) => entry.name),
+      ...(data?.education || []).flatMap((entry) => [entry.degree, entry.details || ""]),
+    ].filter(Boolean),
+    yearsExperience: estimateCareerYears(data?.experiences),
+    location: searchLocation,
+  };
+  const validation = await resolveValidatedSearchRole({ targetRole: searchRole, candidate: candidateProfile, apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL });
   const jobSearch = await searchWithLocationFallback({
-    role: searchRole,
+    role: validation.recommended_search_role,
     location: searchLocation,
     limit: 10,
     mode: 'candidate-options',
@@ -884,19 +898,6 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
   const careerAdvisory = baseAdvisory
     ? (await enrichCareerAdvisoryWithGemini(baseAdvisory, env.GEMINI_API_KEY, env.GEMINI_MODEL)) || baseAdvisory
     : undefined;
-  const candidateProfile = {
-    targetRole: searchRole,
-    summary: data?.summary || "",
-    experienceRoles: data?.experiences.map((entry) => entry.role).filter(Boolean) || [],
-    skills: data?.skills || [],
-    systems: data?.toolsAndSoftware || [],
-    credentials: [
-      ...(data?.certifications || []).map((entry) => entry.name),
-      ...(data?.education || []).flatMap((entry) => [entry.degree, entry.details || ""]),
-    ].filter(Boolean),
-    yearsExperience: estimateCareerYears(data?.experiences),
-    location: location || data?.personal.location || "South Africa",
-  };
   const scoredJobs = await scoreJobListingsWithGemini({ apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL, candidateProfile, jobs: jobSearch.jobs });
   const deterministicJobs = jobSearch.jobs;
   jobSearch.jobs = calibrateJobListingScores(candidateProfile, scoredJobs || deterministicJobs).filter(job => job.match >= jobSearch.minimumMatchScore).slice(0, 10);
@@ -939,6 +940,10 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
       },
     } : {}),
     relatedJobs: jobSearch.jobs,
+    targetRoleAligned: validation.target_role_aligned,
+    originalTargetRole: validation.original_target_role,
+    recommendedRole: validation.recommended_search_role,
+    noticeBanner: validation.user_message_banner,
     roleSuggestions: candidateRoleSuggestions(candidateProfile),
     candidateProfile,
     ...(careerAdvisory ? { careerAdvisory } : {}),
@@ -949,6 +954,10 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
       boardSearchLinks: jobSearch.boardSearchLinks,
       searchNotice: jobSearch.searchNotice,
       fallbackApplied: jobSearch.fallbackApplied,
+      targetRoleAligned: validation.target_role_aligned,
+      originalTargetRole: validation.original_target_role,
+      recommendedRole: validation.recommended_search_role,
+      noticeBanner: validation.user_message_banner,
     },
   };
   const inserted = await env.DB.prepare("INSERT INTO cv_reports (user_id, report_json, created_at) VALUES (?, ?, datetime('now'))")
@@ -1202,7 +1211,10 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
           deepSearchEnabled: deepSearch, deepSearchAvailable: access.deepSearchAllowed });
       }
       const result = await searchCandidateJobs(settings);
-      const saved = { ...report, roleSuggestions: result.roleSuggestions, candidateProfile: result.candidateProfile, relatedJobs: result.jobs, jobSearch: { query: result.query, queriedBoards: result.queriedBoards, boardSearchLinks: result.boardSearchLinks, liveResults: result.liveResults, searchNotice: result.searchNotice } };
+      const saved = { ...report, roleSuggestions: result.roleSuggestions, candidateProfile: result.candidateProfile, relatedJobs: result.jobs,
+        targetRoleAligned: result.targetRoleAligned, originalTargetRole: result.originalTargetRole, recommendedRole: result.recommendedRole, noticeBanner: result.noticeBanner,
+        jobSearch: { query: result.query, queriedBoards: result.queriedBoards, boardSearchLinks: result.boardSearchLinks, liveResults: result.liveResults, searchNotice: result.searchNotice,
+          targetRoleAligned: result.targetRoleAligned, originalTargetRole: result.originalTargetRole, recommendedRole: result.recommendedRole, noticeBanner: result.noticeBanner } };
       // Persist raw owned matches before redaction so signed payment reveals can find them.
       await env.DB.prepare("INSERT INTO cv_reports (user_id, report_json, created_at) VALUES (?, ?, datetime('now'))").bind(user.id, JSON.stringify(saved)).run();
       const protectedReport = protectReport(saved, await d1PaymentAccess(env, user));

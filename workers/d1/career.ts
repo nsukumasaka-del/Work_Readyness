@@ -230,21 +230,27 @@ type JobSearchHistoryInput = {
 
 async function saveJobSearchHistory(env: D1Env, user: UserRow, entry: JobSearchHistoryInput) {
   if (!entry.keywords.trim()) return;
-  await env.DB.prepare(
-    `INSERT INTO job_search_history
-      (user_id, keywords, location, industry, posted_range, deep_search, result_count, result_limit, queried_boards_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-  ).bind(
-    user.id,
-    entry.keywords.slice(0, 120),
-    entry.location.slice(0, 100),
-    (entry.industry || "").slice(0, 100),
-    (entry.postedRange || "").slice(0, 30),
-    entry.deepSearch ? 1 : 0,
-    Math.max(0, entry.resultCount),
-    Math.max(1, entry.resultLimit),
-    JSON.stringify(entry.queriedBoards.slice(0, 20)),
-  ).run();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO job_search_history
+        (user_id, keywords, location, industry, posted_range, deep_search, result_count, result_limit, queried_boards_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    ).bind(
+      user.id,
+      entry.keywords.slice(0, 120),
+      entry.location.slice(0, 100),
+      (entry.industry || "").slice(0, 100),
+      (entry.postedRange || "").slice(0, 30),
+      entry.deepSearch ? 1 : 0,
+      Math.max(0, entry.resultCount),
+      Math.max(1, entry.resultLimit),
+      JSON.stringify(entry.queriedBoards.slice(0, 20)),
+    ).run();
+  } catch (error) {
+    // Search results are the primary operation; history persistence must never
+    // turn a successful multi-board search into an error response.
+    console.error('[jobs] Search history persistence failed', error);
+  }
 }
 
 async function handleJobSearchHistory(request: Request, env: D1Env, user: UserRow): Promise<Response> {
@@ -977,7 +983,7 @@ async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Pro
   try { report = row ? JSON.parse(row.report_json) : undefined; } catch { /* Manual search does not require a saved review. */ }
   try {
     const result = await searchManualJobs({ keywords: clean(input.keywords), location: clean(input.location), report,
-      industry: clean(input.industry), postedRange: clean(input.postedRange), apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL,
+      industry: clean(input.industry), postedRange: clean(input.postedRange), jobType: clean(input.jobType), remoteOption: clean(input.remoteOption), apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL,
       limit: access.limit, deepSearch,
       adzunaAppId: env.ADZUNA_APP_ID, adzunaAppKey: env.ADZUNA_APP_KEY });
     const protectedResult = await protectManualSearch(env, user, result, report);

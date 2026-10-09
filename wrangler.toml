@@ -66,6 +66,7 @@ binding = "DB"
 database_name = "bonlist-db"
 database_id = "32f06e98-d912-43ce-9ebf-206c82224b6e"
 preview_database_id = "32f06e98-d912-43ce-9ebf-206c82224b6e"
+migrations_dir = "workers/d1/migrations"
 
 [assets]
 directory = "./artifacts/careerbridge-sa/dist/public"

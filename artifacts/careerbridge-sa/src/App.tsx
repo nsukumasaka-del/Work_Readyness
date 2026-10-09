@@ -3302,7 +3302,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
   const performLiveSearch = async (
     searchTerms: string,
     searchLocation: string,
-    preferences = { industry, postedRange },
+    preferences: { industry?: string; postedRange?: string; jobType?: string; remoteOption?: string } = { industry, postedRange, jobType, remoteOption },
     deepSearchOverride = deepSearch,
   ) => {
     setSearchLoading(true);
@@ -3349,7 +3349,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
     setPostedRange('any');
     setJobType('');
     setRemoteOption('');
-    await performLiveSearch(broadRole, location.trim(), { industry: '', postedRange: 'any' });
+    await performLiveSearch(broadRole, location.trim(), { industry: '', postedRange: 'any', jobType: '', remoteOption: '' });
   };
 
   const toggleSavedJob = (job: JobMatch) => {
@@ -3416,7 +3416,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
               <div>
                 <p className="text-xs font-semibold text-slate-800">{premiumSearch ? 'Premium search: up to 100 results' : 'Standard search: up to 50 results'}</p>
-                <p className="mt-0.5 text-[11px] text-slate-500">BonList expands across related roles and locations to target at least 10 verified relevant listings.</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">BonList expands across multiple boards, related roles, and locations to target at least 20 verified relevant listings.</p>
               </div>
               <label className={`flex items-center gap-2 text-xs font-semibold ${premiumSearch ? 'cursor-pointer text-blue-700' : 'cursor-not-allowed text-slate-400'}`}>
                 <input type="checkbox" checked={premiumSearch && deepSearch} disabled={!premiumSearch || searchLoading} onChange={(event) => setDeepSearch(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
@@ -3463,8 +3463,10 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
                   setLocation(entry.location);
                   setIndustry(entry.industry || '');
                   setPostedRange(entry.postedRange || 'any');
+                  setJobType('');
+                  setRemoteOption('');
                   setDeepSearch(premiumSearch && entry.deepSearch);
-                  void performLiveSearch(entry.keywords, entry.location, { industry: entry.industry || '', postedRange: entry.postedRange || 'any' }, premiumSearch && entry.deepSearch);
+                  void performLiveSearch(entry.keywords, entry.location, { industry: entry.industry || '', postedRange: entry.postedRange || 'any', jobType: '', remoteOption: '' }, premiumSearch && entry.deepSearch);
                 }} className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left hover:border-blue-300 hover:bg-blue-50/40 disabled:opacity-60">
                   <span className="min-w-0"><span className="block truncate text-xs font-semibold text-slate-800">{entry.keywords}{entry.location ? ` · ${entry.location}` : ''}</span><span className="mt-0.5 block text-[10px] text-slate-500">{new Date(entry.createdAt).toLocaleString('en-ZA')} · {entry.resultCount} results{entry.deepSearch ? ' · Deep Search' : ''}</span></span>
                   <span className="shrink-0 text-[10px] font-bold text-blue-700">Run again</span>

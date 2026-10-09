@@ -60,10 +60,10 @@ test('empty province search continues nationally without inventing vacancies', a
 
 test('public job payload aliases normalize null and object values', () => {
   assert.deepEqual(normalizeJobRequest({ query: ' Freight Controller ', city: 'Johannesburg', province: 'Gauteng', cvText: null }), {
-    keywords: 'Freight Controller', location: 'Johannesburg, Gauteng', cvText: '', industry: '', postedRange: '', deepSearch: false,
+    keywords: 'Freight Controller', location: 'Johannesburg, Gauteng', cvText: '', industry: '', postedRange: '', jobType: '', remoteOption: '', deepSearch: false,
   });
-  assert.deepEqual(normalizeJobRequest(null), { keywords: '', location: '', cvText: '', industry: '', postedRange: '', deepSearch: false });
-  assert.deepEqual(normalizeJobRequest({ query: {}, province: [] }), { keywords: '', location: '', cvText: '', industry: '', postedRange: '', deepSearch: false });
+  assert.deepEqual(normalizeJobRequest(null), { keywords: '', location: '', cvText: '', industry: '', postedRange: '', jobType: '', remoteOption: '', deepSearch: false });
+  assert.deepEqual(normalizeJobRequest({ query: {}, province: [] }), { keywords: '', location: '', cvText: '', industry: '', postedRange: '', jobType: '', remoteOption: '', deepSearch: false });
 });
 
 test('AI rate limits preserve aligned real listings and filter unqualified engineering matches', async () => {
@@ -176,6 +176,25 @@ test('standard and premium searches enforce 50/100 limits and premium deep-board
     score: async () => { throw new Error('No CV means scoring is not called'); },
   });
   assert.equal(premium.jobs.length, 100);
+});
+
+test('manual search targets twenty results and forwards every server-side filter', async () => {
+  let first = true;
+  await searchManualJobs({ keywords: 'Customer Service', location: 'South Africa', industry: 'Customer Service', postedRange: 'week', jobType: 'Contract', remoteOption: 'remote' }, {
+    search: async input => {
+      if (first) {
+        first = false;
+        assert.equal(input.minimumResults, 20);
+        assert.equal(input.industry, 'Customer Service');
+        assert.equal(input.postedRange, 'week');
+        assert.equal(input.jobType, 'Contract');
+        assert.equal(input.remoteOption, 'remote');
+      }
+      return result([]);
+    },
+    score: async input => input.jobs,
+  });
+  assert.equal(first, false);
 });
 
 const assistant = { ...job, title: 'Administrative Assistant', sector: 'Administration', match: 55, description: 'Office administration, Excel and customer enquiries', tags: ['Excel'], url: 'https://www.pnet.co.za/jobs/assistant' };

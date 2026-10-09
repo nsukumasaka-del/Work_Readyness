@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { candidateMatch, searchTrustedJobBoards, type LiveJobListing } from "./job-board-search";
+import { candidateMatch, matchesSearchFilters, searchTrustedJobBoards, type LiveJobListing } from "./job-board-search";
 
 const listing = (title: string, description: string, location = "Johannesburg"): LiveJobListing => ({
   id: 1, title, company: "Test employer", location, sector: "Professional services",
@@ -87,6 +87,14 @@ test("returns an honest empty result when no board has an individual listing", a
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('applies industry, date, job-type and workplace filters before returning board results', () => {
+  const remoteContract = { ...listing('Customer Service Agent', 'Six-month contract customer support role. Work from home.'), location: 'Remote - South Africa', posted: 'Today', sector: 'Customer Service' };
+  assert.equal(matchesSearchFilters(remoteContract, { role: 'Customer Service', industry: 'Customer Service', postedRange: 'day', jobType: 'Contract', remoteOption: 'remote' }), true);
+  assert.equal(matchesSearchFilters(remoteContract, { role: 'Customer Service', industry: 'Technology' }), false);
+  assert.equal(matchesSearchFilters(remoteContract, { role: 'Customer Service', remoteOption: 'on-site' }), false);
+  assert.equal(matchesSearchFilters({ ...remoteContract, posted: '1 Jan 2020' }, { role: 'Customer Service', postedRange: 'week' }), false);
 });
 
 test("blocks regulated nursing and accountant listings without matching credentials", () => {

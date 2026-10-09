@@ -42,6 +42,10 @@ export type SearchInput = {
   minimumResults?: number;
   signal?: AbortSignal;
   minimumMatchScore?: number;
+  industry?: string;
+  postedRange?: string;
+  jobType?: string;
+  remoteOption?: string;
   /** Bound fallback provider fan-out inside the progressive request budget. */
   progressive?: boolean;
   mode?: "recommendations" | "candidate-options" | "search";
@@ -253,6 +257,36 @@ function postedTime(posted: string): number {
 
 function rankJobs(jobs: LiveJobListing[]): LiveJobListing[] {
   return jobs.sort((a, b) => postedTime(b.posted) - postedTime(a.posted) || b.match - a.match);
+}
+
+function listingIndustry(job: LiveJobListing): string {
+  const value = `${job.title} ${job.sector} ${job.description} ${(job.tags || []).join(' ')}`.toLowerCase();
+  if (/freight|logistic|supply chain|import|export|warehouse|brokerage|shipping|aviation/.test(value)) return 'Logistics & Supply Chain';
+  if (/construction|civil|engineering|site manager|foreman|quantity surveyor/.test(value)) return 'Construction & Engineering';
+  if (/customer service|call cent(?:er|re)|client support|account support/.test(value)) return 'Customer Service';
+  if (/accountant|accounting|finance|credit|payroll|bookkeep/.test(value)) return 'Finance & Accounting';
+  if (/software|developer|technology|data analyst|information technology|\bit\b/.test(value)) return 'Technology';
+  return 'Other';
+}
+
+export function matchesSearchFilters(job: LiveJobListing, input: SearchInput): boolean {
+  if (input.industry && listingIndustry(job) !== input.industry) return false;
+  if (input.postedRange && input.postedRange !== 'any') {
+    const maxDays = input.postedRange === 'day' ? 1 : input.postedRange === 'week' ? 7 : 30;
+    const time = postedTime(job.posted);
+    if (time < 0 || Date.now() - time > maxDays * 86_400_000) return false;
+  }
+  const listing = `${job.title} ${job.sector} ${job.location} ${job.description} ${(job.tags || []).join(' ')}`.toLowerCase();
+  const jobType = input.jobType?.trim().toLowerCase();
+  if (jobType) {
+    const fullTime = /full[- ]time|permanent/.test(listing) || !/part[- ]time|contract|fixed[- ]term|temporary|internship|\bintern\b/.test(listing);
+    if (jobType === 'full-time' ? !fullTime : !listing.includes(jobType)) return false;
+  }
+  const workplace = input.remoteOption?.trim().toLowerCase();
+  if (workplace === 'remote' && !/\bremote\b|work from home|anywhere/.test(listing)) return false;
+  if (workplace === 'hybrid' && !/\bhybrid\b/.test(listing)) return false;
+  if (workplace === 'on-site' && /\bremote\b|\bhybrid\b|work from home|anywhere/.test(listing)) return false;
+  return true;
 }
 
 function decodeDuckDuckGoUrl(raw: string): string | null {
@@ -573,7 +607,7 @@ async function searchIndeed(role: string, location?: string, signal?: AbortSigna
   }
 
   // Search pages are useful links, but they are not individual job listings.
-  return results.filter((job) => /viewjob\?jk=/i.test(job.url)).slice(0, 6);
+  return results.filter((job) => /viewjob\?jk=/i.test(job.url)).slice(0, 20);
 }
 
 async function searchLinkedIn(role: string, location?: string, signal?: AbortSignal): Promise<LiveJobListing[]> {
@@ -904,7 +938,7 @@ async function searchViaAdzuna(
   const params = new URLSearchParams({
     app_id: appId,
     app_key: appKey,
-    results_per_page: "12",
+    results_per_page: "50",
     what: role,
     content_type: "application/json",
     max_days_old: "30",
@@ -1004,6 +1038,7 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   const addMatches = (jobs: LiveJobListing[]) => {
     for (const job of jobs) {
       fetchedUrls.add(job.url);
+      if (!matchesSearchFilters(job, input)) continue;
       const fit = candidateMatch(job, role, input.experienceRoles ?? [], expertise, location, input.languages, input.yearsExperience, input.credentials ?? []);
       const match = fit.score;
       // Best-fit recommendations must satisfy at least 60% of the evidence-based
@@ -1038,7 +1073,7 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   const priorityJobs = rankJobs([...deduped.values()]).slice(0, limit);
   // Start with the highest-priority boards and avoid a second scrape fan-out
   // when that first pass already produced a useful set of listings.
-  const minimumUsefulResults = Math.min(limit, 10);
+  const minimumUsefulResults = Math.min(limit, Math.max(20, input.minimumResults ?? 20));
   if (!input.signal?.aborted && (input.includeAllBoards || priorityJobs.length < minimumUsefulResults)) {
     const fallbackBoards = TRUSTED_BOARDS.filter((board) =>
       !["Indeed SA", "PNet", "LinkedIn", "Job Placements"].includes(board.label))

@@ -1019,7 +1019,7 @@ router.post('/career/jobs/search', requireUser, async (req: AuthedUserRequest, r
     try { report = row?.reportJson ? JSON.parse(row.reportJson) : undefined; } catch { /* Search remains available without a readable review. */ }
     const string = (value: unknown) => typeof value === 'string' ? value : '';
     const result = await searchManualJobs({ keywords: string(req.body?.keywords), location: string(req.body?.location), report,
-      industry: string(req.body?.industry), postedRange: string(req.body?.postedRange), apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL,
+      industry: string(req.body?.industry), postedRange: string(req.body?.postedRange), jobType: string(req.body?.jobType), remoteOption: string(req.body?.remoteOption), apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL,
       adzunaAppId: process.env.ADZUNA_APP_ID, adzunaAppKey: process.env.ADZUNA_APP_KEY });
     res.json(await protectManualSearch(req.userProfile!, result, report));
   } catch { res.status(400).json({ error: 'Job search could not be completed. Enter a job title and try again.' }); }

@@ -178,6 +178,7 @@ export function normalizeJobRequest(value: unknown) {
     location: (text(input.location) || [text(input.city), text(input.province)].filter(Boolean).join(', ')).slice(0, 100),
     cvText: (text(input.cvText) || text(input.text)).slice(0, 100_000),
     industry: text(input.industry).slice(0, 100), postedRange: text(input.postedRange).slice(0, 30),
+    jobType: text(input.jobType).slice(0, 30), remoteOption: text(input.remoteOption).slice(0, 30),
     deepSearch: input.deepSearch === true || text(input.deepSearch).toLowerCase() === 'true' };
 }
 
@@ -209,7 +210,7 @@ export async function searchCandidateJobs(input: Parameters<typeof searchManualJ
 
 export async function searchManualJobs(input: {
   keywords: string; location: string; report?: unknown; apiKey?: string; model?: string;
-  industry?: string; postedRange?: string; adzunaAppId?: string; adzunaAppKey?: string;
+  industry?: string; postedRange?: string; jobType?: string; remoteOption?: string; adzunaAppId?: string; adzunaAppKey?: string;
   limit?: number; deepSearch?: boolean;
 }, dependencies: JobSearchDependencies = defaultDependencies) {
   const candidate = candidateFromReport(input.report);
@@ -218,10 +219,11 @@ export async function searchManualJobs(input: {
   const fitAvailable = Boolean(candidate.experienceRoles?.length || candidate.skills?.length || candidate.credentials?.length);
   const validation = fitAvailable ? await resolveValidatedSearchRole({ targetRole: role, candidate, apiKey: input.apiKey, model: input.model }, dependencies.validate)
     : { target_role_aligned: true, original_target_role: role, recommended_search_role: role, user_message_banner: null };
-  const resultLimit = Math.max(10, Math.min(100, Math.round(input.limit ?? 50)));
+  const resultLimit = Math.max(20, Math.min(100, Math.round(input.limit ?? 50)));
   const result = await searchWithLocationFallback({
     role: validation.recommended_search_role, location: input.location.trim().slice(0, 100) || candidate.location || 'South Africa', mode: 'search', limit: resultLimit,
-    minimumResults: 10, includeAllBoards: input.deepSearch === true,
+    minimumResults: 20, includeAllBoards: input.deepSearch === true,
+    industry: input.industry, postedRange: input.postedRange, jobType: input.jobType, remoteOption: input.remoteOption,
     experienceRoles: candidate.experienceRoles, expertise: [...candidate.skills || [], ...candidate.systems || []],
     credentials: candidate.credentials, yearsExperience: candidate.yearsExperience,
     adzunaAppId: input.adzunaAppId, adzunaAppKey: input.adzunaAppKey,

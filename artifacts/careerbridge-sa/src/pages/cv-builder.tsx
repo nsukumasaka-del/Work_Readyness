@@ -949,6 +949,10 @@ export interface ImproveCvReport {
 export interface JobMatchReport {
   jobTitle: string;
   overallMatch: number;
+  match_rate_percentage: number;
+  hard_requirements_met: boolean;
+  missing_critical_qualifications: string[];
+  reasoning: string;
   strongMatches: string[];
   missingOrUnclear: string[];
   cautionNotice: string;

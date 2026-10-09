@@ -588,6 +588,10 @@ export interface TailoringProposal {
 export interface JobMatchReport {
   jobTitle: string;
   overallMatch: number; // e.g. 78%
+  match_rate_percentage: number;
+  hard_requirements_met: boolean;
+  missing_critical_qualifications: string[];
+  reasoning: string;
   strongMatches: string[];
   missingOrUnclear: string[];
   cautionNotice: string;
@@ -1161,6 +1165,7 @@ const METRIC_REGEX = /(\d+[%kKmMbB]?|\$\d+|\bR\d+|\b\d+\s*(?:percent|hours|days|
 type RoleDomainGate = { name: string; pattern: RegExp; hardSkills: readonly string[]; mandatory?: ReadonlyArray<{ label: string; pattern: RegExp }> };
 
 const ROLE_DOMAINS: readonly RoleDomainGate[] = [
+  { name: "commercial aviation flight crew", pattern: /\b(?:pilot|flight crew|flight deck|first officer|aircraft captain)\b/i, hardSkills: ["flight operations", "aircraft", "aviation safety", "crew resource management", "instrument rating", "flight hours"], mandatory: [{ label: "valid CPL or ATPL pilot licence", pattern: /\b(?:cpl|atpl|commercial pilot licen[cs]e|airline transport pilot licen[cs]e)\b/i }, { label: "documented pilot or flight-deck experience", pattern: /\b(?:commercial pilot|airline pilot|first officer|aircraft captain|pilot in command|second in command|flight deck)\b/i }] },
   { name: "psychology and mental health", pattern: /\b(?:psychologist|psychology|clinical psychology|counselling psychologist)\b/i, hardSkills: ["psychology", "psychological assessment", "clinical", "counselling", "mental health", "therapy", "hpcsa"], mandatory: [{ label: "recognised psychology qualification or clinical training", pattern: /\b(?:degree|bachelor|master|honours|doctorate|phd|ma|msc).{0,45}psycholog|psycholog.{0,45}(?:degree|bachelor|master|honours|doctorate|phd|ma|msc)|clinical training/i }, { label: "HPCSA or applicable professional-board registration", pattern: /\b(?:hpcsa|health professions council|board registration|registered psychologist)\b/i }] },
   { name: "medical practice", pattern: /\b(?:medical doctor|physician|general practitioner|surgeon|doctor of medicine)\b/i, hardSkills: ["medicine", "clinical", "patient care", "diagnosis", "treatment", "hpcsa"], mandatory: [{ label: "recognised medical degree", pattern: /\b(?:mbchb|mbbs|doctor of medicine|medical degree)\b/i }, { label: "HPCSA or applicable medical-board registration", pattern: /\b(?:hpcsa|medical board registration|registered medical practitioner)\b/i }] },
   { name: "legal practice", pattern: /\b(?:attorney|advocate|lawyer|legal practitioner)\b/i, hardSkills: ["law", "legal research", "litigation", "contracts", "admitted attorney", "legal practice council"], mandatory: [{ label: "recognised law degree", pattern: /\b(?:llb|bachelor of laws|law degree)\b/i }, { label: "professional admission or applicable legal registration", pattern: /\b(?:admitted attorney|admitted advocate|legal practice council|lpc registration)\b/i }] },
@@ -2222,9 +2227,20 @@ export function matchJobDescription(
 
   const matchRate = sortedKeyTerms.length
     ? strongMatches.length / sortedKeyTerms.length
-    : 0.7;
+    : 0;
 
-  const overallMatch = Math.min(95, Math.max(50, Math.round(matchRate * 100)));
+  const roleFit = strictRoleFit(cv, jdText);
+  const hardRequirementsMet = !roleFit.hardMismatch;
+  const overallMatch = hardRequirementsMet
+    ? Math.min(95, Math.max(0, Math.round(matchRate * 100)))
+    : Math.min(15, Math.max(0, Math.round(matchRate * 100)));
+  const missingCriticalQualifications = Array.from(new Set([
+    ...roleFit.missingMandatoryRequirements,
+    ...(roleFit.hardMismatch ? roleFit.gaps.slice(0, 5) : []),
+  ])).slice(0, 8);
+  const reasoning = hardRequirementsMet
+    ? `The score reflects documented hard requirements, direct domain experience, and verified keyword evidence for ${jobTitle || "the target role"}.`
+    : `The CV does not document the mandatory qualifications or primary domain experience for ${jobTitle || "the target role"}, so the score is capped at 15%.`;
 
   // Generate tailoring proposals WITHOUT fabricating experience
   const proposals: TailoringProposal[] = [];
@@ -2262,6 +2278,10 @@ export function matchJobDescription(
   return {
     jobTitle: jobTitle || cv.headline,
     overallMatch,
+    match_rate_percentage: overallMatch,
+    hard_requirements_met: hardRequirementsMet,
+    missing_critical_qualifications: missingCriticalQualifications,
+    reasoning,
     strongMatches,
     missingOrUnclear,
     cautionNotice: "Important: Only add missing skills if you genuinely possess verified experience with them.",

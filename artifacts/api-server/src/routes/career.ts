@@ -17,7 +17,7 @@ import { and, count, desc, eq, ne } from "drizzle-orm";
 import { fetchTrustedJobDetails, getTrustedBoardLabels } from "../lib/job-board-search";
 import { normalizeJobRequest, searchCandidateJobs, searchManualJobs, searchWithLocationFallback } from "../lib/job-search-service";
 import { buildCareerAlignmentReport, estimateCareerYears, type CareerAlignmentReport } from "../lib/career-alignment";
-import { calibrateJobListingScores, scoreJobListingsWithGemini, enrichCareerAdvisoryWithGemini, generateCvAssistantJson, generateSmokeyReply, reviewDiagnosticRoleFitWithGemini, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
+import { calibrateJobListingScores, scoreJobListingsWithGemini, enrichCareerAdvisoryWithGemini, enforceTailorMatchGuardrail, generateCvAssistantJson, generateSmokeyReply, reviewDiagnosticRoleFitWithGemini, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
 import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
 import { nodePaymentAccess } from '../lib/yoco-store';
 import { protectReport } from '../lib/yoco';
@@ -2057,7 +2057,7 @@ router.post("/career/cv/tailor", async (req, res) => {
   }
   try {
     const baseline = matchJobDescription(cvDocument, jobDescription);
-    const generated = await runCvAssistant("tailor", { cvDocument, jobDescription, baseline });
+    const generated = enforceTailorMatchGuardrail(await runCvAssistant("tailor", { cvDocument, jobDescription, baseline }), baseline);
     if (!Array.isArray(generated.proposals)) throw new Error("Gemini returned an invalid tailoring report.");
     res.json({ ...baseline, ...generated, proposals: generated.proposals });
   } catch (error) {

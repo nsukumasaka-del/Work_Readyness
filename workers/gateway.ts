@@ -15,12 +15,14 @@ import { canUseTemplate, chargeFeatureCredits, getFeatureQuote, handleMonetizati
 import puppeteer from "@cloudflare/puppeteer";
 import {
   generateCvAssistantJson,
+  enforceTailorMatchGuardrail,
   generateGeminiJson,
   generateSmokeyReply,
   streamSmokeyReply,
   type CvAssistantTask,
   type GeminiChatTurn,
 } from "../artifacts/api-server/src/lib/ai/gemini-client";
+import { matchJobDescription, type GeneratedCvDocument, type JobMatchReport } from "../artifacts/api-server/src/lib/cv-builder";
 import { renderRouteHtml } from "./public-html";
 
 export interface Env extends D1Env {
@@ -329,12 +331,17 @@ async function handleCvAssistant(request: Request, env: Env, task: CvAssistantTa
     return jsonError(400, "Required CV assistant details are missing.");
   }
   try {
-    const result = await generateCvAssistantJson<Record<string, unknown>>({
+    const deterministicBaseline: JobMatchReport | undefined = task === "tailor"
+      ? matchJobDescription(cv as GeneratedCvDocument, String(evidence.jobDescription))
+      : undefined;
+    if (deterministicBaseline) evidence.baseline = deterministicBaseline;
+    let result = await generateCvAssistantJson<Record<string, unknown>>({
       apiKey,
       model: env.GEMINI_MODEL,
       task,
       evidence,
     });
+    if (task === "tailor") result = enforceTailorMatchGuardrail(result, deterministicBaseline);
     if (task === "summary" && typeof result.summary !== "string") throw new Error("Gemini summary response was invalid.");
     if (task === "skills" && !Array.isArray(result.skills)) throw new Error("Gemini skills response was invalid.");
     if (task === "bullet" && typeof result.improved !== "string") throw new Error("Gemini bullet response was invalid.");

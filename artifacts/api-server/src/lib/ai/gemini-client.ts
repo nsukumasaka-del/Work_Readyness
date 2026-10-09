@@ -108,8 +108,80 @@ const CV_ASSISTANT_INSTRUCTIONS: Record<CvAssistantTask, string> = {
   humanize: "Rewrite the supplied CV summary in the requested tone while preserving every fact and avoiding clichés. Return JSON {humanized:string, explanation:string}.",
   advisor: "Answer the candidate's CV/career question using only the supplied CV evidence. Keep the answer concise and actionable. Return JSON {answer:string, reasoning:string, suggestedAction:string}.",
   improve: "Improve the supplied CV review proposals without changing their IDs, paths, before-text, section types, or statuses. Rewrite only after-text and concise reasons; do not invent facts. Return the same JSON shape {scope,proposalCount,qualityNotes,missingSuggestions,proposals}.",
-  tailor: "Assess the supplied CV against the job description using only documented evidence. Keep match scoring evidence-based and tailor only existing facts. Return JSON {jobTitle:string,overallMatch:number,strongMatches:string[],missingOrUnclear:string[],cautionNotice:string,recommendedAction:string,proposals:array} where each proposal has id,section,title,reason,before,after,status. Never add a skill the candidate has not verified.",
+  tailor: `You are an expert ATS Job Match Evaluator. Your task is to calculate a strict, realistic match score (0% to 100%) between a Candidate CV and a Job Description.
+
+CORE RULE — MANDATORY HARD REQUIREMENT GATING:
+1. Extract mandatory prerequisites from the Job Description (e.g., required job titles, core licenses, degrees, domain-specific certifications).
+2. Check if the candidate possesses these primary credentials.
+3. CRITICAL GATEKEEPER: If the candidate lacks mandatory qualifications or primary domain experience, set "hard_requirements_met" to false and CAP THE TOTAL MATCH SCORE TO A MAXIMUM OF 15%. Under no circumstances award 20%+ to a candidate lacking mandatory role credentials.
+
+SCORING WEIGHTS (When Hard Requirements Are Met):
+- Hard Requirements & Licensing: 60%
+- Direct Relevant Domain Experience: 30%
+- Secondary/Soft Skills & Location: 10%
+
+Do not grant compensating points for communication, teamwork, formatting, location, or other generic transferable skills when the candidate is unqualified for the core profession. Unrelated career experience scores zero for Direct Relevant Domain Experience. Use only documented CV evidence and never infer a licence, qualification, title, skill, or experience.
+
+Return strict JSON only with this shape:
+{
+  "match_rate_percentage": <integer from 0 to 100>,
+  "hard_requirements_met": <boolean>,
+  "missing_critical_qualifications": [<missing mandatory skills, licences, qualifications, or core domain experience>],
+  "reasoning": "<1-2 concise sentences explaining the assigned score>",
+  "jobTitle": "<job title>",
+  "strongMatches": [<documented direct matches>],
+  "missingOrUnclear": [<requirements not evidenced>],
+  "cautionNotice": "<concise non-fabrication warning>",
+  "recommendedAction": "<concise evidence-based next action>",
+  "proposals": [<tailoring proposals>]
+}
+Each proposal must have id, section, title, reason, before, after, and status. Tailor only existing facts and never add an unverified skill.`,
 };
+
+export type TailorMatchResult = Record<string, unknown> & {
+  match_rate_percentage: number;
+  hard_requirements_met: boolean;
+  missing_critical_qualifications: string[];
+  reasoning: string;
+  overallMatch: number;
+};
+
+/** Fail closed on malformed match output and enforce the hard-requirement cap server-side. */
+export function enforceTailorMatchGuardrail(
+  result: Record<string, unknown>,
+  deterministicBaseline?: { hard_requirements_met?: boolean; missing_critical_qualifications?: string[] },
+): TailorMatchResult {
+  if (typeof result.hard_requirements_met !== "boolean") {
+    throw new Error("Gemini returned an invalid hard-requirement decision.");
+  }
+  const rawScore = result.match_rate_percentage;
+  if (typeof rawScore !== "number" || !Number.isFinite(rawScore)) throw new Error("Gemini returned an invalid match score.");
+  const hardRequirementsMet = deterministicBaseline?.hard_requirements_met === false
+    ? false
+    : result.hard_requirements_met;
+  let matchRate = Math.max(0, Math.min(100, Math.round(rawScore)));
+  // Programmatic safety cap in case the LLM outputs an overinflated score.
+  if (hardRequirementsMet === false && matchRate > 15) {
+    matchRate = Math.min(matchRate, 15);
+  }
+  const missing = Array.from(new Set([
+    ...(Array.isArray(result.missing_critical_qualifications) ? result.missing_critical_qualifications : []),
+    ...(deterministicBaseline?.missing_critical_qualifications || []),
+  ].filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    .map((item) => item.trim()))).slice(0, 12);
+  if (!hardRequirementsMet && missing.length === 0) {
+    missing.push("Mandatory qualifications or primary domain experience are not evidenced in the CV.");
+  }
+  return {
+    ...result,
+    match_rate_percentage: matchRate,
+    hard_requirements_met: hardRequirementsMet,
+    missing_critical_qualifications: missing,
+    reasoning: String(result.reasoning || "Score based on documented hard requirements and direct domain experience.").slice(0, 700),
+    // Preserve the existing UI contract while making the strict score canonical.
+    overallMatch: matchRate,
+  };
+}
 
 export async function generateCvAssistantJson<T>(input: {
   apiKey: string;

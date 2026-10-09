@@ -1,8 +1,8 @@
-import { buildGeneratedCv, CV_PARSER_SYSTEM_PROMPT, evaluateAts, extractCvDataFromText, finalizeExtractedCvData, generateCandidateBiography, type GeneratedCvDocument } from "./cv-builder";
+import { buildGeneratedCv, CV_PARSER_SYSTEM_PROMPT, evaluateAts, extractCvDataFromText, finalizeExtractedCvData, generateCandidateBiography, matchJobDescription, type GeneratedCvDocument } from "./cv-builder";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { reconstructPdfTextFromItems } from "./pdf-layout-text";
-import { calibrateJobListingScores } from "./ai/gemini-client";
+import { calibrateJobListingScores, enforceTailorMatchGuardrail } from "./ai/gemini-client";
 import { CV_PARSER_RESPONSE_SCHEMA } from "./ai/cv-parser";
 
 function expect<T>(actual: T) {
@@ -280,6 +280,43 @@ describe("strict ATS role alignment", () => {
     experiences: [{ id: "1", role: "Road Freight Coordinator", company: "ABC Logistics", startDate: "2021", endDate: "Present", bullets: ["Coordinated dispatch schedules and resolved customer delivery queries."] }],
     education: [], skillGroups: [], skills: ["Customer service", "Freight", "Dispatch", "Shipment tracking"], keywords: [], sections: [], footerNote: "", authenticityScore: 90,
   };
+
+  it("caps an uncertified customer-service applicant at 15 percent for a pilot role", () => {
+    const report = matchJobDescription(
+      logisticsCv,
+      "Commercial Pilot\nMust hold a valid CPL or ATPL and have documented flight-deck experience.",
+    );
+    assert.equal(report.hard_requirements_met, false);
+    assert.ok(report.overallMatch <= 15);
+    assert.equal(report.match_rate_percentage, report.overallMatch);
+    assert.ok(report.missing_critical_qualifications.some((item) => /CPL|ATPL/i.test(item)));
+  });
+
+  it("server guardrail caps an overinflated failed-gate LLM score", () => {
+    const guarded = enforceTailorMatchGuardrail({
+      match_rate_percentage: 45,
+      hard_requirements_met: false,
+      missing_critical_qualifications: ["Commercial Pilot Licence"],
+      reasoning: "The licence is absent.",
+    });
+    assert.equal(guarded.match_rate_percentage, 15);
+    assert.equal(guarded.overallMatch, 15);
+  });
+
+  it("server guardrail cannot be bypassed by an optimistic LLM gate decision", () => {
+    const guarded = enforceTailorMatchGuardrail({
+      match_rate_percentage: 82,
+      hard_requirements_met: true,
+      missing_critical_qualifications: [],
+      reasoning: "The model incorrectly treated transferable skills as qualification evidence.",
+    }, {
+      hard_requirements_met: false,
+      missing_critical_qualifications: ["valid CPL or ATPL pilot licence"],
+    });
+    assert.equal(guarded.hard_requirements_met, false);
+    assert.equal(guarded.match_rate_percentage, 15);
+    assert.ok(guarded.missing_critical_qualifications.some((item) => /CPL|ATPL/i.test(item)));
+  });
 
   it("caps an unrelated technical engineering target below 40 percent", () => {
     const report = evaluateAts(logisticsCv, "Technical Manager - Solar Engineering");

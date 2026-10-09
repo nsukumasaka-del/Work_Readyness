@@ -32,7 +32,8 @@ export function expandedSearchRoles(input: SearchInput) {
 
 // One bounded request; two provider queries at a time. Never create vacancies.
 export async function searchWithLocationFallback(input: SearchInput, search = searchTrustedJobBoards) {
-  const requested = input.limit ?? 1;
+  const requested = Math.max(1, Math.min(100, Math.round(input.limit ?? 10)));
+  const minimumResults = Math.min(requested, Math.max(1, Math.round(input.minimumResults ?? 10)));
   const requestedLocation = input.location || 'South Africa';
   const roles = expandedSearchRoles(input);
   const candidate = { targetRole: input.role, experienceRoles: input.experienceRoles, skills: input.expertise, credentials: input.credentials, yearsExperience: input.yearsExperience };
@@ -77,28 +78,29 @@ export async function searchWithLocationFallback(input: SearchInput, search = se
     } finally { clearTimeout(timer!); controller.abort(); }
   };
   await run(input.role, requestedLocation, 1);
-  if (!combined.size) {
+  if (combined.size < minimumResults) {
     // Two synonyms per batch avoids an unbounded board fan-out.
-    for (let i = 0; i < roles.synonyms.length && !combined.size; i += 2) await Promise.all(roles.synonyms.slice(i, i + 2).map(role => run(role, requestedLocation, 2)));
+    for (let i = 0; i < roles.synonyms.length && combined.size < minimumResults; i += 2) await Promise.all(roles.synonyms.slice(i, i + 2).map(role => run(role, requestedLocation, 2)));
   }
   const locations = /johannesburg|pretoria|centurion|sandton|midrand/i.test(requestedLocation) ? ['Gauteng', 'South Africa'] : ['South Africa'];
   for (const location of locations) {
     if (combined.size >= requested) break;
     if (location.toLowerCase() !== requestedLocation.toLowerCase()) {
       await run(input.role, location, 3);
-      if (!combined.size && roles.synonyms.length) await run(roles.synonyms.find(role => /remote/i.test(role)) || roles.synonyms[0], location, 3);
+      if (combined.size < minimumResults && roles.synonyms.length) await run(roles.synonyms.find(role => /remote/i.test(role)) || roles.synonyms[0], location, 3);
     }
   }
-  if (!combined.size && hasEvidence && Date.now() < deadline) {
+  if (combined.size < minimumResults && hasEvidence && Date.now() < deadline) {
     // A lower relevance floor is not a waiver of mandatory credentials or seniority.
     minimumMatchScore = input.mode === 'recommendations' ? 60 : 30;
     const adjacent = roles.adjacent.length ? roles.adjacent : roles.synonyms.slice(0, 2);
     await Promise.all(adjacent.map(role => run(role, 'South Africa', 4, minimumMatchScore)));
   }
-  const jobs = [...combined.values()].slice(0, input.limit ?? 10);
+  const jobs = [...combined.values()].slice(0, requested);
   const fallbackApplied = searchTiers.some(item => item.tier > 1);
   const exhausted = !jobs.length;
   const searchNotice = [fallbackApplied ? 'Showing expanded job matches based on your target role skills and nationwide or remote opportunities.' : '',
+    jobs.length > 0 && jobs.length < minimumResults ? `Found ${jobs.length} verified relevant ${jobs.length === 1 ? 'listing' : 'listings'} after exhausting available expanded searches; no vacancies were invented to reach the ${minimumResults}-result target.` : '',
     exhausted ? 'No verified eligible vacancies were returned after expanded searches. Use the job-board search links or try again later; no listings were invented.' : '',
     searchTiers.some(item => item.status === 'timeout' || item.status === 'unavailable') ? 'Some job sources were unavailable or reached the search time limit.' : ''].filter(Boolean).join(' ');
   return { jobs, query, queriedBoards: [...boards], boardSearchLinks: [...links.values()], fetchedCount, liveResults: jobs.length > 0,
@@ -109,7 +111,9 @@ export function normalizeJobRequest(value: unknown) {
   const input = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
   return { keywords: (text(input.keywords) || text(input.query) || text(input.targetRole) || text(input.role)).slice(0, 120),
     location: (text(input.location) || [text(input.city), text(input.province)].filter(Boolean).join(', ')).slice(0, 100),
-    cvText: (text(input.cvText) || text(input.text)).slice(0, 100_000) };
+    cvText: (text(input.cvText) || text(input.text)).slice(0, 100_000),
+    industry: text(input.industry).slice(0, 100), postedRange: text(input.postedRange).slice(0, 30),
+    deepSearch: input.deepSearch === true || text(input.deepSearch).toLowerCase() === 'true' };
 }
 
 export async function searchCandidateJobs(input: Parameters<typeof searchManualJobs>[0] & { cvText?: string }, dependencies = { search: searchTrustedJobBoards, score: scoreJobListingsWithGemini }) {
@@ -122,25 +126,30 @@ export async function searchCandidateJobs(input: Parameters<typeof searchManualJ
       yearsExperience: estimateCareerYears(cv.experiences), location: input.location || cv.personal.location };
   }
   if (!candidate.experienceRoles?.length && !candidate.skills?.length && !candidate.credentials?.length) throw new Error('Upload a readable CV or complete a CV review before requesting matches.');
+  const resultLimit = Math.max(10, Math.min(100, Math.round(input.limit ?? 10)));
   const result = await searchWithLocationFallback({ role: input.keywords || candidate.targetRole || 'Professional', location: input.location || candidate.location || 'South Africa',
-    mode: 'candidate-options', limit: 10, experienceRoles: candidate.experienceRoles, expertise: [...candidate.skills || [], ...candidate.systems || []],
+    mode: 'candidate-options', limit: resultLimit, minimumResults: 10, includeAllBoards: input.deepSearch === true,
+    experienceRoles: candidate.experienceRoles, expertise: [...candidate.skills || [], ...candidate.systems || []],
     credentials: candidate.credentials, yearsExperience: candidate.yearsExperience, adzunaAppId: input.adzunaAppId, adzunaAppKey: input.adzunaAppKey }, dependencies.search);
   let scored = null;
   try { scored = await dependencies.score({ apiKey: input.apiKey, model: input.model, candidateProfile: candidate, jobs: result.jobs }); } catch { /* Keep real listings and strict deterministic scores. */ }
   const calibrated = calibrateJobListingScores(candidate, scored || result.jobs).filter(job => job.match >= result.minimumMatchScore);
-  const jobs = (calibrated.length ? calibrated : calibrateJobListingScores(candidate, result.jobs).filter(job => job.match >= result.minimumMatchScore)).slice(0, 10).map(job => ({ ...job, isAiMatch: true }));
+  const jobs = (calibrated.length ? calibrated : calibrateJobListingScores(candidate, result.jobs).filter(job => job.match >= result.minimumMatchScore)).slice(0, resultLimit).map(job => ({ ...job, isAiMatch: true }));
   return { ...result, jobs, roleSuggestions: candidateRoleSuggestions({ ...candidate, targetRole: input.keywords || candidate.targetRole, location: input.location || candidate.location }), candidateProfile: candidate, liveResults: jobs.length > 0, scoring: scored ? 'gemini' : 'evidence-based-fallback', isFallback: !scored };
 }
 
 export async function searchManualJobs(input: {
   keywords: string; location: string; report?: unknown; apiKey?: string; model?: string;
   industry?: string; postedRange?: string; adzunaAppId?: string; adzunaAppKey?: string;
+  limit?: number; deepSearch?: boolean;
 }, dependencies = { search: searchTrustedJobBoards, score: scoreJobListingsWithGemini }) {
   const candidate = candidateFromReport(input.report);
   const role = input.keywords.trim().slice(0, 120) || candidate.targetRole;
   if (!role) throw new Error('Enter a job title to search.');
+  const resultLimit = Math.max(10, Math.min(100, Math.round(input.limit ?? 50)));
   const result = await searchWithLocationFallback({
-    role, location: input.location.trim().slice(0, 100) || candidate.location || 'South Africa', mode: 'search', limit: 10,
+    role, location: input.location.trim().slice(0, 100) || candidate.location || 'South Africa', mode: 'search', limit: resultLimit,
+    minimumResults: 10, includeAllBoards: input.deepSearch === true,
     experienceRoles: candidate.experienceRoles, expertise: [...candidate.skills || [], ...candidate.systems || []],
     credentials: candidate.credentials, yearsExperience: candidate.yearsExperience,
     adzunaAppId: input.adzunaAppId, adzunaAppKey: input.adzunaAppKey,

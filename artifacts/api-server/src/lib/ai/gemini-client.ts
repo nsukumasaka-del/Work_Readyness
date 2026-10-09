@@ -231,8 +231,8 @@ MANDATORY FIRST STEP — DOMAIN AND REGULATORY GATE:
 - For regulated or highly specialised roles such as Psychologist, Doctor, Lawyer, Civil Engineer, or similar professions, absent mandatory education/registration means the candidate is not qualified. Psychology requires relevant psychology education/clinical training and applicable HPCSA or board-registration evidence.
 
 CAPS:
-- Regulatory/high-domain mismatch: atsFitScore 15-25 maximum; overallScore 20-30 maximum; isRoleMatch false.
-- General unrelated career mismatch: atsFitScore 20-35 maximum; overallScore 25-40 maximum.
+- Missing mandatory credentials or primary domain experience: atsFitScore and overallScore 15 maximum; isRoleMatch false.
+- General unrelated career mismatch: atsFitScore and overallScore 15 maximum.
 - Adjacent transferable alignment: 60-75.
 - Direct title plus hard-skill alignment: 80-95.
 - Formatting, grammar, communication, teamwork, location, or generic administration must never override a failed domain gate.
@@ -264,6 +264,8 @@ Return only JSON: {"overallScore":number,"atsFitScore":number,"authenticityScore
 }
 
 const LISTING_ROLE_DOMAINS = [
+  /\b(?:pilot|flight crew|flight deck|first officer|aircraft captain)\b/i,
+  /\b(?:attorney|advocate|lawyer|legal practitioner)\b/i,
   /\b(?:solar|photovoltaic|renewable energy|electrical|mechanical|engineering|engineer|technical manager|technician)\b/i,
   /\b(?:software|developer|programmer|information technology|\bit\b|cloud|devops|cybersecurity|network engineer|data engineer)\b/i,
   /\b(?:accounting|accountant|finance|bookkeep|audit|credit control|accounts payable|accounts receivable)\b/i,
@@ -290,6 +292,14 @@ function strictListingScoreCeiling(candidate: JobScoringCandidate, job: LiveJobL
   const credentialEvidence = (candidate.credentials || []).join(" ");
   const candidateEvidence = [candidate.summary, ...(candidate.experienceRoles || []), ...(candidate.skills || []), ...(candidate.systems || []), credentialEvidence].filter(Boolean).join(" ");
   const jobEvidence = `${job.title} ${job.description}`;
+  const mandatoryCredentials = [
+    { applies: /\b(?:pilot|first officer|aircraft captain)\b/i.test(job.title) || /\b(?:CPL|ATPL)\b[^.]{0,45}\b(?:required|essential|mandatory)\b/i.test(jobEvidence), candidate: /\b(?:CPL|ATPL|commercial pilot licen[cs]e|airline transport pilot licen[cs]e)\b/i },
+    { applies: /\b(?:attorney|lawyer|legal practitioner)\b/i.test(job.title) || /\b(?:bar admission|admitted attorney|admitted advocate)\b/i.test(jobEvidence), candidate: /\b(?:LLB|bachelor of laws|admitted attorney|admitted advocate|legal practice council|LPC registration)\b/i },
+    { applies: /\b(?:medical doctor|physician|surgeon)\b/i.test(job.title) || /\b(?:MBChB|MBBS|medical-board registration)\b/i.test(jobEvidence), candidate: /\b(?:MBChB|MBBS|medical degree|HPCSA|registered medical practitioner)\b/i },
+    { applies: /\b(?:registered nurse|professional nurse|nurse practitioner)\b/i.test(job.title) || /\bSANC\b[^.]{0,45}\b(?:required|essential|mandatory|registration)\b/i.test(jobEvidence), candidate: /\b(?:SANC|South African Nursing Council|registered (?:professional )?nurse)\b/i },
+    { applies: /\b(?:commercial driver|truck driver)\b/i.test(job.title) || /\b(?:code 10|code 14|EC1|EC licen[cs]e|PDP|PrDP)\b[^.]{0,45}\b(?:required|essential|mandatory)\b/i.test(jobEvidence), candidate: /\b(?:code 10|code 14|EC1|EC licen[cs]e|PDP|PrDP|commercial driver'?s? licen[cs]e)\b/i },
+  ];
+  if (mandatoryCredentials.some(({ applies, candidate: credential }) => applies && !credential.test(candidateEvidence))) return 15;
   const hasIntroductoryNLevel = /\bN[23]\b/i.test(credentialEvidence);
   const hasEngineeringDegreeOrRegistration = /\bBEng\b|\b(?:BSc|BTech)\b[^.]{0,60}\b(?:engineering|mechanical|electrical|civil|chemical|industrial)\b|bachelor(?:'s)?(?: degree)?[^.]{0,60}\bengineering\b|\b(?:Pr\.?\s*Eng\.?|ECSA)\b/i.test(credentialEvidence);
   const professionalEngineeringTitle = /\b(?:principal|lead|senior|project|professional|design)?\s*(?:mechanical|electrical|civil|chemical|industrial)\s+engineer\b/i.test(job.title);
@@ -306,12 +316,12 @@ function strictListingScoreCeiling(candidate: JobScoringCandidate, job: LiveJobL
     if (!hasDomainExperience || (candidate.yearsExperience ?? 0) < minimumYears) return 14;
   }
   const targetDomain = LISTING_ROLE_DOMAINS.find((pattern) => pattern.test(job.title));
-  if (targetDomain && !targetDomain.test(candidateEvidence)) return 35;
+  if (targetDomain && !targetDomain.test(candidateEvidence)) return 15;
   const importantTitleTokens = job.title.toLowerCase().match(/[a-z][a-z0-9+#.-]{2,}/g)?.filter((token) => !/^(?:the|and|for|with|senior|junior|manager|assistant)$/.test(token)) || [];
   const experienceText = (candidate.experienceRoles || []).join(" ").toLowerCase();
   const titleOverlap = importantTitleTokens.filter((token) => experienceText.includes(token)).length / Math.max(1, importantTitleTokens.length);
   const candidateHasDifferentKnownDomain = LISTING_ROLE_DOMAINS.some((pattern) => pattern !== targetDomain && pattern.test(candidateEvidence));
-  return titleOverlap === 0 && candidateHasDifferentKnownDomain ? 45 : 100;
+  return titleOverlap === 0 && candidateHasDifferentKnownDomain ? 15 : 100;
 }
 
 export function calibrateJobListingScores(
@@ -323,7 +333,16 @@ export function calibrateJobListingScores(
     const match = Math.min(job.match, ceiling);
     const evidence = [...candidate.experienceRoles || [], ...candidate.skills || []].slice(0, 6).join(', ');
     const explanation = job.matchReasoning || job.matchRationale || `Evidence-based score: ${match}%. CV evidence considered: ${evidence || 'limited documented experience and skills'}. Domain, qualifications and seniority limit this score to ${ceiling}%. This is a heuristic assessment, not a hiring guarantee.`;
-    return { ...job, match, matchReasoning: explanation };
+    const hardRequirementsMet = ceiling > 15;
+    return {
+      ...job,
+      match,
+      hardRequirementsMet,
+      missingCriticalQualifications: hardRequirementsMet
+        ? (job.missingCriticalQualifications || [])
+        : (job.missingCriticalQualifications?.length ? job.missingCriticalQualifications : ["Mandatory credentials or primary domain experience are not evidenced in the CV."]),
+      matchReasoning: explanation,
+    };
   });
 }
 
@@ -339,56 +358,62 @@ export async function scoreJobListingsWithGemini(input: {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     const scoring = generateGeminiJson<{
-      scores: Array<{ id: number; overallScore: number; atsFitScore: number; authenticityScore: number; isMatch: boolean; matchReason?: string; matchReasoning?: string; gaps?: string[] }>;
+      scores: Array<{ id: number; match_rate_percentage: number; hard_requirements_met: boolean; missing_critical_qualifications: string[]; reasoning: string }>;
     }>({
       apiKey: input.apiKey,
       model: input.model,
-      instruction: `You are a senior executive technical recruiter and a strict ATS auditor. Critically compare the candidate's documented CV evidence with each real job listing.
+      instruction: `You are an ATS Job Matching Evaluator. Calculate an accurate, honest match score (0% to 100%) between the candidate's documented CV evidence and each real Job Description.
 
-SCORING:
-1. Hard industry and role alignment: 40%. Direct professional evidence in the exact field is required. If a technical, engineering, solar, medical, finance, software, or similarly specialised role requires domain expertise absent from the CV, cap ATS fit and overall score at 35.
-2. Experience and title relevance: 35%. Exact title/function match may score 90-100; closely related work 65-80; unrelated work below 40.
-3. Hard skills, tools, certifications, and domain workflows: 25%. Count only explicit CV evidence.
+SCORING & GATEKEEPER RULES:
+1. Check mandatory requirements first: licences, required degrees, professional registration, direct core job titles, and primary domain experience (for example Pilot/CPL/ATPL, Bar Admission, RN/SANC, medical-board registration, commercial driving licence, or engineering degree/registration).
+2. If the candidate lacks any core mandatory credential or primary domain experience, set "hard_requirements_met" to false and CAP "match_rate_percentage" AT 15% MAXIMUM. Generic transferable skills cannot override this gate.
+3. If hard requirements are met, use these weights:
+   - Hard Requirements & Credentials: 60%
+   - Direct Relevant Domain Experience: 30%
+   - Secondary/Soft Skills & Location: 10%
 
-CRITICAL QUALIFICATION AND SENIORITY GATES:
-- N2/N3 Technical Certificates are introductory TVET vocational qualifications suitable for aligned entry-level trade or artisan roles such as Mechanical Apprentice, Junior Fitter/Turner, Maintenance Assistant, or Mechanical Handyman.
-- Never treat N2/N3 as a BSc/BEng degree or Pr.Eng/ECSA registration. An N2/N3-only candidate must not match Principal, Lead, Senior, Project, Professional, or management-level engineering roles that require a university degree, professional registration, or engineering-management experience. Score these 10-20 maximum and set isMatch false.
-- For Principal, Lead, Senior, Manager, Director, Head of, or Chief roles, verify sufficient years in that exact domain from documented job history. If senior domain experience is absent, score below 15 and set isMatch false.
-- A listing is a Best-fit recommendation only when the candidate satisfies at least 60% of core domain, qualification, and seniority requirements.
+Unrelated career experience scores zero in the domain-experience category. Communication, teamwork, administration, formatting, language, and location together can contribute no more than the 10% secondary weight. Treat a desired target role as an aspiration, never evidence. N2/N3 is not a BSc/BEng degree or Pr.Eng/ECSA registration. Senior roles require documented senior experience in the same domain. Never invent qualifications, requirements, experience, or percentages.
 
-Do not award compensating points for communication, teamwork, administration, formatting, location, or generic transferable skills when core professional requirements are absent. Search preferences affect ordering only, never competency fit. Never invent qualifications or requirements. A customer-service or logistics CV assessed against a Technical Manager - Solar/Engineering role must score below 40.
-
-Return exactly {scores:[{id:number,overallScore:number,atsFitScore:number,authenticityScore:number,isMatch:boolean,matchReasoning:string,gaps:string[]}]} with one entry per listing. All scores must be integers from 0 to 100. authenticityScore assesses whether the CV evidence is internally supportable, not job fit. In matchReasoning explain the assigned percentage in 60-100 words: cite actual CV evidence, corresponding listing requirements, missing hard skills or credentials, and applied domain or seniority penalties. Do not invent years of experience or claimed keyword-overlap percentages.`,
+Return strict JSON only: {"scores":[{"id":number,"match_rate_percentage":integer,"hard_requirements_met":boolean,"missing_critical_qualifications":string[],"reasoning":"1-2 concise sentences"}]}. Return one entry per listing and preserve every supplied id.`,
       evidence: {
         candidate: input.candidateProfile,
         searchPreferences: input.searchPreferences || {},
         listings: input.jobs.map(({ id, title, company, location, sector, description, tags, source }) => ({ id, title, company, location, sector, description: description.slice(0, 1200), tags, source })),
       },
-      maxOutputTokens: Math.min(6_000, Math.max(1_800, input.jobs.length * 250)),
-      timeoutMs: 8_000,
+      maxOutputTokens: Math.min(8_000, Math.max(1_800, input.jobs.length * 180)),
+      timeoutMs: 10_000,
     });
     const result = await Promise.race([
       scoring,
       new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error("Gemini job scoring timed out.")), 8_000);
+        timeoutId = setTimeout(() => reject(new Error("Gemini job scoring timed out.")), 10_000);
       }),
     ]);
     if (!Array.isArray(result.scores)) return null;
     const byId = new Map(result.scores
-      .filter((entry) => entry && Number.isFinite(Number(entry.id)) && Number.isFinite(entry.overallScore) && Number.isFinite(entry.atsFitScore))
+      .filter((entry) => entry && Number.isFinite(Number(entry.id)) && typeof entry.match_rate_percentage === "number" && Number.isFinite(entry.match_rate_percentage) && typeof entry.hard_requirements_met === "boolean")
       .map((entry) => [String(entry.id), entry]));
     if (!byId.size) return null;
-    if (input.jobs.every((job) => (byId.get(String(job.id))?.overallScore ?? 0) <= 0)) return null;
+    if (input.jobs.every((job) => (byId.get(String(job.id))?.match_rate_percentage ?? 0) <= 0)) return null;
     return input.jobs.map((job) => {
       const score = byId.get(String(job.id));
       if (!score) return job;
       const ceiling = strictListingScoreCeiling(input.candidateProfile, job);
-      const calibratedScore = Math.min(ceiling, Math.round(Math.min(score.overallScore, score.atsFitScore)));
-      const rationale = typeof score.matchReasoning === 'string' ? score.matchReasoning.trim().slice(0, 1400) : typeof score.matchReason === "string" ? score.matchReason.trim().slice(0, 1400) : "";
+      const modelScore = score.hard_requirements_met === false
+        ? Math.min(score.match_rate_percentage, 15)
+        : score.match_rate_percentage;
+      const calibratedScore = Math.min(ceiling, Math.round(modelScore));
+      const rationale = typeof score.reasoning === 'string' ? score.reasoning.trim().slice(0, 700) : "";
+      const missingCriticalQualifications = Array.isArray(score.missing_critical_qualifications)
+        ? score.missing_critical_qualifications.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim()).slice(0, 12)
+        : [];
+      const hardRequirementsMet = score.hard_requirements_met && ceiling > 15;
       return {
         ...job,
         match: Math.max(0, Math.min(100, calibratedScore)),
-        ...(rationale ? { matchRationale: rationale, matchReasoning: `${rationale}${calibratedScore < Math.min(score.overallScore, score.atsFitScore) ? ` Server qualification cap applied: final score ${calibratedScore}%.` : ''}` } : {}),
+        hardRequirementsMet,
+        missingCriticalQualifications,
+        ...(rationale ? { matchRationale: rationale, matchReasoning: `${rationale}${calibratedScore < modelScore ? ` Server qualification cap applied: final score ${calibratedScore}%.` : ''}` } : {}),
       } as LiveJobListing;
     });
   } catch (error) {

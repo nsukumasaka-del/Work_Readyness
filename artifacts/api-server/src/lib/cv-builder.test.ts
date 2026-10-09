@@ -337,6 +337,16 @@ describe("strict ATS role alignment", () => {
     assert.ok(job.match < 40);
   });
 
+  it("caps an uncertified customer-service applicant at 15 for a live pilot listing", () => {
+    const [pilotJob] = calibrateJobListingScores(
+      { experienceRoles: ["Customer Service Representative"], skills: ["Communication", "CRM"], credentials: [] },
+      [{ id: 91, title: "Commercial Pilot", company: "Airline", location: "Johannesburg", sector: "Aviation", salary: "", match: 92, posted: "Today", tags: [], description: "Valid CPL or ATPL and flight-deck experience are mandatory.", source: "Test", url: "https://example.com/pilot" }],
+    );
+    assert.ok(pilotJob.match <= 15);
+    assert.equal(pilotJob.hardRequirementsMet, false);
+    assert.ok(pilotJob.missingCriticalQualifications?.length);
+  });
+
   it("caps principal engineering matches for N2/N3-only candidates", () => {
     const [job] = calibrateJobListingScores(
       {

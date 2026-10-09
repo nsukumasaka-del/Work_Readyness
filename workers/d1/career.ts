@@ -194,6 +194,100 @@ async function currentProfile(
   );
 }
 
+type JobSearchAccess = {
+  premium: boolean;
+  limit: 50 | 100;
+  deepSearchAllowed: boolean;
+};
+
+async function jobSearchAccess(env: D1Env, user: UserRow): Promise<JobSearchAccess> {
+  if (user.is_admin) return { premium: true, limit: 100, deepSearchAllowed: true };
+  const [subscription, programme, payment] = await Promise.all([
+    env.DB.prepare("SELECT plan, status, ends_at FROM career_subscriptions WHERE user_id = ? ORDER BY id DESC LIMIT 1")
+      .bind(user.id).first<{ plan: string; status: string; ends_at: string | null }>(),
+    env.DB.prepare("SELECT status, end_date FROM career_programmes WHERE user_id = ? ORDER BY id DESC LIMIT 1")
+      .bind(user.id).first<{ status: string; end_date: string }>(),
+    d1PaymentAccess(env, user),
+  ]);
+  const now = Date.now();
+  const subscriptionActive = Boolean(subscription && subscription.status === "active"
+    && subscription.plan !== "free" && (!subscription.ends_at || new Date(subscription.ends_at).getTime() > now));
+  const programmeActive = Boolean(programme && programme.status === "active" && new Date(programme.end_date).getTime() > now);
+  const premium = subscriptionActive || programmeActive || payment.adminBypass || payment.megaAccessActive;
+  return { premium, limit: premium ? 100 : 50, deepSearchAllowed: premium };
+}
+
+type JobSearchHistoryInput = {
+  keywords: string;
+  location: string;
+  industry?: string;
+  postedRange?: string;
+  deepSearch: boolean;
+  resultCount: number;
+  resultLimit: number;
+  queriedBoards: string[];
+};
+
+async function saveJobSearchHistory(env: D1Env, user: UserRow, entry: JobSearchHistoryInput) {
+  if (!entry.keywords.trim()) return;
+  await env.DB.prepare(
+    `INSERT INTO job_search_history
+      (user_id, keywords, location, industry, posted_range, deep_search, result_count, result_limit, queried_boards_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+  ).bind(
+    user.id,
+    entry.keywords.slice(0, 120),
+    entry.location.slice(0, 100),
+    (entry.industry || "").slice(0, 100),
+    (entry.postedRange || "").slice(0, 30),
+    entry.deepSearch ? 1 : 0,
+    Math.max(0, entry.resultCount),
+    Math.max(1, entry.resultLimit),
+    JSON.stringify(entry.queriedBoards.slice(0, 20)),
+  ).run();
+}
+
+async function handleJobSearchHistory(request: Request, env: D1Env, user: UserRow): Promise<Response> {
+  if (request.method === "DELETE") {
+    const rawId = new URL(request.url).searchParams.get("id");
+    const id = Number(rawId);
+    if (rawId !== null && (!Number.isSafeInteger(id) || id <= 0)) return error(400, "A valid search-history id is required.");
+    if (rawId !== null) {
+      await env.DB.prepare("DELETE FROM job_search_history WHERE id = ? AND user_id = ?").bind(id, user.id).run();
+    } else {
+      await env.DB.prepare("DELETE FROM job_search_history WHERE user_id = ?").bind(user.id).run();
+    }
+    return json({ success: true });
+  }
+  if (request.method !== "GET") return error(405, "Method not allowed.");
+  const searchParams = new URL(request.url).searchParams;
+  const limit = Math.max(1, Math.min(100, Number(searchParams.get("limit")) || 100));
+  const offset = Math.max(0, Number(searchParams.get("offset")) || 0);
+  const totalRow = await env.DB.prepare("SELECT COUNT(*) AS total FROM job_search_history WHERE user_id = ?")
+    .bind(user.id).first<{ total: number }>();
+  const rows = await env.DB.prepare(
+    `SELECT id, keywords, location, industry, posted_range, deep_search, result_count, result_limit, queried_boards_json, created_at
+     FROM job_search_history WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+  ).bind(user.id, limit, offset).all<{
+    id: number; keywords: string; location: string; industry: string; posted_range: string; deep_search: number;
+    result_count: number; result_limit: number; queried_boards_json: string; created_at: string;
+  }>();
+  const history = (rows.results || []).map((row) => {
+    let queriedBoards: string[] = [];
+    try {
+      const parsed = JSON.parse(row.queried_boards_json || "[]");
+      if (Array.isArray(parsed)) queriedBoards = parsed.filter((item): item is string => typeof item === "string").slice(0, 20);
+    } catch { /* Keep malformed legacy history readable. */ }
+    return {
+      id: row.id, keywords: row.keywords, location: row.location, industry: row.industry,
+      postedRange: row.posted_range, deepSearch: Boolean(row.deep_search), resultCount: row.result_count,
+      resultLimit: row.result_limit, queriedBoards, createdAt: row.created_at,
+    };
+  });
+  const total = Number(totalRow?.total || 0);
+  return json({ history, total, nextOffset: offset + history.length < total ? offset + history.length : null });
+}
+
 type GeneratedCvRow = {
   id: number;
   user_id: string;
@@ -867,14 +961,24 @@ async function handleDiagnostic(request: Request, env: D1Env, user: UserRow): Pr
 
 async function handleJobSearch(request: Request, env: D1Env, user: UserRow): Promise<Response> {
   const input = await body(request);
+  const access = await jobSearchAccess(env, user);
+  const deepSearch = access.deepSearchAllowed && input.deepSearch === true;
   const row = await env.DB.prepare("SELECT report_json FROM cv_reports WHERE user_id = ? AND report_json != '{}' ORDER BY created_at DESC, id DESC LIMIT 1").bind(user.id).first<{ report_json: string }>();
   let report: unknown;
   try { report = row ? JSON.parse(row.report_json) : undefined; } catch { /* Manual search does not require a saved review. */ }
   try {
     const result = await searchManualJobs({ keywords: clean(input.keywords), location: clean(input.location), report,
       industry: clean(input.industry), postedRange: clean(input.postedRange), apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL,
+      limit: access.limit, deepSearch,
       adzunaAppId: env.ADZUNA_APP_ID, adzunaAppKey: env.ADZUNA_APP_KEY });
-    return json(await protectManualSearch(env, user, result, report));
+    const protectedResult = await protectManualSearch(env, user, result, report);
+    await saveJobSearchHistory(env, user, {
+      keywords: clean(input.keywords), location: clean(input.location), industry: clean(input.industry),
+      postedRange: clean(input.postedRange), deepSearch, resultCount: protectedResult.jobs.length,
+      resultLimit: access.limit, queriedBoards: result.queriedBoards,
+    });
+    return json({ ...protectedResult, tier: access.premium ? "premium" : "standard", resultLimit: access.limit,
+      deepSearchEnabled: deepSearch, deepSearchAvailable: access.deepSearchAllowed });
   } catch (err) { return error(400, err instanceof Error ? err.message : 'Job search could not be completed.'); }
 }
 
@@ -1081,21 +1185,35 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
     const input = normalizeJobRequest(method === 'GET' ? Object.fromEntries(url.searchParams) : await body(request));
     if (path.endsWith('/search') && !input.keywords) return json({ success: true, jobs: [], results: [] });
     try {
+      const access = await jobSearchAccess(env, user);
+      const deepSearch = access.deepSearchAllowed && input.deepSearch;
       const row = await env.DB.prepare('SELECT report_json FROM cv_reports WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 1').bind(user.id).first<{ report_json: string }>();
       let report: Record<string, unknown> = {};
       try { const parsed = JSON.parse(row?.report_json || '{}'); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) report = parsed; } catch { /* Recover from unreadable cached review. */ }
-      const settings = { ...input, report, apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL, adzunaAppId: env.ADZUNA_APP_ID, adzunaAppKey: env.ADZUNA_APP_KEY };
+      const settings = { ...input, report, limit: access.limit, deepSearch, apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL, adzunaAppId: env.ADZUNA_APP_ID, adzunaAppKey: env.ADZUNA_APP_KEY };
       if (path.endsWith('/search')) {
         const result = await searchManualJobs(settings);
         const protectedResult = await protectManualSearch(env, user, result, report);
-        return json({ ...protectedResult, success: true, count: protectedResult.jobs.length, results: protectedResult.jobs });
+        await saveJobSearchHistory(env, user, { keywords: input.keywords, location: input.location,
+          industry: input.industry, postedRange: input.postedRange, deepSearch, resultCount: protectedResult.jobs.length,
+          resultLimit: access.limit, queriedBoards: result.queriedBoards });
+        return json({ ...protectedResult, success: true, count: protectedResult.jobs.length, results: protectedResult.jobs,
+          tier: access.premium ? 'premium' : 'standard', resultLimit: access.limit,
+          deepSearchEnabled: deepSearch, deepSearchAvailable: access.deepSearchAllowed });
       }
       const result = await searchCandidateJobs(settings);
       const saved = { ...report, roleSuggestions: result.roleSuggestions, candidateProfile: result.candidateProfile, relatedJobs: result.jobs, jobSearch: { query: result.query, queriedBoards: result.queriedBoards, boardSearchLinks: result.boardSearchLinks, liveResults: result.liveResults, searchNotice: result.searchNotice } };
       // Persist raw owned matches before redaction so signed payment reveals can find them.
       await env.DB.prepare("INSERT INTO cv_reports (user_id, report_json, created_at) VALUES (?, ?, datetime('now'))").bind(user.id, JSON.stringify(saved)).run();
       const protectedReport = protectReport(saved, await d1PaymentAccess(env, user));
-      return json({ ...result, success: true, count: protectedReport.relatedJobs.length, jobs: protectedReport.relatedJobs, matches: protectedReport.relatedJobs.map(job => ({ ...job, matchScore: job.match, applyUrl: job.url || '', summary: job.description || '', keyRequirements: job.tags || [] })) });
+      await saveJobSearchHistory(env, user, { keywords: input.keywords || result.candidateProfile.targetRole || 'Professional',
+        location: input.location || result.candidateProfile.location || 'South Africa', industry: input.industry,
+        postedRange: input.postedRange, deepSearch, resultCount: protectedReport.relatedJobs.length,
+        resultLimit: access.limit, queriedBoards: result.queriedBoards });
+      return json({ ...result, success: true, count: protectedReport.relatedJobs.length, jobs: protectedReport.relatedJobs,
+        tier: access.premium ? 'premium' : 'standard', resultLimit: access.limit,
+        deepSearchEnabled: deepSearch, deepSearchAvailable: access.deepSearchAllowed,
+        matches: protectedReport.relatedJobs.map(job => ({ ...job, matchScore: job.match, applyUrl: job.url || '', summary: job.description || '', keyRequirements: job.tags || [] })) });
     } catch (err) {
       console.error('[jobs] Search/match failed', err);
       const invalid = err instanceof Error && err.message.startsWith('Upload a readable CV');
@@ -1106,6 +1224,7 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
     (method === "POST" && (path === "/api/career/profile" || path === "/api/career/cv/parse-upload" || path === "/api/career/diagnostic" || path === "/api/career/cv/generate")) ||
     (method === "POST" && path === "/api/career/cv/save") ||
     (method === "POST" && (path === "/api/career/jobs/search" || path === "/api/career/jobs/details")) ||
+    ((method === "GET" || method === "DELETE") && path === "/api/career/jobs/search-history") ||
     (method === "PATCH" && path === "/api/career/profile") ||
     (method === "GET" && (path === "/api/career/diagnostic/latest" || path === "/api/career/cv/latest")) ||
     (path === "/api/career/cv/documents" || /^\/api\/career\/cv\/documents\/\d+(?:\/(?:duplicate|share))?$/.test(path));
@@ -1122,6 +1241,7 @@ export async function handleD1Career(request: Request, env: D1Env): Promise<Resp
     return handleCvDocuments(request, env, user, path);
   }
   if (path === "/api/career/profile") return handleProfile(request, env, user);
+  if (path === "/api/career/jobs/search-history") return handleJobSearchHistory(request, env, user);
   if (path === "/api/career/jobs/search" && method === "POST") return handleJobSearch(request, env, user);
   if (path === "/api/career/jobs/details" && method === "POST") return handleJobDetails(request);
   if (path === "/api/career/cv/parse-upload") return handleParse(request, env, user);

@@ -3075,6 +3075,19 @@ type JobOpeningsSearchProps = {
   onOpenJob: (job: JobMatch) => void;
 };
 
+type JobSearchHistoryEntry = {
+  id: number;
+  keywords: string;
+  location: string;
+  industry: string;
+  postedRange: string;
+  deepSearch: boolean;
+  resultCount: number;
+  resultLimit: number;
+  queriedBoards: string[];
+  createdAt: string;
+};
+
 function industryForJob(job: JobMatch): string {
   const details = job as JobMatch & { industry?: string; sector?: string; description?: string };
   const text = [job.title, job.company, job.location, details.industry, details.sector, details.description].join(' ').toLowerCase();
@@ -3105,6 +3118,8 @@ function postedWithin(postedValue: string, range: string): boolean {
 
 function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJob }: JobOpeningsSearchProps) {
   const paidAccess = usePaidAccess();
+  const [searchEntitlement, setSearchEntitlement] = useState<Entitlement>(defaultEntitlement(readProfile()?.id || 0));
+  const premiumSearch = premiumUnlocked || searchEntitlement.features.premiumJobs;
   const [revealedMatches, setRevealedMatches] = useState<Record<string, JobListingSource>>({});
   const jobs = normalizeJobResults(rawJobs).map(job => revealedMatches[String(job.id)] || job);
   useEffect(() => {
@@ -3126,6 +3141,9 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
   const [postedRange, setPostedRange] = useState('any');
   const [jobType, setJobType] = useState('');
   const [remoteOption, setRemoteOption] = useState('');
+  const [deepSearch, setDeepSearch] = useState(false);
+  const [resultLimit, setResultLimit] = useState(premiumSearch ? 100 : 50);
+  const [searchHistory, setSearchHistory] = useState<JobSearchHistoryEntry[]>([]);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [jobDetails, setJobDetails] = useState<Record<string, JobDetailsPayload>>({});
   const [detailLoading, setDetailLoading] = useState(false);
@@ -3149,6 +3167,22 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
   const searchResultsRef = useRef<HTMLDivElement>(null);
+  const refreshSearchHistory = () => {
+    void authFetch('/api/career/jobs/search-history').then(async response => {
+      if (!response.ok) return;
+      const payload = await readApiJson(response);
+      setSearchHistory(Array.isArray(payload.history) ? payload.history as JobSearchHistoryEntry[] : []);
+    }).catch(() => { /* Search remains available if history cannot be loaded. */ });
+  };
+  useEffect(() => {
+    const profile = readProfile();
+    if (profile?.id) void fetchEntitlement(profile.id).then(setSearchEntitlement).catch(() => undefined);
+    refreshSearchHistory();
+  }, []);
+  useEffect(() => {
+    if (!premiumSearch) setDeepSearch(false);
+    setResultLimit(premiumSearch ? 100 : 50);
+  }, [premiumSearch]);
   const [savedJobs, setSavedJobs] = useState<JobMatch[]>(() => {
     try {
       return normalizeJobResults(JSON.parse(localStorage.getItem('bonlist-saved-jobs') || '[]'));
@@ -3267,6 +3301,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
     searchTerms: string,
     searchLocation: string,
     preferences = { industry, postedRange },
+    deepSearchOverride = deepSearch,
   ) => {
     setSearchLoading(true);
     setSearchError('');
@@ -3277,7 +3312,7 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
     try {
       const response = await authFetch('/api/career/jobs/search', {
         method: 'POST',
-        body: JSON.stringify({ keywords: searchTerms, location: searchLocation, ...preferences }),
+        body: JSON.stringify({ keywords: searchTerms, location: searchLocation, ...preferences, deepSearch: premiumSearch && deepSearchOverride }),
       });
       const payload = await readApiJson(response);
       if (!response.ok) throw new Error(payload.error || 'Job search could not be completed.');
@@ -3287,7 +3322,9 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
       setSearchedBoardLabels(Array.isArray(payload.queriedBoards) ? payload.queriedBoards as string[] : []);
       setSearchScoring(typeof payload.scoring === 'string' ? payload.scoring : '');
       setSearchNotice(typeof payload.searchNotice === 'string' ? payload.searchNotice : '');
+      setResultLimit(typeof payload.resultLimit === 'number' ? payload.resultLimit : premiumSearch ? 100 : 50);
       setKeywords(searchTerms);
+      refreshSearchHistory();
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : 'Job search could not be completed.');
       setHasSearched(true);
@@ -3371,6 +3408,16 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
               </label>
               <button type="submit" disabled={searchLoading} className="min-h-10 rounded-xl bg-blue-600 px-6 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60">{searchLoading ? 'Searching…' : 'Search'}</button>
             </form>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+              <div>
+                <p className="text-xs font-semibold text-slate-800">{premiumSearch ? 'Premium search: up to 100 results' : 'Standard search: up to 50 results'}</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">BonList expands across related roles and locations to target at least 10 verified relevant listings.</p>
+              </div>
+              <label className={`flex items-center gap-2 text-xs font-semibold ${premiumSearch ? 'cursor-pointer text-blue-700' : 'cursor-not-allowed text-slate-400'}`}>
+                <input type="checkbox" checked={premiumSearch && deepSearch} disabled={!premiumSearch || searchLoading} onChange={(event) => setDeepSearch(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
+                Deep Search {premiumSearch ? '' : '(Premium)'}
+              </label>
+            </div>
             {searchError ? <p role="alert" className="text-xs font-medium text-rose-700">{searchError}</p> : null}
             {searchNotice ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{searchNotice}</p> : null}
             {hasSearched && !searchError ? <p className="text-[11px] text-slate-500">Live board search checked {searchedBoardLabels.length ? searchedBoardLabels.join(', ') : 'available South African boards'}. {searchScoring === 'gemini' ? 'Gemini scored results against your CV.' : 'Match scores use available CV evidence.'}</p> : null}
@@ -3402,10 +3449,26 @@ function JobMatchesWorkstation({ report, jobs: rawJobs, premiumUnlocked, onOpenJ
               </label>
               <button type="button" onClick={clearFilters} className="self-end px-2 py-2 text-left text-xs font-semibold text-slate-500 hover:text-slate-900 sm:col-span-2 lg:col-span-2 lg:text-right">Clear all filters</button>
             </div>
+            {searchHistory.length ? <details className="border-t border-slate-200/70 pt-3">
+              <summary className="cursor-pointer text-xs font-bold text-slate-700">Search history ({searchHistory.length})</summary>
+              <div className="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1">
+                {searchHistory.map((entry) => <button key={entry.id} type="button" disabled={searchLoading} onClick={() => {
+                  setKeywordsDraft(entry.keywords);
+                  setLocation(entry.location);
+                  setIndustry(entry.industry || '');
+                  setPostedRange(entry.postedRange || 'any');
+                  setDeepSearch(premiumSearch && entry.deepSearch);
+                  void performLiveSearch(entry.keywords, entry.location, { industry: entry.industry || '', postedRange: entry.postedRange || 'any' }, premiumSearch && entry.deepSearch);
+                }} className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left hover:border-blue-300 hover:bg-blue-50/40 disabled:opacity-60">
+                  <span className="min-w-0"><span className="block truncate text-xs font-semibold text-slate-800">{entry.keywords}{entry.location ? ` · ${entry.location}` : ''}</span><span className="mt-0.5 block text-[10px] text-slate-500">{new Date(entry.createdAt).toLocaleString('en-ZA')} · {entry.resultCount} results{entry.deepSearch ? ' · Deep Search' : ''}</span></span>
+                  <span className="shrink-0 text-[10px] font-bold text-blue-700">Run again</span>
+                </button>)}
+              </div>
+            </details> : null}
           </div>
 
           <div ref={searchResultsRef} className="mx-auto w-full max-w-4xl scroll-mt-24 space-y-4">
-            {hasSearched ? <MatchCountBanner jobs={filteredJobs} role={keywords} /> : null}
+            {hasSearched ? <><MatchCountBanner jobs={filteredJobs} role={keywords} /><p className="text-center text-[11px] text-slate-500">Showing {filteredJobs.length} of up to {resultLimit} tier-eligible results.</p></> : null}
             {showingSoftFilterFallback ? <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">No openings matched all selected industry/date filters. Showing related listings with those optional filters relaxed.</p> : null}
             {!hasSearched ? <div className="rounded-xl border border-dashed border-slate-300 bg-white p-7 text-center"><p className="text-sm font-semibold text-slate-800">Search live job-board openings</p><p className="mt-1 text-xs text-slate-500">Enter a role and location, then search to get current listings from the configured boards.</p></div> : filteredJobs.length ? <div className="flex flex-col gap-4">
               {filteredJobs.map((job) => <JobListingCard key={job.id} job={toJobListing(job)} locked={!isJobUnlocked(job, paidAccess)} onUnlock={() => requestPayment({ itemType: 'JOB_MATCH_UNLOCK', targetId: job.id })} onViewDetails={() => setActiveJobId(String(job.id))} />)}

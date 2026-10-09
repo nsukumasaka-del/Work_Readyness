@@ -1,6 +1,8 @@
 export type LiveJobListing = {
   matchReasoning?: string;
   matchRationale?: string;
+  hardRequirementsMet?: boolean;
+  missingCriticalQualifications?: string[];
   id: number;
   title: string;
   company: string;
@@ -36,6 +38,8 @@ export type SearchInput = {
   adzunaAppKey?: string;
   /** Query all trusted sources instead of using fallback boards only when sparse. */
   includeAllBoards?: boolean;
+  /** Keep expanding real-board queries until this many unique eligible jobs are found. */
+  minimumResults?: number;
   signal?: AbortSignal;
   minimumMatchScore?: number;
   /** Bound fallback provider fan-out inside the progressive request budget. */
@@ -1037,7 +1041,8 @@ export async function searchTrustedJobBoards(input: SearchInput): Promise<{
   const minimumUsefulResults = Math.min(limit, 10);
   if (!input.signal?.aborted && (input.includeAllBoards || priorityJobs.length < minimumUsefulResults)) {
     const fallbackBoards = TRUSTED_BOARDS.filter((board) =>
-      !["Indeed SA", "PNet", "LinkedIn", "Job Placements"].includes(board.label)).slice(0, input.progressive ? 2 : undefined);
+      !["Indeed SA", "PNet", "LinkedIn", "Job Placements"].includes(board.label))
+      .slice(0, input.includeAllBoards ? undefined : input.progressive ? 2 : undefined);
     queriedBoards.push(...[...new Set(fallbackBoards.map((board) => board.label))]);
     const fallback = await Promise.allSettled([
       searchCareerJunction(role, location, input.signal),

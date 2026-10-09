@@ -1232,11 +1232,10 @@ function strictRoleFit(cv: GeneratedCvDocument, target: string) {
     ? !hasTargetDomainEvidence && titleOverlap < 0.5
     : targetTitleTokens.length > 0 && experienceTitles.length > 0 && titleOverlap === 0;
   const hardMismatch = regulatedMismatch || generalMismatch;
-  if (regulatedMismatch) score = Math.min(score, hasTargetDomainEvidence ? 25 : 20);
-  else if (hardMismatch) score = Math.min(score, 35);
+  if (hardMismatch) score = Math.min(score, 15);
   const targetLabel = targetTitle || "the target role";
   const mismatchType: "none" | "general" | "regulated" = regulatedMismatch ? "regulated" : hardMismatch ? "general" : "none";
-  const overallScoreCap = regulatedMismatch ? (hasTargetDomainEvidence ? 30 : 25) : hardMismatch ? 40 : 100;
+  const overallScoreCap = hardMismatch ? 15 : 100;
   const healthCheckMessage = regulatedMismatch
     ? `Your CV is currently not qualified for ${targetLabel} roles. This position requires specialised qualifications, registration, or domain background that are not reflected in your CV.`
     : hardMismatch

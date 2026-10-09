@@ -41,8 +41,8 @@ test('empty exact location broadens transparently while retaining recommendation
   const response = await searchWithLocationFallback({ role: 'Engineer', location: 'Pretoria', mode: 'recommendations' }, async input => {
     calls.push(input.location!); assert.equal(input.mode, 'recommendations'); return result(input.location === 'Gauteng' ? [{ ...job, match: 70 }] : []);
   });
-  assert.deepEqual(calls, ['Pretoria', 'Gauteng']);
-  assert.equal(response.effectiveLocation, 'Gauteng');
+  assert.deepEqual(calls, ['Pretoria', 'Gauteng', 'South Africa']);
+  assert.equal(response.effectiveLocation, 'South Africa');
   assert.equal(response.fallbackApplied, true);
 });
 
@@ -51,17 +51,19 @@ test('empty province search continues nationally without inventing vacancies', a
   const response = await searchWithLocationFallback({ role: 'Lawyer', location: 'Johannesburg' }, async input => {
     calls.push(input.location!); return result([]);
   });
-  assert.deepEqual(calls, ['Johannesburg', 'Gauteng', 'South Africa']);
+  assert.equal(calls[0], 'Johannesburg');
+  assert.ok(calls.includes('Gauteng'));
+  assert.ok(calls.includes('South Africa'));
   assert.deepEqual(response.jobs, []);
   assert.equal(response.effectiveLocation, 'South Africa');
 });
 
 test('public job payload aliases normalize null and object values', () => {
   assert.deepEqual(normalizeJobRequest({ query: ' Freight Controller ', city: 'Johannesburg', province: 'Gauteng', cvText: null }), {
-    keywords: 'Freight Controller', location: 'Johannesburg, Gauteng', cvText: '',
+    keywords: 'Freight Controller', location: 'Johannesburg, Gauteng', cvText: '', industry: '', postedRange: '', deepSearch: false,
   });
-  assert.deepEqual(normalizeJobRequest(null), { keywords: '', location: '', cvText: '' });
-  assert.deepEqual(normalizeJobRequest({ query: {}, province: [] }), { keywords: '', location: '', cvText: '' });
+  assert.deepEqual(normalizeJobRequest(null), { keywords: '', location: '', cvText: '', industry: '', postedRange: '', deepSearch: false });
+  assert.deepEqual(normalizeJobRequest({ query: {}, province: [] }), { keywords: '', location: '', cvText: '', industry: '', postedRange: '', deepSearch: false });
 });
 
 test('AI rate limits preserve aligned real listings and filter unqualified engineering matches', async () => {
@@ -94,7 +96,9 @@ test('partial city results broaden and merge up to ten distinct real listings', 
     const count = input.location === 'Johannesburg' ? 3 : input.location === 'Gauteng' ? 7 : 12;
     return result(Array.from({ length: count }, (_, index) => ({ ...job, id: index + 1, title: `Customer Service Representative ${index + 1}`, match: 40 + index, url: `https://www.pnet.co.za/jobs/${index + 1}` })));
   });
-  assert.deepEqual(calls, ['Johannesburg', 'Gauteng', 'South Africa']);
+  assert.equal(calls[0], 'Johannesburg');
+  assert.ok(calls.includes('Gauteng'));
+  assert.ok(calls.includes('South Africa'));
   assert.equal(response.jobs.length, 10);
   assert.equal(new Set(response.jobs.map(job => job.url)).size, 10);
 });
@@ -107,6 +111,28 @@ test('AI results retain lower-fit vacancies without inflating scores', async () 
   });
   assert.equal(response.jobs.length, 1);
   assert.equal(response.jobs[0].match, 40);
+});
+
+test('standard and premium searches enforce 50/100 limits and premium deep-board fan-out', async () => {
+  const makeJobs = (count: number) => Array.from({ length: count }, (_, index) => ({
+    ...job,
+    id: index + 1,
+    title: `Customer Service Representative ${index + 1}`,
+    sector: 'Customer Service',
+    match: 60,
+    url: `https://www.pnet.co.za/jobs/customer-${index + 1}`,
+    description: 'Customer support and CRM enquiries',
+  }));
+  const standard = await searchManualJobs({ keywords: 'Customer Service', location: 'South Africa', limit: 50 }, {
+    search: async input => { assert.equal(input.limit, 50); assert.equal(input.includeAllBoards, false); return result(makeJobs(80)); },
+    score: async () => { throw new Error('No CV means scoring is not called'); },
+  });
+  assert.equal(standard.jobs.length, 50);
+  const premium = await searchManualJobs({ keywords: 'Customer Service', location: 'South Africa', limit: 100, deepSearch: true }, {
+    search: async input => { assert.equal(input.limit, 100); assert.equal(input.includeAllBoards, true); return result(makeJobs(120)); },
+    score: async () => { throw new Error('No CV means scoring is not called'); },
+  });
+  assert.equal(premium.jobs.length, 100);
 });
 
 const assistant = { ...job, title: 'Administrative Assistant', sector: 'Administration', match: 55, description: 'Office administration, Excel and customer enquiries', tags: ['Excel'], url: 'https://www.pnet.co.za/jobs/assistant' };

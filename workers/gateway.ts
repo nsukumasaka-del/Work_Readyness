@@ -22,7 +22,7 @@ import {
   type CvAssistantTask,
   type GeminiChatTurn,
 } from "../artifacts/api-server/src/lib/ai/gemini-client";
-import { matchJobDescription, type GeneratedCvDocument, type JobMatchReport } from "../artifacts/api-server/src/lib/cv-builder";
+import { applyTailoredContentToCv, matchJobDescription, type GeneratedCvDocument, type JobMatchReport } from "../artifacts/api-server/src/lib/cv-builder";
 import { renderRouteHtml } from "./public-html";
 
 export interface Env extends D1Env {
@@ -311,7 +311,8 @@ async function handleCvAssistant(request: Request, env: Env, task: CvAssistantTa
   const apiKey = String(env.GEMINI_API_KEY || "").trim();
   if (!apiKey) return jsonError(503, "CV AI tools are temporarily unavailable.");
 
-  const cv = input.cvDocument && typeof input.cvDocument === "object" ? input.cvDocument : {};
+  const submittedCv = input.cvData || input.cvDocument;
+  const cv = submittedCv && typeof submittedCv === "object" && !Array.isArray(submittedCv) ? submittedCv : {};
   const evidence: Record<string, unknown> = {
     cvDocument: cv,
     targetRole: text(input.targetRole || input.role || (cv as Record<string, unknown>).headline, 160),
@@ -341,7 +342,14 @@ async function handleCvAssistant(request: Request, env: Env, task: CvAssistantTa
       task,
       evidence,
     });
-    if (task === "tailor") result = enforceTailorMatchGuardrail(result, deterministicBaseline);
+    if (task === "tailor") {
+      result = enforceTailorMatchGuardrail(result, deterministicBaseline);
+      if (!result.tailoredContent || typeof result.tailoredContent !== "object" || Array.isArray(result.tailoredContent)) throw new Error("Gemini returned invalid tailored CV content.");
+      result.tailoredCvDocument = applyTailoredContentToCv(
+        cv as GeneratedCvDocument,
+        result.tailoredContent as Record<string, unknown> | undefined,
+      );
+    }
     if (task === "summary" && typeof result.summary !== "string") throw new Error("Gemini summary response was invalid.");
     if (task === "skills" && !Array.isArray(result.skills)) throw new Error("Gemini skills response was invalid.");
     if (task === "bullet" && typeof result.improved !== "string") throw new Error("Gemini bullet response was invalid.");

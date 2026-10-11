@@ -98,6 +98,7 @@ import {
   buildGeneratedCv as buildGeneratedCvLocally,
   extractCvDataFromText,
   filterDistinctParsedCertifications,
+  normalizeReferenceEntries,
   normalizeStructure,
 } from "../../../api-server/src/lib/cv-builder";
 
@@ -371,9 +372,6 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     .filter((c) => c.name);
 
   const languages = (doc.languages || []).map((l) => scrubCvText(l)).filter(Boolean);
-  const references = (doc.references || [])
-    .map((r) => scrubCvText(r))
-    .filter((r) => r && !UI_PLACEHOLDER_RE.test(r));
   const referenceDetailsByKey = new Map<string, CvReferenceDetail>();
   for (const reference of doc.referenceDetails || []) {
     const name = scrubCvText(reference.name);
@@ -389,6 +387,9 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     if (!referenceDetailsByKey.has(key)) referenceDetailsByKey.set(key, detail);
   }
   const referenceDetails = Array.from(referenceDetailsByKey.values());
+  const references = normalizeReferenceEntries(doc.references as unknown[], referenceDetails)
+    .map((reference) => scrubCvText(reference))
+    .filter((reference) => reference && !UI_PLACEHOLDER_RE.test(reference));
 
   // The document model has first-class fields for these standard sections.
   // Older import/parser responses sometimes put the same content in both a
@@ -958,6 +959,7 @@ export interface JobMatchReport {
   cautionNotice: string;
   recommendedAction: string;
   proposals: TailoringProposal[];
+  tailoredCvDocument?: GeneratedCvDocument;
 }
 
 export interface CvContentData {
@@ -4836,7 +4838,7 @@ export default function CvBuilderPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            cvDocument: cv.document,
+            cvData: cv.document,
             jobDescription,
             creditConsent: true,
             idempotencyKey,
@@ -4849,7 +4851,7 @@ export default function CvBuilderPage() {
             cvDocument: cv.document,
             jobDescription,
           }),
-        }),
+        }).catch(() => null),
         authFetch("/api/career/cv/transferable-skills", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -4857,22 +4859,32 @@ export default function CvBuilderPage() {
             cvDocument: cv.document,
             targetRoleOrIndustry: cv.document.headline,
           }),
-        }),
+        }).catch(() => null),
       ]);
 
       if (resTailor.ok) {
         const data = (await resTailor.json()) as JobMatchReport;
         setTailoringReport(data);
+        if (data.tailoredCvDocument) {
+          recordChange("Tailored CV to target job description");
+          const tailoredDocument = sanitizeCvDocument(data.tailoredCvDocument);
+          const updatedCv = { ...cv, document: tailoredDocument };
+          setCv(updatedCv);
+          persistGeneratedCv(updatedCv);
+          void runQualityEvaluation(tailoredDocument, jobDescription);
+          setMessage("CV tailored to the job description. All original sections and factual details were preserved.");
+          setTimeout(() => setMessage(""), 4500);
+        }
         void fetchMonetizationStatus().then((next) => { setMonetization(next); window.dispatchEvent(new Event("bonlist-monetization-updated")); }).catch(() => undefined);
       } else {
         const failure = await resTailor.json().catch(() => ({})) as { error?: string };
         throw new Error(failure.error || "Could not tailor this CV.");
       }
-      if (resAdvanced.ok) {
+      if (resAdvanced?.ok) {
         const adv = (await resAdvanced.json()) as JobMatchAdvancedReport;
         setAdvancedMatchReport(adv);
       }
-      if (resTrans.ok) {
+      if (resTrans?.ok) {
         const trans = (await resTrans.json()) as TransferableSkillsReport;
         setTransferableReport(trans);
       }

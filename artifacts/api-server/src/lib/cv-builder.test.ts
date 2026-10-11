@@ -1,4 +1,4 @@
-import { buildGeneratedCv, CV_PARSER_SYSTEM_PROMPT, evaluateAts, extractCvDataFromText, finalizeExtractedCvData, generateCandidateBiography, matchJobDescription, type GeneratedCvDocument } from "./cv-builder";
+import { applyTailoredContentToCv, buildGeneratedCv, CV_PARSER_SYSTEM_PROMPT, evaluateAts, extractCvDataFromText, finalizeExtractedCvData, generateCandidateBiography, matchJobDescription, normalizeReferenceEntries, type GeneratedCvDocument } from "./cv-builder";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { reconstructPdfTextFromItems } from "./pdf-layout-text";
@@ -175,6 +175,56 @@ NAVIS`);
 
     expect(summary).toContain("Jane");
     expect(summary).not.toMatch(/Your CV has a readable structure|Strengthen the evidence|recommendations|ATS feedback/i);
+  });
+});
+
+describe("safe CV tailoring and references", () => {
+  const document: GeneratedCvDocument = {
+    structure: "professional", structureLabel: "Professional", structureDescription: "", templateType: "single_column",
+    fullName: "Jane Doe", headline: "Coordinator", contactLine: "jane@example.com", email: "jane@example.com",
+    summary: "Coordinates customer and logistics work.",
+    experiences: [{ id: "exp-1", role: "Coordinator", company: "DSV", startDate: "2022", endDate: "Present", bullets: ["Handled customer queries."] }],
+    education: [{ id: "edu-1", degree: "Diploma", institution: "College", graduationYear: "2021" }],
+    skillGroups: [], skills: ["Customer service", "Logistics"], keywords: [], sections: [{ heading: "Awards", items: ["Employee award"] }],
+    references: ["Jacky van Rooyan, Team Leader, DSV Road Brokerage, 082 320 1339"],
+    footerNote: "", authenticityScore: 100,
+  };
+
+  it("applies only summary, bullets and skill ordering without changing the JSON structure", () => {
+    const beforeKeys = JSON.stringify(Object.keys(document).sort());
+    const tailored = applyTailoredContentToCv(document, {
+      summary: "Logistics coordinator experienced in customer service.",
+      experiences: [{ id: "exp-1", bullets: ["Resolved customer queries supporting logistics operations."] }],
+      skills: ["Logistics", "Invented skill", "Customer service"],
+    });
+    assert.equal(JSON.stringify(Object.keys(tailored).sort()), beforeKeys);
+    assert.equal(tailored.experiences[0]?.company, "DSV");
+    assert.equal(tailored.education[0]?.institution, "College");
+    assert.deepEqual(tailored.references, document.references);
+    assert.deepEqual(tailored.sections, document.sections);
+    assert.deepEqual(tailored.skills, ["Logistics", "Customer service"]);
+    assert.equal(tailored.experiences[0]?.bullets[0], "Resolved customer queries supporting logistics operations.");
+  });
+
+  it("rejects bullet arrays that add or drop claims", () => {
+    const tailored = applyTailoredContentToCv(document, {
+      experiences: [{ id: "exp-1", bullets: ["One", "Two"] }],
+    });
+    assert.deepEqual(tailored.experiences[0]?.bullets, document.experiences[0]?.bullets);
+  });
+
+  it("removes concatenated multi-column reference fragments", () => {
+    const references = normalizeReferenceEntries([
+      "Jacky van Rooyan, Team Leader, DSV Road Brokerage, 082 320 1339",
+      "Smangaliso Thwala, Team Leader, Menzies Aviation, 083 738 6146",
+      "Jacky van Rooyan Smangaliso Thwala",
+      "Team Leader, DSV Road Team Leader, Menzies",
+      "Brokerage Aviation",
+    ]);
+    assert.deepEqual(references, [
+      "Jacky van Rooyan, Team Leader, DSV Road Brokerage, 082 320 1339",
+      "Smangaliso Thwala, Team Leader, Menzies Aviation, 083 738 6146",
+    ]);
   });
 });
 

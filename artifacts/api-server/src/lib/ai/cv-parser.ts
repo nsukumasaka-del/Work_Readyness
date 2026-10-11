@@ -106,7 +106,20 @@ export const CV_PARSER_RESPONSE_SCHEMA = {
         },
       },
     },
-    references: { type: "array", items: { type: "string" } },
+    references: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "title", "company", "phone"],
+        properties: {
+          name: { type: "string" },
+          title: nullableString,
+          company: nullableString,
+          phone: nullableString,
+        },
+      },
+    },
     additional_sections: {
       type: "array",
       items: {
@@ -231,7 +244,26 @@ function toExtractedCvData(raw: GeminiCvExtraction, fallback: ExtractedCvData): 
     return language ? [`${language}${proficiency ? `: ${proficiency}` : ""}`] : [];
   });
   const languages = unique([...structuredLanguages, ...fallback.languages]);
-  const references = unique([...list(raw.references), ...fallback.references]);
+  const referenceDetails = (raw.references || []).flatMap((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const entry = item as Record<string, unknown>;
+    const name = clean(entry.name);
+    if (!name) return [];
+    return [{
+      id: `ref-ai-${index + 1}`,
+      name,
+      title: clean(entry.title) || undefined,
+      company: clean(entry.company) || undefined,
+      phone: clean(entry.phone) || undefined,
+    }];
+  });
+  const formatReference = (reference: { name: string; title?: string; company?: string; phone?: string }) =>
+    [reference.name, reference.title, reference.company, reference.phone].filter(Boolean).join(", ");
+  // A structured Gemini result is authoritative for this section. Merging the
+  // fallback OCR lines here used to append multi-column name/title fragments.
+  const references = referenceDetails.length
+    ? unique(referenceDetails.map(formatReference))
+    : unique(fallback.references);
 
   const cvContent = {
     personal,
@@ -245,7 +277,7 @@ function toExtractedCvData(raw: GeminiCvExtraction, fallback: ExtractedCvData): 
     languages,
     projects: mergedProjects,
     references,
-    referenceDetails: fallback.referenceDetails || [],
+    referenceDetails: referenceDetails.length ? referenceDetails : fallback.referenceDetails || [],
     additionalSections: mergedAdditional,
   };
   return {
@@ -262,7 +294,7 @@ function toExtractedCvData(raw: GeminiCvExtraction, fallback: ExtractedCvData): 
     languages,
     projects: mergedProjects,
     references,
-    referenceDetails: fallback.referenceDetails || [],
+    referenceDetails: referenceDetails.length ? referenceDetails : fallback.referenceDetails || [],
     additionalSections: mergedAdditional,
     verificationBreakdown: {
       personal: { verified: Boolean(personal.fullName && (personal.email || personal.phone)), missingFields: [] },

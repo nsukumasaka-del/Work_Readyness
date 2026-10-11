@@ -64,6 +64,7 @@ import {
   incorporateDiscoveredAchievement,
   runPreFlightQualityControl,
   improveCvContent,
+  applyTailoredContentToCv,
   type CvStructure,
   type GeneratedCvDocument,
   type HumanizeTone,
@@ -2049,17 +2050,19 @@ router.post("/career/cv/improve", async (req, res) => {
 });
 
 router.post("/career/cv/tailor", async (req, res) => {
-  const cvDocument = req.body?.cvDocument as GeneratedCvDocument;
+  const cvDocument = (req.body?.cvData || req.body?.cvDocument) as GeneratedCvDocument;
   const jobDescription = String(req.body?.jobDescription || "").trim();
   if (!cvDocument || !jobDescription) {
-    res.status(400).json({ error: "cvDocument and jobDescription are required" });
+    res.status(400).json({ error: "cvData and jobDescription are required" });
     return;
   }
   try {
     const baseline = matchJobDescription(cvDocument, jobDescription);
     const generated = enforceTailorMatchGuardrail(await runCvAssistant("tailor", { cvDocument, jobDescription, baseline }), baseline);
     if (!Array.isArray(generated.proposals)) throw new Error("Gemini returned an invalid tailoring report.");
-    res.json({ ...baseline, ...generated, proposals: generated.proposals });
+    if (!generated.tailoredContent || typeof generated.tailoredContent !== "object" || Array.isArray(generated.tailoredContent)) throw new Error("Gemini returned invalid tailored CV content.");
+    const tailoredCvDocument = applyTailoredContentToCv(cvDocument, generated.tailoredContent as Record<string, unknown> | undefined);
+    res.json({ ...baseline, ...generated, proposals: generated.proposals, tailoredCvDocument });
   } catch (error) {
     req.log.error({ err: error }, "Gemini CV tailoring failed");
     res.status(502).json({ error: "Could not tailor this CV. Please try again." });

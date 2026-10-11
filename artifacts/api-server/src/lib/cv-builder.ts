@@ -307,6 +307,68 @@ export interface GeneratedCvDocument {
   aiFeedback?: AiFeedbackData;
 }
 
+export type TailoredCvContent = {
+  summary?: unknown;
+  experiences?: unknown;
+  skills?: unknown;
+};
+
+/**
+ * Apply Gemini's narrowly scoped wording output to a deep clone of the input.
+ * All keys, sections, dates, employers, titles, education and references come
+ * from the original document; the model is never allowed to replace the CV.
+ */
+export function applyTailoredContentToCv(
+  input: GeneratedCvDocument,
+  candidate: unknown,
+): GeneratedCvDocument {
+  const output = JSON.parse(JSON.stringify(input)) as GeneratedCvDocument;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return output;
+  const tailored = candidate as TailoredCvContent;
+
+  const summary = typeof tailored.summary === "string" ? tailored.summary.trim() : "";
+  if (summary) output.summary = summary;
+
+  const rewrites = Array.isArray(tailored.experiences) ? tailored.experiences : [];
+  const byId = new Map<string, string[]>();
+  for (const candidate of rewrites) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const record = candidate as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id : "";
+    const bullets = Array.isArray(record.bullets)
+      ? record.bullets.map((bullet) => typeof bullet === "string" ? bullet.trim() : "").filter(Boolean)
+      : [];
+    if (id && bullets.length) byId.set(id, bullets);
+  }
+  output.experiences = output.experiences.map((experience) => {
+    const bullets = byId.get(experience.id);
+    // Exact cardinality prevents Gemini from dropping or adding claims.
+    return bullets?.length === experience.bullets.length ? { ...experience, bullets } : experience;
+  });
+
+  const originalSkills = input.skills || [];
+  const originalByKey = new Map(originalSkills.map((skill) => [normalizeTextPhrase(skill), skill]));
+  const requestedSkills = Array.isArray(tailored.skills) ? tailored.skills : [];
+  const ranked: string[] = [];
+  const seen = new Set<string>();
+  for (const value of requestedSkills) {
+    if (typeof value !== "string") continue;
+    const key = normalizeTextPhrase(value);
+    const original = originalByKey.get(key);
+    if (original && !seen.has(key)) {
+      ranked.push(original);
+      seen.add(key);
+    }
+  }
+  // Preserve every original skill even if the model omitted it.
+  for (const skill of originalSkills) {
+    const key = normalizeTextPhrase(skill);
+    if (!seen.has(key)) ranked.push(skill);
+  }
+  output.skills = ranked;
+  return output;
+}
+
 export interface AtsCheckItem {
   id: string;
   category: "essentials" | "content_quality" | "action_verbs" | "metrics" | "keywords" | "formatting" | "authenticity";
@@ -640,6 +702,7 @@ CRITICAL PARSING RULES:
    - Keep candidate content separate from critique. Do not output recommendations, ATS feedback, or commentary.
 
 7. OUTPUT:
+   - Extract each reference exactly once as one object with name, title, company, and phone. Never merge fields belonging to different people, and never append raw reference fragments after structured entries.
    - Return only valid JSON conforming exactly to the supplied JSON Schema, with no markdown, preamble, or postscript.`;
 export interface CvContentData {
   personal: {
@@ -2705,7 +2768,8 @@ function validateExtractedCvData(data: ExtractedCvData, fileName?: string, sourc
     ? title.replace(/\s*[|•]\s*/g, " | ").trim()
     : "";
   const personal = { ...content.personal, fullName, professionalTitle };
-  const cv_content = { ...content, summary, personal, experiences, skills, toolsAndSoftware, competencies: [] };
+  const references = normalizeReferenceEntries(content.references as unknown[], content.referenceDetails || []);
+  const cv_content = { ...content, summary, personal, experiences, skills, toolsAndSoftware, competencies: [], references };
   return {
     ...data,
     cv_content,
@@ -2715,6 +2779,7 @@ function validateExtractedCvData(data: ExtractedCvData, fileName?: string, sourc
     skills,
     toolsAndSoftware,
     competencies: [],
+    references,
   };
 }
 function extractCvDataFromTextInternal(rawText: string, fileName?: string): ExtractedCvData {
@@ -3584,6 +3649,7 @@ function extractCvDataFromTextInternal(rawText: string, fileName?: string): Extr
       phone,
     };
   }).filter((reference) => Boolean(reference.name));
+  references = normalizeReferenceEntries(references, referenceDetails);
   // Candidate summary is copied from the CV when present; missing content stays empty.
 
   // Candidate summary: strictly 2-3 sentence biography, never reviewer notes
@@ -3868,6 +3934,39 @@ function uniqueTextValues(values: string[]): string[] {
   return Array.from(unique.values());
 }
 
+const REFERENCE_PHONE_RE = /(?:\+27(?:\s*\(0\))?[\s-]*|\b0)(?:\(?\d{2,3}\)?[\s-]*){2,4}\d{2,4}/;
+
+/** Normalize legacy string/object references and remove OCR column fragments. */
+export function normalizeReferenceEntries(
+  values: unknown[] = [],
+  details: CvReferenceDetail[] = [],
+): string[] {
+  const formatObject = (value: Record<string, unknown>) => [value.name, value.title, value.company, value.phone]
+    .map((part) => typeof part === "string" ? part.trim() : "")
+    .filter(Boolean)
+    .join(", ");
+  const lines = values.flatMap((value): string[] => {
+    if (typeof value === "string") return value.trim() ? [value.trim()] : [];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const formatted = formatObject(value as Record<string, unknown>);
+      return formatted ? [formatted] : [];
+    }
+    return [];
+  });
+  const canonicalDetails = details.map((detail) => formatObject(detail as unknown as Record<string, unknown>)).filter(Boolean);
+  const unique = uniqueTextValues(canonicalDetails.length ? [...canonicalDetails, ...lines] : lines);
+  const complete = unique.filter((line) => REFERENCE_PHONE_RE.test(line));
+  if (!complete.length) return unique;
+  const completeTokens = new Set(normalizeTextPhrase(complete.join(" ")).split(" ").filter((token) => token.length > 1));
+  return unique.filter((line) => {
+    if (REFERENCE_PHONE_RE.test(line) || /available (?:on|upon) request/i.test(line)) return true;
+    const tokens = normalizeTextPhrase(line).split(" ").filter((token) => token.length > 1);
+    // Multi-column PDF extraction commonly emits later rows containing only
+    // names, titles and companies already present in phone-bearing entries.
+    return tokens.length < 2 || !tokens.every((token) => completeTokens.has(token));
+  });
+}
+
 function preserveSourceBullets(bullets: string[]): string[] {
   const seen = new Set<string>();
   const preserved: string[] = [];
@@ -3993,7 +4092,7 @@ export function buildGeneratedCv({
         : [];
 
   // References
-  const references: string[] =
+  const rawReferences: string[] =
     extracted?.references && extracted.references.length > 0
       ? uniqueTextValues(extracted.references)
       : extracted?.cv_content?.references && extracted.cv_content.references.length > 0
@@ -4003,6 +4102,7 @@ export function buildGeneratedCv({
     extracted?.referenceDetails && extracted.referenceDetails.length > 0
       ? extracted.referenceDetails
       : extracted?.cv_content?.referenceDetails || [];
+  const references = normalizeReferenceEntries(rawReferences, referenceDetails);
 
   // Professional Summary: Candidate biography ONLY, NEVER reviewer evaluation critique notes
   let summary = "";

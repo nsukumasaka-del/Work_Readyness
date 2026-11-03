@@ -23,9 +23,18 @@ export async function exportCvVisualPdf(
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ html, filename: `${safeName}.pdf`, templateId }),
   });
-  if (!response.ok) throw new Error(await readExportError(response));
+  if (!response.ok) {
+    const message = await readExportError(response);
+    console.error("[CV PDF rendering failed]", { status: response.status, message });
+    throw new Error(message);
+  }
+  const contentType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+  if (contentType !== "application/pdf") {
+    throw new Error("The PDF service returned an invalid document. Please try again.");
+  }
   onStageChange?.("downloading");
   const pdf = await response.blob();
+  if (!pdf.size) throw new Error("The PDF service returned an empty document. Please try again.");
   const url = URL.createObjectURL(pdf);
   const link = document.createElement("a"); link.href = url; link.download = `${safeName}.pdf`; link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
@@ -132,7 +141,13 @@ export async function createCvPdfSnapshot(previewElementId: string): Promise<str
   // Keep that exact layout intact and expose one A4-height slice per page.
   // Rebuilding its grid or pruning sections loses content at page boundaries.
   const pageCount = lockPreviewLayout ? measureCvPages(original).pageCount : measureExpandedSnapshot(original, clone);
+  if (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > 100) {
+    throw new Error("The CV must contain between 1 and 100 pages to export.");
+  }
   const paginatedPages = captureA4PageFrames(original, clone, pageCount);
+  if (paginatedPages.length !== pageCount || paginatedPages.some((page) => !page.querySelector(".a4-capture-source"))) {
+    throw new Error("The CV preview could not be prepared for PDF rendering.");
+  }
 
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${fontStyles}
     <style>

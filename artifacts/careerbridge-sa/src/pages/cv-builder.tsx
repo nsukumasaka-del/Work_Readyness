@@ -139,6 +139,18 @@ const DEFAULT_CANVAS_SECTION_ORDER: CanvasSectionKey[] = [
   "summary", "experience", "projects", "education", "skills", "certifications", "languages", "references", "custom",
 ];
 
+function normalizeCanvasSectionOrder(order?: readonly CanvasSectionKey[] | null): CanvasSectionKey[] {
+  const normalized: CanvasSectionKey[] = [];
+  for (const candidate of Array.isArray(order) ? order : []) {
+    const key = DEFAULT_CANVAS_SECTION_ORDER.find((section) => section === candidate);
+    if (key && !normalized.includes(key)) normalized.push(key);
+  }
+  return [
+    ...normalized,
+    ...DEFAULT_CANVAS_SECTION_ORDER.filter((key) => !normalized.includes(key)),
+  ];
+}
+
 const PDF_JUNK_RE =
   /\b(?:\d+\s+\d+\s+obj|endobj|endstream|stream\b|xref\b|trailer\b|startxref|\/Type\s*\/|\/Filter\s*\/|\/Length\s+\d+|<<|>>)\b/i;
 const UI_PLACEHOLDER_RE =
@@ -3729,7 +3741,7 @@ export default function CvBuilderPage() {
           if (preferences?.lineSpacing) setLineSpacing(preferences.lineSpacing);
           if (preferences?.marginSize) setMarginSize(preferences.marginSize);
           setInlineFormatting(preferences?.inlineFormatting || {});
-          setSectionOrder(preferences?.sectionOrder || DEFAULT_CANVAS_SECTION_ORDER);
+          setSectionOrder(normalizeCanvasSectionOrder(preferences?.sectionOrder));
           setSectionSpacing(preferences?.sectionSpacing ?? 24);
           setColumnRatio(preferences?.columnRatio ?? 62);
           setSectionLabels(preferences?.sectionLabels || {});
@@ -3803,7 +3815,7 @@ export default function CvBuilderPage() {
       setSelectedTemplate(existing.structure || "professional");
       setSelectedColor(templateColor(existing.structure || "professional", existing.preferences?.color));
       setInlineFormatting(existing.preferences?.inlineFormatting || {});
-      setSectionOrder(existing.preferences?.sectionOrder || DEFAULT_CANVAS_SECTION_ORDER);
+      setSectionOrder(normalizeCanvasSectionOrder(existing.preferences?.sectionOrder));
       setSectionSpacing(existing.preferences?.sectionSpacing ?? 24);
       setColumnRatio(existing.preferences?.columnRatio ?? 62);
       setSectionLabels(existing.preferences?.sectionLabels || {});
@@ -3848,7 +3860,7 @@ export default function CvBuilderPage() {
           if (preferences?.lineSpacing) setLineSpacing(preferences.lineSpacing);
           if (preferences?.marginSize) setMarginSize(preferences.marginSize);
           setInlineFormatting(preferences?.inlineFormatting || {});
-          setSectionOrder(preferences?.sectionOrder || DEFAULT_CANVAS_SECTION_ORDER);
+          setSectionOrder(normalizeCanvasSectionOrder(preferences?.sectionOrder));
           setSectionSpacing(preferences?.sectionSpacing ?? 24);
           setColumnRatio(preferences?.columnRatio ?? 62);
           setSectionLabels(preferences?.sectionLabels || {});
@@ -4242,7 +4254,7 @@ export default function CvBuilderPage() {
     setCv(restoredCv);
     persistGeneratedCv(restoredCv);
     setInlineFormatting(snapshot.inlineFormatting);
-    setSectionOrder(snapshot.sectionOrder);
+    setSectionOrder(normalizeCanvasSectionOrder(snapshot.sectionOrder));
     setSectionSpacing(snapshot.sectionSpacing);
     setColumnRatio(snapshot.columnRatio);
     setSectionLabels(snapshot.sectionLabels);
@@ -7476,6 +7488,7 @@ export default function CvBuilderPage() {
                   </>
                 );
 
+                const renderSkills = cv.document.skills || [];
                 const skillsSection = visibleSections.skills && (
                   <>
                     <A4PageSpacer id="skills" height={a4Spacers.skills || 0} />
@@ -7496,7 +7509,7 @@ export default function CvBuilderPage() {
                         onClick={() => {
                           const skill = prompt("Enter new skill:");
                           if (skill?.trim()) {
-                            updateDocumentField("skills", [...cv.document.skills, skill.trim()]);
+                            updateDocumentField("skills", [...renderSkills, skill.trim()]);
                           }
                         }}
                         className="text-[10px] font-bold text-primary hover:underline"
@@ -7507,13 +7520,13 @@ export default function CvBuilderPage() {
 
                     {renderSectionHeading("Skills & Competencies")}
 
-                    {cv.document.skills.length === 0 ? (
+                    {renderSkills.length === 0 ? (
                       <p className="mt-2 text-[11px] text-muted-foreground italic no-print">
                         No skills listed yet. Click &quot;+ Add Skill&quot; to add competencies.
                       </p>
                     ) : (
                       <div className="cv-badge-list mt-2 flex flex-wrap gap-1.5">
-                        {cv.document.skills.map((skill, sIdx) => {
+                        {renderSkills.map((skill, sIdx) => {
                           return (
                             <span
                               key={sIdx}
@@ -7521,7 +7534,7 @@ export default function CvBuilderPage() {
                               contentEditable={isEditMode ? true : undefined}
                               suppressContentEditableWarning
                               onBlur={(event) => {
-                                const skills = [...cv.document.skills];
+                                const skills = [...renderSkills];
                                 skills[sIdx] = sanitizeSkillBadge(event.currentTarget.textContent || "");
                                 updateDocumentField("skills", skills);
                               }}
@@ -7544,21 +7557,22 @@ export default function CvBuilderPage() {
 
                 const systemsSection = null;
 
+                const renderEducation = cv.document.education || [];
                 const educationSection = visibleSections.education && (
                   <>
                     <A4PageSpacer id="education" height={a4Spacers.education || 0} />
-                  <section data-a4-id="education" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${cv.document.education.length === 0 ? "hidden" : ""}`}>
+                  <section data-a4-id="education" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${renderEducation.length === 0 ? "hidden" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
                         onClick={() => {
                           const newEdu: CvEducationItem = {
-                            id: `edu-${cv.document.education.length + 1}`,
+                            id: `edu-${renderEducation.length + 1}`,
                             degree: "Degree / Qualification",
                             institution: "University / Institution",
                             graduationYear: "Completed",
                           };
-                          updateDocumentField("education", [...cv.document.education, newEdu]);
+                          updateDocumentField("education", [...renderEducation, newEdu]);
                         }}
                         className="text-[10px] font-bold text-primary hover:underline"
                       >
@@ -7568,13 +7582,13 @@ export default function CvBuilderPage() {
 
                     {renderSectionHeading("Education")}
 
-                    {cv.document.education.length === 0 ? (
+                    {renderEducation.length === 0 ? (
                       <p className="text-[11px] text-muted-foreground italic no-print">
                         No education entries listed. Click "+ Add Qualification" above if you have qualifications to add.
                       </p>
                     ) : (
                       <div className={isTimeline ? "relative pl-6 border-l-2 ml-2 space-y-4 my-2" : "space-y-2"} style={isTimeline ? { borderColor: selectedColor.border } : {}}>
-                        {cv.document.education.map((edu, eduIdx) => (
+                        {renderEducation.map((edu, eduIdx) => (
                           <div
                             key={edu.id || eduIdx}
                             className="education-item cv-a4-keep text-xs overflow-visible group/edu relative"
@@ -7804,17 +7818,16 @@ export default function CvBuilderPage() {
                   </>
                 );
 
+                const renderReferences = cv.document.references || [];
                 const referencesSection = visibleSections.references && (
                   <>
                     <A4PageSpacer id="references" height={a4Spacers.references || 0} />
-                  <section data-a4-id="references" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.references || []).length === 0 ? "hidden" : ""}`}>
+                  <section data-a4-id="references" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${renderReferences.length === 0 ? "hidden" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
                         onClick={() => {
-                          updateDocumentField("references", [
-  ...(cv.document.references || []),
-]);
+                          updateDocumentField("references", [...renderReferences]);
                         }}
                         className="text-[10px] font-bold text-primary hover:underline"
                       >
@@ -7824,18 +7837,18 @@ export default function CvBuilderPage() {
 
                     {renderSectionHeading("References")}
 
-                    {(cv.document.references || []).length === 0 ? (
+                    {renderReferences.length === 0 ? (
                       <p className="text-[11px] text-muted-foreground italic no-print">
                         References available upon request.
                       </p>
                     ) : (
                       <div className="space-y-1">
-                        {(cv.document.references || []).map((ref, rIdx) => (
+                        {renderReferences.map((ref, rIdx) => (
                           <AutoGrowTextarea
                             key={rIdx}
                             value={ref}
                             onChange={(e) => {
-                              const refs = [...(cv.document.references || [])];
+                              const refs = [...renderReferences];
                               refs[rIdx] = e.target.value;
                               updateDocumentField("references", refs);
                             }}
@@ -7917,15 +7930,16 @@ export default function CvBuilderPage() {
                 const templateSections = selectedTemplateDesign
                   ? new Set([...selectedTemplateDesign.primarySections, ...selectedTemplateDesign.sidebarSections])
                   : null;
+                const canvasSectionOrder = normalizeCanvasSectionOrder(sectionOrder);
                 const primaryColumnKeys = selectedTemplateDesign
                   ? [
-                    ...selectedTemplateDesign.primarySections.filter((key) => sectionOrder.includes(key as CanvasSectionKey)) as CanvasSectionKey[],
-                    ...sectionOrder.filter((key) => !templateSections?.has(key as TemplateSectionKey)),
+                    ...selectedTemplateDesign.primarySections.filter((key) => canvasSectionOrder.includes(key as CanvasSectionKey)) as CanvasSectionKey[],
+                    ...canvasSectionOrder.filter((key) => !templateSections?.has(key as TemplateSectionKey)),
                   ]
-                  : sectionOrder.filter((key) => ["summary", "experience", "projects", "custom"].includes(key));
+                  : canvasSectionOrder.filter((key) => ["summary", "experience", "projects", "custom"].includes(key));
                 const sidebarColumnKeys = selectedTemplateDesign
-                  ? selectedTemplateDesign.sidebarSections.filter((key) => sectionOrder.includes(key as CanvasSectionKey)) as CanvasSectionKey[]
-                  : sectionOrder.filter((key) => !["summary", "experience", "projects", "custom"].includes(key));
+                  ? selectedTemplateDesign.sidebarSections.filter((key) => canvasSectionOrder.includes(key as CanvasSectionKey)) as CanvasSectionKey[]
+                  : canvasSectionOrder.filter((key) => !["summary", "experience", "projects", "custom"].includes(key));
                 const leftColumnKeys = selectedTemplateDesign?.sidebarSide === "left" ? sidebarColumnKeys : primaryColumnKeys;
                 const rightColumnKeys = selectedTemplateDesign?.sidebarSide === "left" ? primaryColumnKeys : sidebarColumnKeys;
                 const layoutColumnRatio = selectedTemplateDesign?.sidebarSide === "left" ? 100 - columnRatio : columnRatio;

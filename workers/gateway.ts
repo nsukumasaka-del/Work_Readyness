@@ -24,6 +24,7 @@ import {
 } from "../artifacts/api-server/src/lib/ai/gemini-client";
 import { applyTailoredContentToCv, matchJobDescription, type GeneratedCvDocument, type JobMatchReport } from "../artifacts/api-server/src/lib/cv-builder";
 import { renderRouteHtml } from "./public-html";
+import { buildCvPdfHtml } from "./cv-pdf-render";
 
 export interface Env extends D1Env {
   ASSETS: Fetcher;
@@ -41,29 +42,30 @@ async function handleCvPdfExport(request: Request, env: Env): Promise<Response> 
   const user = await getAuthenticatedUser(request, env);
   if (!user) return jsonError(401, "Please sign in to export your CV.");
 
-  // Each printable A4 frame carries a full clipped copy of the editor DOM.
-  // Keep a bounded limit while allowing multi-page CVs to reach Chromium.
-  const maxExportHtmlBytes = 16_000_000;
+  const maxExportPayloadBytes = 512_000;
   const length = Number(request.headers.get("content-length") || 0);
-  if (length > maxExportHtmlBytes) return jsonError(413, "CV document is too large to export.");
+  if (Number.isFinite(length) && length > maxExportPayloadBytes) return jsonError(413, "CV document is too large to export.");
+  const requestBody = await request.text();
+  if (new TextEncoder().encode(requestBody).length > maxExportPayloadBytes) {
+    return jsonError(413, "CV document is too large to export.");
+  }
   let payload: Record<string, unknown>;
   try {
-    const body: unknown = await request.json();
+    const body: unknown = JSON.parse(requestBody);
     payload = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
   } catch {
     return jsonError(400, "A valid CV document is required.");
   }
-  const html = typeof payload.html === "string" ? payload.html : "";
   const templateId = typeof payload.templateId === "string" ? payload.templateId.trim().slice(0, 80) : "serif_classic";
   if (!await canUseTemplate(env, user, templateId)) {
     return jsonError(402, "Unlock this template once to export and reuse it for life.");
   }
-  if (!html || new TextEncoder().encode(html).length > maxExportHtmlBytes || !html.includes("bonlist-cv-document")) {
-    return jsonError(400, "The rendered CV document is missing or too large.");
+  let html: string;
+  try {
+    html = buildCvPdfHtml(payload.document, payload.appearance);
+  } catch (error) {
+    return jsonError(400, error instanceof Error ? error.message : "A valid CV document is required.");
   }
-  // The client only sends the rendered CV. Never execute scripts from an
-  // uploaded document, and disable JavaScript in the rendering browser too.
-  if (/<\s*script\b/i.test(html)) return jsonError(400, "CV export content is invalid.");
   const filename = (typeof payload.filename === "string" ? payload.filename : "BonList-CV.pdf")
     .replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 100) || "BonList-CV.pdf";
 
@@ -74,79 +76,7 @@ async function handleCvPdfExport(request: Request, env: Env): Promise<Response> 
     await page.setJavaScriptEnabled(false);
     await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 1 });
     await page.emulateMediaType("print");
-    await page.setContent(html, { waitUntil: "networkidle0", timeout: 30_000 });
-    await page.evaluate(async () => {
-      const fonts = new Map<string, string>();
-      for (const element of document.querySelectorAll<HTMLElement>("#bonlist-cv-document *")) {
-        const style = getComputedStyle(element);
-        if (style.display === "none") continue;
-        const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-        if (!fonts.has(font)) fonts.set(font, element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value : element.textContent || "CV");
-      }
-      await Promise.all([...fonts].map(([font, text]) => document.fonts.load(font, text)));
-      await document.fonts.ready;
-      if (Array.from(document.fonts).some(font => font.status === "error")) throw new Error("A CV font failed to load.");
-      await Promise.all(Array.from(document.images).map(async image => {
-        await image.decode();
-      }));
-      // Script execution is disabled for untrusted document HTML. Chromium
-      // does not deliver animation-frame callbacks in that configuration,
-      // so awaiting them stalls export indefinitely. A geometry read flushes
-      // pending font/layout changes synchronously before printToPDF instead.
-      document.getElementById("bonlist-cv-document")?.getBoundingClientRect();
-      // The print browser can have different control/font metrics from the
-      // editor. Count the final painted bounds, not the client's stale count.
-      // Each slice retains a complete source tree, including off-page References.
-      const documentRoot = document.getElementById("bonlist-cv-document");
-      const frames = Array.from(documentRoot?.querySelectorAll<HTMLElement>(".a4-page-frame") || []);
-      const firstSource = frames[0]?.querySelector<HTMLElement>(".a4-capture-source");
-      if (documentRoot && firstSource && frames.length && documentRoot.dataset.exportLayout !== "preview-locked") {
-        const origin = firstSource.getBoundingClientRect();
-        const pageHeight = frames[0].getBoundingClientRect().height;
-        const lines: Array<{ top: number; bottom: number }> = [];
-        let bottom = 0;
-        for (const element of firstSource.querySelectorAll<HTMLElement>("*")) {
-          if (element.childElementCount || element.closest(".no-print, [data-preview-only='true'], [data-a4-spacer]")) continue;
-          const style = getComputedStyle(element), rect = element.getBoundingClientRect();
-          if (style.visibility === "hidden" || style.display === "none" || !rect.width || !rect.height) continue;
-          bottom = Math.max(bottom, rect.bottom - origin.top);
-          if (rect.height < pageHeight / 4) lines.push({ top: rect.top - origin.top, bottom: rect.bottom - origin.top });
-          const range = document.createRange();
-          range.selectNodeContents(element);
-          for (const line of Array.from(range.getClientRects())) {
-            if (line.height > 0 && line.height < pageHeight / 4) lines.push({ top: line.top - origin.top, bottom: line.bottom - origin.top });
-          }
-        }
-        // Avoid slicing through glyphs at an A4 boundary. Leave a few pixels
-        // blank at the end of that page and resume at the same line on the next.
-        const slices: Array<{ top: number; height: number }> = [];
-        let offset = 0;
-        while (offset < bottom - 0.5 && slices.length < 100) {
-          let end = offset + pageHeight;
-          // Keep a small paint safety margin as glyph ink can extend beyond
-          // a line box, especially across browser/font engine versions.
-          const crossing = lines.filter(line => line.top < end && line.bottom > end - 16);
-          if (crossing.length) {
-            const safeEnd = Math.min(...crossing.map(line => line.top)) - 0.5;
-            if (safeEnd > offset + pageHeight * 0.85) end = safeEnd;
-          }
-          slices.push({ top: offset, height: end - offset });
-          offset = end;
-        }
-        const requiredPages = Math.max(frames.length, slices.length);
-        if (offset < bottom - 0.5) throw new Error("CV document exceeds the page limit.");
-        if (!Number.isFinite(requiredPages) || requiredPages > 100) throw new Error("CV page bounds are invalid.");
-        for (let index = 0; index < requiredPages; index++) {
-          const frame = frames[index] || frames[0].cloneNode(true) as HTMLElement;
-          frame.id = `cv-page-container-${index + 1}`;
-          frame.dataset.pageIndex = String(index);
-          const slice = slices[index] || { top: offset + (index - slices.length) * pageHeight, height: pageHeight };
-          frame.style.clipPath = `inset(0 0 ${Math.max(0, pageHeight - slice.height)}px 0)`;
-          frame.querySelector<HTMLElement>(".a4-capture-source")!.style.setProperty("--a4-capture-top", `-${slice.top}px`);
-          if (!frames[index]) documentRoot.append(frame);
-        }
-      }
-    });
+    await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 10_000 });
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,

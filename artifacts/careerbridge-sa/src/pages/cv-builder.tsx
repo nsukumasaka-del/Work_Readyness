@@ -5328,9 +5328,8 @@ export default function CvBuilderPage() {
   /** Print the rendered CV DOM so template styling and text remain intact. */
   const executeDownloadPdf = async (options?: { onReady?: () => void }) => {
     if (pdfDownloadLockRef.current) return;
-    const preview = printRef.current;
-    if (!cv?.document || !preview) {
-      setError("Open the CV preview and try exporting again.");
+    if (!cv?.document) {
+      setError("Generate or load a CV before downloading.");
       options?.onReady?.();
       return;
     }
@@ -5352,8 +5351,18 @@ export default function CvBuilderPage() {
       const templateName = catalogTemplates.find((template) => template.id === selectedTemplate)?.name || "CV";
       const safeTemplateName = templateName.replace(/[^a-z0-9_-]/gi, "_");
       const filename = `${safeBaseName}_${safeTemplateName}`;
-      await document.fonts.ready;
-      await exportCvVisualPdf(preview.id || "bonlist-cv-document", filename, selectedTemplate, setPdfDownloadStage);
+      await exportCvVisualPdf(cv.document, filename, selectedTemplate, {
+        primaryColor: selectedColor.primary,
+        secondaryColor: selectedColor.secondary,
+        borderColor: selectedColor.border,
+        fontId: selectedFont.id,
+        fontSize,
+        marginSize,
+        columns: catalogTemplates.find((template) => template.id === selectedTemplate)?.columns || "single",
+        sectionOrder: normalizeCanvasSectionOrder(sectionOrder),
+        visibleSections,
+        templateDesign: selectedTemplateDesign,
+      }, setPdfDownloadStage);
       setMessage("Your CV PDF download has started.");
       setTimeout(() => setMessage(""), 4000);
     } catch (exportError) {

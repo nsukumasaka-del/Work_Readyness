@@ -30,6 +30,10 @@ async function creditBalance(env: D1Env, userId: string): Promise<number> {
 }
 
 export async function canUseTemplate(env: D1Env, user: UserRow, templateId: string): Promise<boolean> {
+  const generated = await env.DB.prepare(
+    "SELECT id FROM templates WHERE id = ? AND active = 1 AND deleted_at IS NULL AND definition_json IS NOT NULL LIMIT 1",
+  ).bind(templateId).first<{ id: string }>();
+  if (generated) return true;
   return canDownloadTemplate(await d1PaymentAccess(env, user), templateId);
 }
 
@@ -41,7 +45,7 @@ async function status(env: D1Env, user: UserRow) {
     premiumTemplates: [...FREE_TEMPLATE_IDS, ...PAID_TEMPLATE_IDS].map(templateId => ({ templateId, priceZar: 50, ownership: "lifetime" })),
     features: [], recentTransactions: [],
   };
-  const [owned, features, recent, balance] = await Promise.all([
+  const [owned, features, recent, balance, generatedTemplates] = await Promise.all([
     env.DB.prepare("SELECT template_id, unlocked_at FROM user_template_entitlements WHERE user_id = ? AND status = 'active' ORDER BY unlocked_at DESC")
       .bind(user.id).all<{ template_id: string; unlocked_at: string }>(),
     env.DB.prepare("SELECT feature_id, name, description, credit_cost FROM premium_feature_catalog WHERE active = 1 ORDER BY credit_cost, name")
@@ -49,13 +53,15 @@ async function status(env: D1Env, user: UserRow) {
     env.DB.prepare("SELECT id, delta, balance_after, kind, feature_id, created_at FROM credit_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 12")
       .bind(user.id).all(),
     creditBalance(env, user.id),
+    env.DB.prepare("SELECT id FROM templates WHERE active = 1 AND deleted_at IS NULL AND definition_json IS NOT NULL")
+      .all<{ id: string }>(),
   ]);
   return {
     ...access,
     credits: balance,
     creditPack: { priceZar: 50, credits: 5 },
     ownedTemplateIds: [...new Set([...access.ownedTemplateIds, ...owned.results.map(row => row.template_id)])],
-    freeTemplateIds: [],
+    freeTemplateIds: generatedTemplates.results.map((template) => template.id),
     premiumTemplates: [...FREE_TEMPLATE_IDS, ...PAID_TEMPLATE_IDS].map((templateId) => ({ templateId, priceZar: 50, ownership: "lifetime" })),
     features: features.results.map((row) => ({
       id: row.feature_id, name: row.name, description: row.description, creditCost: row.credit_cost,

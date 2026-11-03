@@ -934,6 +934,40 @@
   border-color: var(--cv-border);
 }
 
+.cv-template[data-template-generated="true"] header {
+  text-align: var(--cv-template-header-align, left) !important;
+  font-family: var(--cv-template-heading-font, inherit);
+}
+
+.cv-template[data-template-generated="true"] h1,
+.cv-template[data-template-generated="true"] h2,
+.cv-template[data-template-generated="true"] [data-inline-editable="true"] {
+  color: var(--cv-template-accent) !important;
+  font-family: var(--cv-template-heading-font, inherit);
+}
+
+.cv-template[data-template-generated="true"][data-template-heading-treatment="uppercase"] h2 {
+  text-transform: uppercase;
+}
+
+.cv-template[data-template-generated="true"][data-template-section-style="rule"] [data-a4-id] h2 {
+  border-bottom: 1px solid var(--cv-template-accent);
+  padding-bottom: 0.3rem;
+}
+
+.cv-template[data-template-generated="true"][data-template-section-style="accent-bar"] [data-a4-id] h2 {
+  border-left: 3px solid var(--cv-template-accent);
+  padding-left: 0.5rem;
+}
+
+.cv-template[data-template-generated="true"][data-template-density="compact"] [data-template-body-layout] {
+  gap: 1rem !important;
+}
+
+.cv-template[data-template-generated="true"] [data-template-sidebar="true"] {
+  align-self: stretch;
+}
+
 /* Stylish experience flows between pages; only individual entries stay whole. */
 .template-stylish [data-a4-id="experience"],
 .template-stylish [data-a4-id="experience"] > div {

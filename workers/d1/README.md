@@ -46,6 +46,13 @@ npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0026_
 npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0012_templates.sql
 ```
 
+For image-based template creation, also create the `bonlist-template-assets`
+R2 bucket from the repository root and set the `GEMINI_API_KEY` Worker secret.
+The Worker binding is declared in `wrangler.toml`. Generated-template columns
+are in `schema.sql` and are also added lazily by the Worker on an existing D1
+database; if you upgrade with SQL migrations instead, apply
+`0028_template_design_assets.sql` instead of reapplying the full schema.
+
 ## Email (Resend only)
 
 ```bash

@@ -219,10 +219,17 @@ CREATE TABLE IF NOT EXISTS templates (
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  deleted_at TEXT
+  deleted_at TEXT,
+  definition_json TEXT,
+  asset_key TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_templates_created ON templates(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_templates_active_not_deleted ON templates(active, deleted_at);
+
+CREATE TABLE IF NOT EXISTS template_catalog_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  initialized_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 CREATE TABLE IF NOT EXISTS site_visits (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

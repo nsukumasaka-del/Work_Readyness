@@ -1,4 +1,4 @@
-import { type ChangeEvent, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Database, FileStack, Pencil, Plus, Trash2, Upload } from "lucide-react";
 
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -68,8 +68,10 @@ export default function TemplatesSection({ token, can, refreshTick, onMutated }:
   const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [optimisticallyDeleted, setOptimisticallyDeleted] = useState<Set<string>>(() => new Set());
   const uploadRef = useRef<HTMLInputElement | null>(null);
+  const imageUploadRef = useRef<HTMLInputElement | null>(null);
   const debouncedSearch = useDebouncedValue(search);
   const canWrite = can(PERMISSIONS.templates);
 
@@ -80,6 +82,13 @@ export default function TemplatesSection({ token, can, refreshTick, onMutated }:
   );
 
   const templates = (data?.templates ?? []).filter((template) => !optimisticallyDeleted.has(String(template.id)));
+  useEffect(() => {
+    if (!data?.templates) return;
+    setOptimisticallyDeleted((current) => {
+      const next = new Set([...current].filter((id) => data.templates?.some((template) => String(template.id) === id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [data]);
   const categoryOptions = useMemo(() => [
     { value: "", label: "All categories" },
     ...(data?.categories ?? []).map((value) => ({ value, label: value })),
@@ -159,6 +168,35 @@ export default function TemplatesSection({ token, can, refreshTick, onMutated }:
     }
   }
 
+  async function handleImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast({ title: "Unsupported image", description: "Choose a PNG, JPEG, or WebP template image.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Image is too large", description: "Template images must be no larger than 5 MB.", variant: "destructive" });
+      return;
+    }
+    const body = new FormData();
+    body.append("image", file);
+    setGenerating(true);
+    try {
+      const result = await adminFetch<{ template?: AdminTemplate }>("/admin/templates/generate", token, { method: "POST", body });
+      const created = result.template;
+      if (!created) throw new Error("The generated template was not returned by the server.");
+      toast({ title: "Template generated", description: `${templateName(created)} is now available in the live catalog.` });
+      await reload(true);
+      onMutated();
+    } catch (err) {
+      toast({ title: "Template generation failed", description: errorMessage(err), variant: "destructive" });
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   async function handleDelete() {
     if (!deleteTarget || deleting) return;
     const deletedId = String(deleteTarget.id);
@@ -167,14 +205,9 @@ export default function TemplatesSection({ token, can, refreshTick, onMutated }:
     setDeleting(true);
     try {
       await adminFetch(`/admin/templates/${encodeURIComponent(deletedId)}`, token, { method: "DELETE" });
-      toast({ title: "Template deleted", description: `${deletedName} was removed from the active catalog.` });
+      toast({ title: "Template deleted", description: `${deletedName} was permanently removed from the live catalog.` });
       setDeleteTarget(null);
       await reload(true);
-      setOptimisticallyDeleted((current) => {
-        const next = new Set(current);
-        next.delete(deletedId);
-        return next;
-      });
       onMutated();
     } catch (err) {
       setOptimisticallyDeleted((current) => {
@@ -198,7 +231,9 @@ export default function TemplatesSection({ token, can, refreshTick, onMutated }:
           <FilterSelect value={category} onChange={setCategory} options={categoryOptions} ariaLabel="Filter templates by category" testId="select-admin-template-category" />
           {canWrite ? <>
             <input ref={uploadRef} type="file" accept="application/json,.json" className="hidden" onChange={(event) => void handleUpload(event)} />
+            <input ref={imageUploadRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => void handleImageUpload(event)} />
             <ActionButton onClick={() => uploadRef.current?.click()} testId="button-admin-upload-templates"><Upload size={13} /> Upload JSON</ActionButton>
+            <ActionButton onClick={() => imageUploadRef.current?.click()} disabled={generating} testId="button-admin-generate-template-image"><Upload size={13} /> {generating ? "Analyzing image…" : "Create from image"}</ActionButton>
             <ActionButton onClick={() => void handleSeed()} disabled={seeding} testId="button-admin-seed-templates"><Database size={13} /> {seeding ? "Seeding…" : "Seed catalog"}</ActionButton>
             <ActionButton variant="primary" onClick={openCreate} testId="button-admin-new-template"><Plus size={13} /> New template</ActionButton>
           </> : null}
@@ -239,7 +274,7 @@ export default function TemplatesSection({ token, can, refreshTick, onMutated }:
         </DialogContent>
       </Dialog>
 
-      <ConfirmDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }} title="Remove this template?" description={deleteTarget ? `${templateName(deleteTarget)} will be removed from the active catalog and retained as a recoverable record.` : undefined} confirmLabel={deleting ? "Removing…" : "Remove template"} onConfirm={() => void handleDelete()} />
+      <ConfirmDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }} title="Delete this template?" description={deleteTarget ? `${templateName(deleteTarget)} and its stored preview image will be permanently deleted.` : undefined} confirmLabel={deleting ? "Deleting…" : "Delete template"} onConfirm={() => void handleDelete()} />
     </>
   );
 }

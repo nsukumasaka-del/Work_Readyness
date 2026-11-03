@@ -26,8 +26,31 @@ The `0006` migration is required for CV review/profile storage. The `0007`
 migration prepares persistent edge CV storage for builder versioning. The
 `0008` migration stores application outcomes for the CV builder. The `0012`
 migration adds the admin-managed CV and document template catalog.
+The current `schema.sql` includes generated design/image columns. For an
+existing database, apply this migration once after `0012` instead of reapplying
+the full schema:
 
-## 2. Configure the Worker
+```bash
+npx wrangler d1 execute bonlist-db --remote --file=./workers/d1/migrations/0028_template_design_assets.sql
+```
+
+## 2. Configure template image generation
+
+Create the R2 bucket declared in `wrangler.toml`, configure Gemini, and deploy:
+
+```bash
+npx wrangler r2 bucket create bonlist-template-assets
+npx wrangler secret put GEMINI_API_KEY
+pnpm run cf:deploy
+```
+
+The admin console accepts PNG, JPEG, or WebP reference images up to 5 MB.
+Gemini converts the reference into a constrained design schema supported by
+the CV editor; the original preview image is kept in R2 and the design in D1.
+The public template catalog and uploaded previews are served with no-store
+cache headers so catalog changes are visible immediately.
+
+## 3. Configure the Worker
 
 Set the public site URL in `wrangler.toml` (or as a Worker variable). It must
 match the URL users open, including a custom domain if you use one:
@@ -48,7 +71,7 @@ The deployed application serves API requests through the Cloudflare Worker.
 The Worker uses D1 for authentication and career data; no Render API upstream
 or legacy backend proxy is required.
 
-## 3. Email verification and password reset
+## 4. Email verification and password reset
 
 Create the Worker secrets:
 
@@ -61,7 +84,7 @@ npx wrangler secret put EMAIL_FROM
 testing only, `AUTH_ALLOW_DEV_OTP = "true"` can be used in a non-production
 environment; do not enable it in production.
 
-## 4. Enable Google sign-in
+## 5. Enable Google sign-in
 
 1. In Google Cloud Console, create or select a project.
 2. Configure the OAuth consent screen. While the app is in Testing, add every
@@ -82,7 +105,7 @@ Google enables the button automatically once both secrets exist. The OAuth
 scope requested by the Worker is `openid email profile`. The callback creates
 or links the user in D1 and then creates the authenticated D1 session.
 
-## 5. Verify configuration
+## 6. Verify configuration
 
 Open this endpoint after deployment:
 

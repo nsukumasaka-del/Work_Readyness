@@ -44,6 +44,12 @@ export async function fetchMonetizationStatus(): Promise<MonetizationStatus> {
 
 export function templateAccess(status: MonetizationStatus, templateId: string) {
   const owned = status.adminBypass || status.ownedTemplateIds.includes(templateId);
+  const free = status.freeTemplateIds.includes(templateId);
   const premium = status.premiumTemplates.find((item) => item.templateId === templateId);
-  return { free: false, owned: owned || Boolean(status.megaAccessActive), premium: premium || { templateId, priceZar: 50, ownership: 'lifetime' }, canExport: owned || Boolean(status.megaAccessActive) };
+  return {
+    free,
+    owned: owned || Boolean(status.megaAccessActive),
+    premium: free ? null : premium || { templateId, priceZar: 50, ownership: "lifetime" as const },
+    canExport: free || owned || Boolean(status.megaAccessActive),
+  };
 }

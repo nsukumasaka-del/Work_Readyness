@@ -28,6 +28,7 @@ const RESET_HOURS = 1;
 
 export type D1Env = MailEnv & {
   DB: D1Database;
+  TEMPLATE_ASSETS?: R2Bucket;
   ADZUNA_APP_ID?: string;
   ADZUNA_APP_KEY?: string;
   /** Optional Gemini API key used to enrich CV Review career advisories. */

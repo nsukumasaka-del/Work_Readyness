@@ -1,9 +1,18 @@
 import { getAuthenticatedUser, type D1Env } from "./d1/auth";
+import { generateTemplateDesignFromImage } from "../artifacts/api-server/src/lib/ai/gemini-client";
+import { parseTemplateDesign } from "../shared/template-design";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store, no-cache, must-revalidate, max-age=0",
+      "cdn-cache-control": "no-store",
+      "surrogate-control": "no-store",
+      pragma: "no-cache",
+      expires: "0",
+    },
   });
 }
 
@@ -11,7 +20,14 @@ type CountRow = { count: number };
 type TemplateRow = Record<string, unknown> & {
   id: string | number;
   name?: string;
+  description?: string;
+  category?: string;
+  preview_url?: string | null;
+  active?: number;
   created_at?: string;
+  updated_at?: string;
+  definition_json?: string | null;
+  asset_key?: string | null;
 };
 
 type TemplateInput = {
@@ -21,6 +37,7 @@ type TemplateInput = {
   category: string;
   previewUrl: string | null;
   active: number;
+  definitionJson?: string | null;
 };
 
 const DEFAULT_TEMPLATES: TemplateInput[] = [
@@ -56,17 +73,29 @@ function templateInput(value: unknown): TemplateInput | null {
   const rawPreview = body.previewUrl ?? body.preview_url;
   const previewUrl = rawPreview ? String(rawPreview).trim().slice(0, 1000) : null;
   const active = body.active === false || body.active === 0 || body.active === "0" ? 0 : 1;
-  return { id, name, description, category, previewUrl, active };
+  const rawDefinition = body.definitionJson ?? body.definition_json;
+  let definitionJson: string | null | undefined;
+  if (rawDefinition === null) definitionJson = null;
+  else if (rawDefinition !== undefined) {
+    const design = typeof rawDefinition === "string"
+      ? (() => { try { return JSON.parse(rawDefinition) as unknown; } catch { return null; } })()
+      : rawDefinition;
+    const parsedDesign = parseTemplateDesign(design);
+    if (!parsedDesign) return null;
+    definitionJson = JSON.stringify(parsedDesign);
+  }
+  return { id, name, description, category, previewUrl, active, definitionJson };
 }
 
 async function insertTemplate(db: D1Database, input: TemplateInput) {
   return db.prepare(
-    `INSERT INTO templates (id, name, description, category, preview_url, active, created_at, updated_at, deleted_at)
-     VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), NULL)
+    `INSERT INTO templates (id, name, description, category, preview_url, active, created_at, updated_at, deleted_at, definition_json, asset_key)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), NULL, ?, NULL)
      ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description,
-       category=excluded.category, preview_url=excluded.preview_url, active=excluded.active,
+       category=excluded.category, preview_url=COALESCE(excluded.preview_url, templates.preview_url), active=excluded.active,
+       definition_json=COALESCE(excluded.definition_json, templates.definition_json),
        updated_at=datetime('now'), deleted_at=NULL`,
-  ).bind(input.id, input.name, input.description, input.category, input.previewUrl, input.active).run();
+  ).bind(input.id, input.name, input.description, input.category, input.previewUrl, input.active, input.definitionJson ?? null).run();
 }
 
 async function ensureTemplatesTable(db: D1Database): Promise<void> {
@@ -79,14 +108,59 @@ async function ensureTemplatesTable(db: D1Database): Promise<void> {
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    deleted_at TEXT
+    deleted_at TEXT,
+    definition_json TEXT,
+    asset_key TEXT
   )`).run();
-  try {
-    await db.prepare("ALTER TABLE templates ADD COLUMN deleted_at TEXT").run();
-  } catch (error) {
-    if (!String(error).toLowerCase().includes("duplicate column")) throw error;
+  for (const [column, type] of [["deleted_at", "TEXT"], ["definition_json", "TEXT"], ["asset_key", "TEXT"]]) {
+    try {
+      await db.prepare(`ALTER TABLE templates ADD COLUMN ${column} ${type}`).run();
+    } catch (error) {
+      if (!String(error).toLowerCase().includes("duplicate column")) throw error;
+    }
   }
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_templates_created ON templates(created_at DESC)").run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS template_catalog_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    initialized_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`).run();
+  const initialized = await db.prepare("SELECT id FROM template_catalog_state WHERE id = 1").first();
+  if (!initialized) {
+    const seedStatements = DEFAULT_TEMPLATES.map((template) => db.prepare(
+      `INSERT OR IGNORE INTO templates
+       (id, name, description, category, preview_url, active, created_at, updated_at, deleted_at, definition_json, asset_key)
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), NULL, NULL, NULL)`,
+    ).bind(template.id, template.name, template.description, template.category, template.previewUrl, template.active));
+    seedStatements.push(db.prepare("INSERT OR IGNORE INTO template_catalog_state (id) VALUES (1)"));
+    await db.batch(seedStatements);
+  }
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+function safeTemplateText(value: unknown, maximum: number): string {
+  return typeof value === "string" ? value.trim().slice(0, maximum) : "";
+}
+
+function templateAssetMimeType(file: File): { mimeType: string; extension: string } | null {
+  const imageTypes: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+  };
+  const extension = imageTypes[file.type.toLowerCase()];
+  return extension ? { mimeType: file.type.toLowerCase(), extension } : null;
+}
+
+function templateAssetKey(value: unknown): string | null {
+  if (typeof value !== "string" || !/^templates\/[a-f0-9-]{36}\.(?:jpg|png|webp)$/i.test(value)) return null;
+  return value;
 }
 
 function rangeStart(url: URL): string | null {
@@ -186,6 +260,40 @@ async function buildOverview(db: D1Database, url: URL) {
 export async function handleCvAdmin(request: Request, env: D1Env): Promise<Response | null> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "");
+  if (path === "/api/templates") {
+    if (request.method !== "GET") return json(405, { error: "Method not allowed." });
+    try {
+      await ensureTemplatesTable(env.DB);
+      const rows = await env.DB.prepare(
+        `SELECT id, name, description, category, preview_url, active, created_at, updated_at,
+                definition_json
+         FROM templates
+         WHERE active = 1 AND deleted_at IS NULL
+         ORDER BY created_at DESC`,
+      ).all<TemplateRow>();
+      return json(200, { success: true, templates: rows.results || [] });
+    } catch (error) {
+      console.error("[templates] Could not load the live catalog", error);
+      return json(500, { success: false, error: "Could not load the template catalog." });
+    }
+  }
+  const assetMatch = /^\/api\/templates\/assets\/(templates\/[a-f0-9-]{36}\.(?:jpg|png|webp))$/i.exec(path);
+  if (assetMatch) {
+    if (request.method !== "GET" && request.method !== "HEAD") return json(405, { error: "Method not allowed." });
+    if (!env.TEMPLATE_ASSETS) return json(503, { error: "Template image storage is unavailable." });
+    const key = templateAssetKey(assetMatch[1]);
+    if (!key) return json(404, { error: "Template image not found." });
+    const object = await env.TEMPLATE_ASSETS.get(key);
+    if (!object) return json(404, { error: "Template image not found." });
+    const headers = new Headers({
+      "cache-control": "no-store, no-cache, must-revalidate, max-age=0",
+      "cdn-cache-control": "no-store",
+      "surrogate-control": "no-store",
+      "content-type": object.httpMetadata?.contentType || "application/octet-stream",
+      "x-content-type-options": "nosniff",
+    });
+    return new Response(request.method === "HEAD" ? null : object.body, { status: 200, headers });
+  }
   if (path === "/api/analytics/visit") {
     if (request.method !== "POST") return json(405, { error: "Method not allowed" });
     if (!env.DB) return json(503, { error: "Analytics storage is unavailable." });
@@ -291,7 +399,12 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
 
   if (path === "/api/admin/templates" && request.method === "GET") {
     try {
-      await ensureTemplatesTable(env.DB);
+      try {
+        await ensureTemplatesTable(env.DB);
+      } catch (error) {
+        console.error("[admin] Could not initialize generated template storage", error);
+        return json(500, { success: false, error: "Template storage could not be initialized." });
+      }
       const term = (url.searchParams.get("q") || "").trim().slice(0, 100);
       const category = (url.searchParams.get("category") || "").trim().slice(0, 80);
       const filters: string[] = ["deleted_at IS NULL"];
@@ -317,6 +430,94 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
     }
   }
 
+  if (path === "/api/admin/templates/generate" && request.method === "POST") {
+    if (!env.TEMPLATE_ASSETS) return json(503, { success: false, error: "Template image storage is not configured." });
+    const apiKey = String(env.GEMINI_API_KEY || "").trim();
+    if (!apiKey) return json(503, { success: false, error: "Template image generation is not configured." });
+    const requestLength = Number(request.headers.get("content-length") || 0);
+    if (requestLength > 5 * 1024 * 1024 + 128 * 1024) {
+      return json(413, { success: false, error: "Template images must be no larger than 5 MB." });
+    }
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return json(400, { success: false, error: "Upload one PNG, JPEG, or WebP template image." });
+    }
+    const file = form.get("image");
+    if (!(file instanceof File)) return json(400, { success: false, error: "Choose a template image to upload." });
+    if (file.size < 1 || file.size > 5 * 1024 * 1024) {
+      return json(413, { success: false, error: "Template images must be no larger than 5 MB." });
+    }
+    const imageType = templateAssetMimeType(file);
+    if (!imageType) return json(415, { success: false, error: "Use a PNG, JPEG, or WebP image." });
+    const imageBytes = new Uint8Array(await file.arrayBuffer());
+    const isPng = imageType.mimeType === "image/png" && imageBytes[0] === 0x89 && imageBytes[1] === 0x50 && imageBytes[2] === 0x4e && imageBytes[3] === 0x47;
+    const isJpeg = imageType.mimeType === "image/jpeg" && imageBytes[0] === 0xff && imageBytes[1] === 0xd8 && imageBytes[2] === 0xff;
+    const isWebp = imageType.mimeType === "image/webp" && String.fromCharCode(...imageBytes.subarray(0, 4)) === "RIFF" &&
+      String.fromCharCode(...imageBytes.subarray(8, 12)) === "WEBP";
+    if (!isPng && !isJpeg && !isWebp) return json(415, { success: false, error: "The uploaded file is not a valid PNG, JPEG, or WebP image." });
+
+    let generated: Awaited<ReturnType<typeof generateTemplateDesignFromImage>>;
+    try {
+      generated = await generateTemplateDesignFromImage({
+        apiKey,
+        model: env.GEMINI_MODEL,
+        mimeType: imageType.mimeType,
+        imageBase64: bytesToBase64(imageBytes),
+      });
+    } catch (error) {
+      console.error("[admin] Gemini could not analyze the template image", error);
+      return json(502, { success: false, error: "Gemini could not analyze this image. Please try a clearer template image." });
+    }
+    const name = safeTemplateText(generated.name, 120);
+    const description = safeTemplateText(generated.description, 1000);
+    const category = safeTemplateText(generated.category, 80) || "AI-generated";
+    const design = parseTemplateDesign(generated.design);
+    if (!name || !description || !design) {
+      console.error("[admin] Gemini returned an invalid template design");
+      return json(502, { success: false, error: "Gemini returned an incomplete template design. Please try again." });
+    }
+    await ensureTemplatesTable(env.DB);
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 54) || "custom_template";
+    const id = `${slug}_${crypto.randomUUID().slice(0, 8)}`;
+    const assetKey = `templates/${crypto.randomUUID()}.${imageType.extension}`;
+    const previewUrl = `/api/templates/assets/${assetKey}`;
+    let uploaded = false;
+    try {
+      await env.TEMPLATE_ASSETS.put(assetKey, imageBytes, {
+        httpMetadata: { contentType: imageType.mimeType, cacheControl: "no-store" },
+      });
+      uploaded = true;
+      const saved = await env.DB.prepare(
+        `INSERT INTO templates
+         (id, name, description, category, preview_url, active, created_at, updated_at, deleted_at, definition_json, asset_key)
+         VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'), NULL, ?, ?)`,
+      ).bind(id, name, description, category, previewUrl, JSON.stringify(design), assetKey).run();
+      if (!saved.meta.changes) throw new Error("Generated template was not inserted.");
+      const template = await env.DB.prepare(
+        "SELECT id, name, description, category, preview_url, active, created_at, updated_at, definition_json FROM templates WHERE id = ? AND deleted_at IS NULL LIMIT 1",
+      ).bind(id).first<TemplateRow>();
+      if (!template) throw new Error("Generated template was not persisted.");
+      return json(201, { success: true, template });
+    } catch (error) {
+      try {
+        await env.DB.prepare("DELETE FROM templates WHERE id = ?").bind(id).run();
+      } catch (cleanupError) {
+        console.error("[admin] Could not remove an incomplete generated template record", cleanupError);
+      }
+      if (uploaded) {
+        try {
+          await env.TEMPLATE_ASSETS.delete(assetKey);
+        } catch (cleanupError) {
+          console.error("[admin] Could not remove an unreferenced generated template image", cleanupError);
+        }
+      }
+      console.error("[admin] Could not save the generated template", error);
+      return json(500, { success: false, error: "The generated template could not be saved." });
+    }
+  }
+
   if (path === "/api/admin/templates" && request.method === "POST") {
     try {
       await ensureTemplatesTable(env.DB);
@@ -330,12 +531,13 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
         await env.DB.batch(inputs.map((item) => {
           const template = item as TemplateInput;
           return env.DB.prepare(
-            `INSERT INTO templates (id, name, description, category, preview_url, active, created_at, updated_at, deleted_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), NULL)
+            `INSERT INTO templates (id, name, description, category, preview_url, active, created_at, updated_at, deleted_at, definition_json, asset_key)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), NULL, ?, NULL)
              ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description,
-               category=excluded.category, preview_url=excluded.preview_url, active=excluded.active,
+               category=excluded.category, preview_url=COALESCE(excluded.preview_url, templates.preview_url), active=excluded.active,
+               definition_json=COALESCE(excluded.definition_json, templates.definition_json),
                updated_at=datetime('now'), deleted_at=NULL`,
-          ).bind(template.id, template.name, template.description, template.category, template.previewUrl, template.active);
+          ).bind(template.id, template.name, template.description, template.category, template.previewUrl, template.active, template.definitionJson ?? null);
         }));
       } catch (error) {
         if (String(error).toLowerCase().includes("unique")) {
@@ -381,14 +583,46 @@ export async function handleCvAdmin(request: Request, env: D1Env): Promise<Respo
         const input = templateInput({ ...(body || {}), id });
         if (!input) return json(400, { success: false, error: "A valid template name is required." });
         await env.DB.prepare(
-          `UPDATE templates SET name = ?, description = ?, category = ?, preview_url = ?, active = ?, updated_at = datetime('now')
+          `UPDATE templates SET name = ?, description = ?, category = ?, preview_url = ?, active = ?,
+             definition_json = COALESCE(?, definition_json), updated_at = datetime('now')
            WHERE id = ? AND deleted_at IS NULL`,
-        ).bind(input.name, input.description, input.category, input.previewUrl, input.active, id).run();
+        ).bind(input.name, input.description, input.category, input.previewUrl, input.active, input.definitionJson ?? null, id).run();
         const updated = await env.DB.prepare("SELECT * FROM templates WHERE id = ? AND deleted_at IS NULL LIMIT 1").bind(id).first<TemplateRow>();
         return json(200, { success: true, template: updated });
       }
       if (request.method === "DELETE") {
-        await env.DB.prepare("UPDATE templates SET active = 0, deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND deleted_at IS NULL").bind(id).run();
+        const assetKey = existing.asset_key ? templateAssetKey(existing.asset_key) : null;
+        if (existing.asset_key && !assetKey) return json(500, { success: false, error: "The template has an invalid asset reference." });
+        const deletion = await env.DB.prepare("DELETE FROM templates WHERE id = ? AND deleted_at IS NULL").bind(id).run();
+        if (!deletion.meta.changes) return json(404, { success: false, error: "Template not found." });
+        if (assetKey) {
+          try {
+            if (!env.TEMPLATE_ASSETS) throw new Error("Template image storage is unavailable.");
+            await env.TEMPLATE_ASSETS.delete(assetKey);
+          } catch (error) {
+            try {
+              await env.DB.prepare(
+                `INSERT INTO templates
+                 (id, name, description, category, preview_url, active, created_at, updated_at, deleted_at, definition_json, asset_key)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+              ).bind(
+                existing.id,
+                existing.name,
+                existing.description || "",
+                existing.category || "CV",
+                existing.preview_url || null,
+                existing.active === 0 ? 0 : 1,
+                existing.created_at || new Date().toISOString(),
+                existing.updated_at || new Date().toISOString(),
+                existing.definition_json || null,
+                assetKey,
+              ).run();
+            } catch (restoreError) {
+              console.error("[admin] Could not restore a template after its image deletion failed", restoreError);
+            }
+            throw error;
+          }
+        }
         return json(200, { success: true, id, deleted: true });
       }
       return json(405, { success: false, error: "Method not allowed." });

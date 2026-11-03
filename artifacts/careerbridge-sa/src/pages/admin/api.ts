@@ -174,6 +174,7 @@ export type AdminTemplate = {
   category?: string | null;
   preview_url?: string | null;
   previewUrl?: string | null;
+  definition_json?: string | null;
   active?: boolean | number | string | null;
   status?: string | null;
   created_at?: string | null;
@@ -295,11 +296,22 @@ export function setUnauthorizedHandler(handler: ((status: 401 | 403) => void) | 
   unauthorizedHandler = handler;
 }
 
+function announceTemplateCatalogMutation() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("bonlist:template-catalog-updated"));
+  try {
+    window.localStorage.setItem("bonlist:template-catalog-updated", String(Date.now()));
+  } catch (error) {
+    console.warn("Could not notify other tabs about a template catalog change.", error);
+  }
+}
+
 export async function adminFetch<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,
+    cache: "no-store",
     headers: {
-      "Content-Type": "application/json",
+      ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       Authorization: `Bearer ${token}`,
       ...(init?.headers || {}),
     },
@@ -320,6 +332,9 @@ export async function adminFetch<T>(path: string, token: string, init?: RequestI
       unauthorizedHandler?.(response.status);
     }
     throw new Error(payload?.error || `Request failed (${response.status})`);
+  }
+  if (path.startsWith("/admin/templates") && (init?.method || "GET").toUpperCase() !== "GET") {
+    announceTemplateCatalogMutation();
   }
   if (response.status === 204 || !text.trim()) return undefined as T;
   if (!payload) {

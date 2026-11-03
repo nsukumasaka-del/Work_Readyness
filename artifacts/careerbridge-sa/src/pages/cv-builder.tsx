@@ -13,6 +13,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { getTemplatePalette } from "@/lib/cv-template-palettes";
+import { parseTemplateDesign, type TemplateDesign, type TemplateSectionKey } from "../../../../shared/template-design";
 import { Link, useLocation } from "wouter";
 import {
   AlertCircle,
@@ -1402,7 +1403,7 @@ function readIntakeSession<T>(key: string, fallback: T, parse?: (value: unknown)
 
 export interface TemplateDefinition {
   id: string;
-  category: "Modern" | "Traditional" | "Creative" | "ATS-Friendly" | "Executive" | "Minimalist";
+  category: string;
   name: string;
   tagline: string;
   bestFor: string;
@@ -1420,6 +1421,8 @@ export interface TemplateDefinition {
     | "international"
     | "timeline"
     | "minimal";
+  previewUrl?: string;
+  design?: TemplateDesign;
 }
 
 const TEMPLATE_CATALOG: TemplateDefinition[] = [
@@ -1653,19 +1656,70 @@ const TEMPLATE_CATALOG: TemplateDefinition[] = [
   },
 ];
 
-export const resolveTemplate = (id?: string | null): TemplateDefinition => {
+export const resolveTemplate = (id?: string | null, catalog: TemplateDefinition[] = TEMPLATE_CATALOG): TemplateDefinition => {
   if (!id) return TEMPLATE_CATALOG[0]!;
-  const direct = TEMPLATE_CATALOG.find((t) => t.id === id);
+  const direct = catalog.find((t) => t.id === id);
   if (direct) return direct;
-  if (id === "professional") return TEMPLATE_CATALOG.find((t) => t.id === "double_column") || TEMPLATE_CATALOG[0]!;
-  if (id === "executive" || id === "executive_classic") return TEMPLATE_CATALOG.find((t) => t.id === "polished") || TEMPLATE_CATALOG[0]!;
-  if (id === "graduate") return TEMPLATE_CATALOG.find((t) => t.id === "single_column") || TEMPLATE_CATALOG[0]!;
-  if (id === "technical" || id === "tech_minimal") return TEMPLATE_CATALOG.find((t) => t.id === "compact") || TEMPLATE_CATALOG[0]!;
-  if (id === "ats_friendly" || id === "ats") return TEMPLATE_CATALOG.find((t) => t.id === "single_column") || TEMPLATE_CATALOG[0]!;
-  if (id === "contemporary_hybrid") return TEMPLATE_CATALOG.find((t) => t.id === "contemporary") || TEMPLATE_CATALOG[0]!;
-  if (id === "impact_performer" || id === "impact") return TEMPLATE_CATALOG.find((t) => t.id === "high_performer") || TEMPLATE_CATALOG[0]!;
+  if (id === "professional") return catalog.find((t) => t.id === "double_column") || TEMPLATE_CATALOG[0]!;
+  if (id === "executive" || id === "executive_classic") return catalog.find((t) => t.id === "polished") || TEMPLATE_CATALOG[0]!;
+  if (id === "graduate") return catalog.find((t) => t.id === "single_column") || TEMPLATE_CATALOG[0]!;
+  if (id === "technical" || id === "tech_minimal") return catalog.find((t) => t.id === "compact") || TEMPLATE_CATALOG[0]!;
+  if (id === "ats_friendly" || id === "ats") return catalog.find((t) => t.id === "single_column") || TEMPLATE_CATALOG[0]!;
+  if (id === "contemporary_hybrid") return catalog.find((t) => t.id === "contemporary") || TEMPLATE_CATALOG[0]!;
+  if (id === "impact_performer" || id === "impact") return catalog.find((t) => t.id === "high_performer") || TEMPLATE_CATALOG[0]!;
   return TEMPLATE_CATALOG[0]!;
 };
+
+type LiveTemplateRow = {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  preview_url?: string | null;
+  definition_json?: string | null;
+};
+
+function buildLiveTemplateCatalog(rows: LiveTemplateRow[]): TemplateDefinition[] {
+  return rows.map((row): TemplateDefinition => {
+    const builtin = TEMPLATE_CATALOG.find((template) => template.id === row.id);
+    let design: TemplateDesign | undefined;
+    if (row.definition_json) {
+      let candidate: unknown;
+      try {
+        candidate = JSON.parse(row.definition_json) as unknown;
+      } catch {
+        throw new Error(`Template "${row.name}" has invalid design data.`);
+      }
+      design = parseTemplateDesign(candidate) || undefined;
+      if (!design) throw new Error(`Template "${row.name}" has unsupported design data.`);
+    }
+    return {
+      ...(builtin || {
+        id: row.id,
+        category: row.category || "Custom",
+        name: row.name,
+        tagline: row.description || "Custom CV template.",
+        bestFor: row.description || "Custom CV template.",
+        columns: design?.columns === "double" ? "double" : "single",
+        previewAccent: design?.accentColor || "#334155",
+        pageDensity: design?.density === "compact" ? "1-page dense" : "1-2 pages",
+        structuralTag: "Custom design",
+        templateType: design?.columns === "double" ? "double_column" : "single_column",
+      }),
+      name: row.name || builtin?.name || row.id,
+      category: row.category || builtin?.category || "Custom",
+      tagline: row.description || builtin?.tagline || "Custom CV template.",
+      bestFor: row.description || builtin?.bestFor || "Custom CV template.",
+      ...(row.preview_url ? { previewUrl: row.preview_url } : {}),
+      ...(design ? {
+        design,
+        columns: design.columns === "double" ? "double" : "single",
+        previewAccent: design.accentColor,
+        templateType: design.columns === "double" ? "double_column" : "single_column",
+      } : {}),
+    };
+  });
+}
 
 const COLOR_THEMES = [
   { id: "emerald", label: "Emerald Focus (Signature)", primary: "#059669", secondary: "#ecfdf5", border: "#a7f3d0" },
@@ -2130,6 +2184,8 @@ function TemplateThumbnail({
           </div>
         </div>
 
+        {tpl.previewUrl ? <img src={tpl.previewUrl} alt={`${tpl.name} reference preview`} className="absolute inset-0 z-[5] h-full w-full object-contain bg-white" loading="lazy" /> : null}
+
         {selected && (
           <span className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-[10px] font-bold text-white shadow-md">
             <Check size={12} strokeWidth={3} /> Selected
@@ -2276,6 +2332,10 @@ export default function CvBuilderPage() {
 
   // Styling & Customization (Enhancv Clone Architecture with Custom Brand Colors)
   const [selectedTemplate, setSelectedTemplate] = useState<string>("serif_classic");
+  const [catalogTemplates, setCatalogTemplates] = useState<TemplateDefinition[]>(TEMPLATE_CATALOG);
+  const [templateCatalogError, setTemplateCatalogError] = useState("");
+  const [catalogRefreshTick, setCatalogRefreshTick] = useState(0);
+  const selectedTemplateDesign = catalogTemplates.find((template) => template.id === selectedTemplate)?.design;
   const [monetization, setMonetization] = useState<MonetizationStatus>(EMPTY_MONETIZATION);
   useEffect(() => {
     let active = true;
@@ -2285,6 +2345,37 @@ export default function CvBuilderPage() {
   const [selectedColor, setSelectedColor] = useState(templateColor("serif_classic"));
   const [selectedFont, setSelectedFont] = useState(FONT_OPTIONS[0]!);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  useEffect(() => {
+    const refresh = () => setCatalogRefreshTick((tick) => tick + 1);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === "bonlist:template-catalog-updated") refresh();
+    };
+    window.addEventListener("bonlist:template-catalog-updated", refresh);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("bonlist:template-catalog-updated", refresh);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+  useEffect(() => {
+    if (routePath !== "/cv-builder/templates" && !isTemplateModalOpen) return;
+    const controller = new AbortController();
+    void fetch("/api/templates", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as { success?: boolean; templates?: LiveTemplateRow[]; error?: string };
+        if (!response.ok || !Array.isArray(payload.templates)) {
+          throw new Error(payload.error || `Template catalog request failed (${response.status}).`);
+        }
+        setCatalogTemplates(buildLiveTemplateCatalog(payload.templates));
+        setTemplateCatalogError("");
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setCatalogTemplates([]);
+        setTemplateCatalogError(error instanceof Error ? error.message : "The live template catalog could not be loaded.");
+      });
+    return () => controller.abort();
+  }, [routePath, isTemplateModalOpen, catalogRefreshTick]);
   useEffect(() => {
     if (!isTemplateModalOpen) return;
     const previousBodyOverflow = document.body.style.overflow;
@@ -4019,7 +4110,7 @@ export default function CvBuilderPage() {
     const nextColor = templateColor(templateId);
     setSelectedColor(nextColor);
     if (!cv) return;
-    const meta = TEMPLATE_CATALOG.find((t) => t.id === templateId);
+    const meta = catalogTemplates.find((t) => t.id === templateId);
     const updatedDoc: GeneratedCvDocument = {
       ...cv.document,
       structure: templateId,
@@ -5076,7 +5167,7 @@ export default function CvBuilderPage() {
     if (!cv) return;
     const clean = sanitizeCvDocument(cv.document);
     const blob = new Blob(
-      [generateSemanticHtml(clean, selectedColor, selectedFont, selectedTemplate)],
+      [generateSemanticHtml(clean, selectedColor, selectedFont, selectedTemplate, selectedTemplateDesign)],
       { type: "text/html;charset=utf-8" },
     );
     const url = URL.createObjectURL(blob);
@@ -5201,7 +5292,7 @@ export default function CvBuilderPage() {
   const executeDownloadDoc = async () => {
     if (!cv) return;
     const clean = sanitizeCvDocument(cv.document);
-    const html = generateSemanticHtml(clean, selectedColor, selectedFont, selectedTemplate);
+    const html = generateSemanticHtml(clean, selectedColor, selectedFont, selectedTemplate, selectedTemplateDesign);
     const JSZip = (await import("jszip")).default;
     const zip = new JSZip();
     zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="html" ContentType="application/xhtml+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`);
@@ -5246,7 +5337,7 @@ export default function CvBuilderPage() {
       const safeBaseName = (documentTitle.trim() || `CV of ${cv.document.fullName || "Candidate"}`)
         .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
         .trim().replace(/\s+/g, "_");
-      const templateName = TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "CV";
+      const templateName = catalogTemplates.find((template) => template.id === selectedTemplate)?.name || "CV";
       const safeTemplateName = templateName.replace(/[^a-z0-9_-]/gi, "_");
       const filename = `${safeBaseName}_${safeTemplateName}`;
       await document.fonts.ready;
@@ -5753,7 +5844,7 @@ export default function CvBuilderPage() {
     };
   }, [cv, activeNavPanel]);
 
-  const meta = resolveTemplate(selectedTemplate);
+  const meta = resolveTemplate(selectedTemplate, catalogTemplates);
   const liveAtsMetrics = (() => {
     if (!cv) return null;
     const bullets = cv.document.experiences.flatMap((experience) => experience.bullets || []);
@@ -5768,7 +5859,7 @@ export default function CvBuilderPage() {
     return { actionCount, metricCount, bullets: bullets.length, keywords, matchedKeywords };
   })();
 
-  const filteredTemplates = TEMPLATE_CATALOG.filter((t) => {
+  const filteredTemplates = catalogTemplates.filter((t) => {
     const query = templateSearch.trim().toLowerCase();
     if (query && !`${t.name} ${t.category} ${t.tagline} ${t.bestFor}`.toLowerCase().includes(query)) return false;
     if (templateFilter === "professional") return t.category === "Traditional" || t.category === "ATS-Friendly";
@@ -5913,7 +6004,8 @@ export default function CvBuilderPage() {
               </article>;
             })}
           </div>
-          {!catalogTemplates.length ? <p className="mt-8 rounded-2xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No templates match those filters. Try another category or search.</p> : null}
+          {templateCatalogError ? <p role="alert" className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{templateCatalogError}</p> : null}
+          {!catalogTemplates.length && !templateCatalogError ? <p className="mt-8 rounded-2xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No templates match those filters. Try another category or search.</p> : null}
         </div>
       </div>
     );
@@ -6158,12 +6250,12 @@ export default function CvBuilderPage() {
                 {/* Filter Pills */}
                 <div className="flex flex-wrap gap-1.5 border-b border-border pb-3">
                   {[
-                    { id: "all", label: `All (${TEMPLATE_CATALOG.length})` },
-                    { id: "double", label: `Two-Column (${TEMPLATE_CATALOG.filter((t) => t.columns === "double").length})` },
-                    { id: "single", label: `Single-Column (${TEMPLATE_CATALOG.filter((t) => t.columns === "single" && t.templateType !== "timeline").length})` },
-                    { id: "timeline", label: `Timeline (${TEMPLATE_CATALOG.filter((t) => t.templateType === "timeline").length})` },
-                    { id: "executive", label: `Executive (${TEMPLATE_CATALOG.filter((t) => t.templateType === "executive" || t.category === "Traditional" || t.category === "Executive").length})` },
-                    { id: "modern", label: `Modern (${TEMPLATE_CATALOG.filter((t) => t.category === "Modern").length})` },
+                    { id: "all", label: `All (${catalogTemplates.length})` },
+                    { id: "double", label: `Two-Column (${catalogTemplates.filter((t) => t.columns === "double").length})` },
+                    { id: "single", label: `Single-Column (${catalogTemplates.filter((t) => t.columns === "single" && t.templateType !== "timeline").length})` },
+                    { id: "timeline", label: `Timeline (${catalogTemplates.filter((t) => t.templateType === "timeline").length})` },
+                    { id: "executive", label: `Executive (${catalogTemplates.filter((t) => t.templateType === "executive" || t.category === "Traditional" || t.category === "Executive").length})` },
+                    { id: "modern", label: `Modern (${catalogTemplates.filter((t) => t.category === "Modern").length})` },
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -6882,7 +6974,7 @@ export default function CvBuilderPage() {
           <header className="grid w-full grid-cols-1 gap-2 border-b border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950 min-[768px]:flex min-[768px]:flex-nowrap min-[768px]:items-center min-[768px]:justify-between min-[768px]:gap-3 min-[768px]:px-5 min-[768px]:py-4">
             <div className="flex min-w-0 items-center justify-between gap-2 min-[768px]:flex-1 min-[768px]:justify-start">
               <span className="hidden shrink-0 items-center gap-1.5 text-[11px] font-bold tracking-widest text-slate-400 uppercase min-[768px]:inline-flex min-[768px]:gap-2 min-[768px]:text-xs"><Eye size={14} /> PREVIEW</span>
-              <span className="ml-2 hidden max-w-32 truncate rounded-full bg-slate-200/80 px-2 py-1 text-[10px] font-semibold uppercase text-slate-700 min-[768px]:ml-3 min-[768px]:inline-flex min-[768px]:max-w-40 min-[768px]:px-3 min-[768px]:text-xs">{TEMPLATE_CATALOG.find((template) => template.id === selectedTemplate)?.name || "ATS template"}</span>
+              <span className="ml-2 hidden max-w-32 truncate rounded-full bg-slate-200/80 px-2 py-1 text-[10px] font-semibold uppercase text-slate-700 min-[768px]:ml-3 min-[768px]:inline-flex min-[768px]:max-w-40 min-[768px]:px-3 min-[768px]:text-xs">{catalogTemplates.find((template) => template.id === selectedTemplate)?.name || "ATS template"}</span>
               <span className="ml-2 hidden shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-500 min-[768px]:inline-flex min-[768px]:text-xs">{a4PageCount} {a4PageCount === 1 ? "page" : "pages"}</span>
               <button
                 type="button"
@@ -7822,13 +7914,32 @@ export default function CvBuilderPage() {
                   );
                 };
 
-                const leftColumnKeys = sectionOrder.filter((key) => ["summary", "experience", "projects", "custom"].includes(key));
-                const rightColumnKeys = sectionOrder.filter((key) => !["summary", "experience", "projects", "custom"].includes(key));
+                const templateSections = selectedTemplateDesign
+                  ? new Set([...selectedTemplateDesign.primarySections, ...selectedTemplateDesign.sidebarSections])
+                  : null;
+                const primaryColumnKeys = selectedTemplateDesign
+                  ? [
+                    ...selectedTemplateDesign.primarySections.filter((key) => sectionOrder.includes(key as CanvasSectionKey)) as CanvasSectionKey[],
+                    ...sectionOrder.filter((key) => !templateSections?.has(key as TemplateSectionKey)),
+                  ]
+                  : sectionOrder.filter((key) => ["summary", "experience", "projects", "custom"].includes(key));
+                const sidebarColumnKeys = selectedTemplateDesign
+                  ? selectedTemplateDesign.sidebarSections.filter((key) => sectionOrder.includes(key as CanvasSectionKey)) as CanvasSectionKey[]
+                  : sectionOrder.filter((key) => !["summary", "experience", "projects", "custom"].includes(key));
+                const leftColumnKeys = selectedTemplateDesign?.sidebarSide === "left" ? sidebarColumnKeys : primaryColumnKeys;
+                const rightColumnKeys = selectedTemplateDesign?.sidebarSide === "left" ? primaryColumnKeys : sidebarColumnKeys;
+                const layoutColumnRatio = selectedTemplateDesign?.sidebarSide === "left" ? 100 - columnRatio : columnRatio;
 
                 return (
                   <article
                     key={selectedTemplate}
                     data-cv-template={selectedTemplate}
+                    data-template-generated={selectedTemplateDesign ? "true" : undefined}
+                    data-template-columns={selectedTemplateDesign?.columns}
+                    data-template-header={selectedTemplateDesign?.headerAlignment}
+                    data-template-section-style={selectedTemplateDesign?.sectionStyle}
+                    data-template-heading-treatment={selectedTemplateDesign?.headingTreatment}
+                    data-template-density={selectedTemplateDesign?.density}
                     ref={printRef}
                     inert={isEditMode ? undefined : true}
                     onFocusCapture={handleInlineFieldFocus}
@@ -7842,11 +7953,15 @@ export default function CvBuilderPage() {
                     }}
                     id="bonlist-cv-document"
                     style={{
-                      "--cv-primary": selectedColor.primary,
+                      "--cv-primary": selectedTemplateDesign?.accentColor || selectedColor.primary,
                       "--cv-secondary": selectedColor.secondary,
                       "--cv-border": selectedColor.border,
-                      "--cv-background": getTemplatePalette(selectedTemplate).background,
-                      "--cv-text": getTemplatePalette(selectedTemplate).text,
+                      "--cv-background": selectedTemplateDesign?.backgroundColor || getTemplatePalette(selectedTemplate).background,
+                      "--cv-text": selectedTemplateDesign?.textColor || getTemplatePalette(selectedTemplate).text,
+                      "--cv-template-accent": selectedTemplateDesign?.accentColor || selectedColor.primary,
+                      "--cv-template-sidebar": selectedTemplateDesign?.sidebarColor || "#f8fafc",
+                      "--cv-template-heading-font": selectedTemplateDesign?.headingFont === "serif" ? "Georgia, 'Times New Roman', serif" : selectedFont.family,
+                      "--cv-template-header-align": selectedTemplateDesign?.headerAlignment || "left",
                       colorScheme: "light",
                       color: "var(--cv-text)",
                       backgroundColor: "var(--cv-background)",
@@ -8207,15 +8322,20 @@ export default function CvBuilderPage() {
                     {isDouble ? (
                       <div
                         className="relative grid items-start"
-                        style={{ gridTemplateColumns: `minmax(0, ${columnRatio}fr) minmax(0, ${100 - columnRatio}fr)`, gap: isCompact ? 20 : 32 }}
+                        data-template-body-layout={selectedTemplateDesign ? "double" : undefined}
+                        style={{ gridTemplateColumns: `minmax(0, ${layoutColumnRatio}fr) minmax(0, ${100 - layoutColumnRatio}fr)`, gap: isCompact ? 20 : 32 }}
                       >
-                        <div className="min-w-0" style={{ display: "flex", flexDirection: "column", gap: sectionSpacing }}>
+                        <div
+                          className="min-w-0"
+                          data-template-sidebar={selectedTemplateDesign?.sidebarSide === "left" ? "true" : undefined}
+                          style={{ display: "flex", flexDirection: "column", gap: sectionSpacing, ...(selectedTemplateDesign?.sidebarSide === "left" ? { backgroundColor: selectedTemplateDesign.sidebarColor, padding: "0.5rem" } : {}) }}
+                        >
                           {leftColumnKeys.map(renderCanvasSection)}
                         </div>
                         {isEditMode ? (
                           <div
                             className="no-print canvas-control absolute inset-y-0 z-20 w-3 -translate-x-1/2 cursor-col-resize"
-                            style={{ left: `calc(${columnRatio}% + ${(isCompact ? 20 : 32) * (columnRatio / 100 - 0.5)}px)` }}
+                            style={{ left: `calc(${layoutColumnRatio}% + ${(isCompact ? 20 : 32) * (layoutColumnRatio / 100 - 0.5)}px)` }}
                             onPointerDown={(event) => { recordCanvasHistory(); event.currentTarget.setPointerCapture(event.pointerId); }}
                             onPointerMove={(event) => {
                               if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
@@ -8230,13 +8350,17 @@ export default function CvBuilderPage() {
                             <span className="mx-auto block h-full w-px bg-blue-400/60 opacity-0 transition hover:opacity-100" />
                           </div>
                         ) : null}
-                        <div className="min-w-0" style={{ display: "flex", flexDirection: "column", gap: sectionSpacing }}>
+                        <div
+                          className="min-w-0"
+                          data-template-sidebar={selectedTemplateDesign?.sidebarSide === "right" ? "true" : undefined}
+                          style={{ display: "flex", flexDirection: "column", gap: sectionSpacing, ...(selectedTemplateDesign?.sidebarSide === "right" ? { backgroundColor: selectedTemplateDesign.sidebarColor, padding: "0.5rem" } : {}) }}
+                        >
                           {rightColumnKeys.map(renderCanvasSection)}
                         </div>
                       </div>
                     ) : (
-                      <div style={{ display: "flex", flexDirection: "column", gap: sectionSpacing }}>
-                        {sectionOrder.map(renderCanvasSection)}
+                      <div data-template-body-layout={selectedTemplateDesign ? "single" : undefined} style={{ display: "flex", flexDirection: "column", gap: sectionSpacing }}>
+                        {primaryColumnKeys.map(renderCanvasSection)}
                       </div>
                     )}
 
@@ -9618,7 +9742,7 @@ export default function CvBuilderPage() {
                 <p className="text-[11px] text-muted-foreground">
                   {preFlightLoading
                     ? "Audit running — you can download now."
-                    : `Ready · ${TEMPLATE_CATALOG.find((t) => t.id === selectedTemplate)?.name || "selected template"}`}
+                    : `Ready · ${catalogTemplates.find((t) => t.id === selectedTemplate)?.name || "selected template"}`}
                 </p>
                 <div className="flex items-center gap-2">
                   <button
@@ -9720,8 +9844,8 @@ export default function CvBuilderPage() {
 
                   <p className="text-[11px] text-muted-foreground">
                     Download uses your currently selected template
-                    {TEMPLATE_CATALOG.find((t) => t.id === selectedTemplate)?.name
-                      ? ` (${TEMPLATE_CATALOG.find((t) => t.id === selectedTemplate)?.name})`
+                    {catalogTemplates.find((t) => t.id === selectedTemplate)?.name
+                      ? ` (${catalogTemplates.find((t) => t.id === selectedTemplate)?.name})`
                       : ""}
                     .
                   </p>
@@ -10412,32 +10536,40 @@ function generateSemanticHtml(
   color: { primary: string; secondary: string; border: string },
   font: { family: string },
   templateId = "single_column",
+  design?: TemplateDesign,
 ): string {
   const isSerifClassic = templateId === "serif_classic";
   const isCorporateBlue = templateId === "corporate_blue";
   const isEditorialGold = templateId === "editorial_gold";
   const isAnalystClean = templateId === "analyst_clean";
 
-  const headingFont = isSerifClassic || isEditorialGold ? `Georgia, "Times New Roman", serif` : font.family;
+  const headingFont = design?.headingFont === "serif" || isSerifClassic || isEditorialGold ? `Georgia, "Times New Roman", serif` : font.family;
+  const primaryColor = design?.accentColor || color.primary;
+  const primaryColumn = design?.sidebarSide === "left" ? 2 : 1;
+  const sidebarColumn = design?.sidebarSide === "left" ? 1 : 2;
+  const sectionColumnRules = design ? [
+    ...design.primarySections.map((section) => `[data-template-section="${section}"]{grid-column:${primaryColumn};}`),
+    ...design.sidebarSections.map((section) => `[data-template-section="${section}"]{grid-column:${sidebarColumn};}`),
+  ].join("\n") : "";
   const nameStyle = isSerifClassic
     ? `margin:0;font-size:22pt;text-align:center;font-family:${headingFont};color:#0f172a;`
     : isCorporateBlue
-      ? `margin:0;font-size:20pt;text-transform:uppercase;letter-spacing:0.04em;color:${color.primary};`
+      ? `margin:0;font-size:20pt;text-transform:uppercase;letter-spacing:0.04em;color:${primaryColor};`
       : isEditorialGold
-        ? `margin:0;font-size:24pt;font-family:${headingFont};color:${color.primary};`
+        ? `margin:0;font-size:24pt;font-family:${headingFont};color:${primaryColor};`
         : isAnalystClean
           ? `margin:0;font-size:22pt;font-weight:800;color:#0f172a;`
-          : `margin:0;font-size:22pt;color:${color.primary};`;
+          : `margin:0;font-size:22pt;color:${primaryColor};`;
 
   const h2Style = isSerifClassic
     ? `font-size:10.5pt;text-transform:uppercase;letter-spacing:0.16em;color:#0f172a;border-bottom:1px solid #0f172a;padding:6px 0;margin-top:1.4rem;font-family:${headingFont};`
     : isCorporateBlue
-      ? `font-size:10.5pt;text-transform:uppercase;letter-spacing:0.12em;color:${color.primary};border-bottom:2px solid ${color.primary};padding:6px 0;margin-top:1.4rem;`
+      ? `font-size:10.5pt;text-transform:uppercase;letter-spacing:0.12em;color:${primaryColor};border-bottom:2px solid ${primaryColor};padding:6px 0;margin-top:1.4rem;`
       : isEditorialGold
-        ? `font-size:12pt;font-family:${headingFont};color:${color.primary};border-bottom:1px solid ${color.primary};padding-bottom:4px;margin-top:1.4rem;`
+        ? `font-size:12pt;font-family:${headingFont};color:${primaryColor};border-bottom:1px solid ${primaryColor};padding-bottom:4px;margin-top:1.4rem;`
         : isAnalystClean
           ? `font-size:10pt;text-transform:uppercase;letter-spacing:0.28em;color:#1e293b;border-bottom:1px dashed #cbd5e1;padding-bottom:6px;margin-top:1.4rem;`
-          : `font-size:11pt;text-transform:uppercase;color:${color.primary};border-bottom:1px solid ${color.border};padding-bottom:4px;margin-top:1.5rem;`;
+          : `font-size:11pt;text-transform:${design?.headingTreatment === "uppercase" ? "uppercase" : "none"};color:${primaryColor};border-bottom:1px solid ${design?.sectionStyle === "plain" ? "transparent" : primaryColor};padding-bottom:4px;margin-top:1.5rem;`;
 
   const contactBits = [doc.location, doc.phone, doc.email, doc.linkedin, doc.website].filter(Boolean).join(" | ");
   const contactLine = doc.contactLine || contactBits;
@@ -10450,7 +10582,7 @@ function generateSemanticHtml(
   };
 
   const headerHtml = isAnalystClean
-    ? `<header style="display:flex;justify-content:space-between;gap:1.5rem;align-items:flex-start;border-bottom:1px dashed #cbd5e1;padding-bottom:12px;">
+    ? `<header style="display:flex;justify-content:space-between;gap:1.5rem;align-items:flex-start;border-bottom:1px dashed #cbd5e1;padding-bottom:12px;text-align:${design?.headerAlignment || "left"};">
         <div>
           <h1 style="${nameStyle}">${doc.fullName}</h1>
           ${professionalTitle ? `<div style="font-weight:500;color:#64748b;margin-top:4px;">${formatCvText(professionalTitle)}</div>` : ""}
@@ -10460,12 +10592,12 @@ function generateSemanticHtml(
         </div>
       </header>`
     : isSerifClassic
-      ? `<header style="text-align:center;border-bottom:1px solid #0f172a;padding-bottom:12px;">
+      ? `<header style="text-align:${design?.headerAlignment || "center"};border-bottom:1px solid #0f172a;padding-bottom:12px;">
           <h1 style="${nameStyle}">${doc.fullName}</h1>
           ${professionalTitle ? `<div style="font-style:italic;color:#475569;margin-top:4px;font-family:${headingFont};">${formatCvText(professionalTitle)}</div>` : ""}
           <div class="contact" style="margin-top:8px;">${contactLine}</div>
         </header>`
-      : `<header>
+      : `<header style="text-align:${design?.headerAlignment || "left"};">
           <h1 style="${nameStyle}">${doc.fullName}</h1>
           ${professionalTitle ? `<div style="font-weight:600;color:#475569;${isCorporateBlue ? "text-transform:uppercase;letter-spacing:0.12em;font-size:9.5pt;" : ""}">${formatCvText(professionalTitle)}</div>` : ""}
           <div class="contact">${contactLine}</div>
@@ -10481,18 +10613,19 @@ function generateSemanticHtml(
       font-family: ${font.family};
       font-size: 10.5pt;
       line-height: 1.5;
-      color: #1e293b;
+      color: ${design?.textColor || "#1e293b"};
       margin: 0;
       padding: 16mm 18mm;
       width: 210mm;
       max-width: 210mm;
       box-sizing: border-box;
-      background: #ffffff;
+      background: ${design?.backgroundColor || "#ffffff"};
       overflow-wrap: break-word;
       word-break: normal;
     }
     h1 { ${nameStyle} }
-    h2 { ${h2Style} }
+    h2 { ${h2Style}; font-family: ${headingFont}; }
+    ${design?.sectionStyle === "accent-bar" ? `h2 { border-left: 3px solid ${primaryColor}; padding-left: 6px; border-bottom: 0; }` : ""}
     h2 { break-after: avoid; page-break-after: avoid; }
     .exp-item, .education-item, li { break-inside: avoid; page-break-inside: avoid; }
     .contact { font-size: 9.5pt; color: #64748b; margin-top: 4px; }
@@ -10504,20 +10637,25 @@ function generateSemanticHtml(
     li { margin-bottom: 2px; overflow-wrap: anywhere; word-break: break-word; }
     .skills { display: flex; flex-wrap: wrap; gap: 4px; }
     .skill-tag { display: inline-flex; flex: 0 0 auto; align-items: center; width: max-content; max-width: 100%; height: auto; line-height: 1.4; background: ${color.secondary}; border: 1px solid ${color.border}; color: ${color.primary}; padding: 2px 8px; border-radius: 4px; font-size: 9pt; white-space: normal; overflow-wrap: break-word; word-break: normal; break-inside: avoid; }
+    .cv-template-sections { display: grid; grid-template-columns: ${design?.columns === "double" ? design.sidebarSide === "left" ? "minmax(0, 1fr) minmax(0, 1.4fr)" : "minmax(0, 1.4fr) minmax(0, 1fr)" : "minmax(0, 1fr)"}; gap: ${design?.density === "compact" ? "10px 18px" : "16px 24px"}; align-items: start; }
+    .cv-template-sections > section { min-width: 0; margin: 0; }
+    ${design?.sidebarSections.length ? `.cv-template-sections > section[data-template-sidebar="true"] { background: ${design.sidebarColor}; padding: 8px; }` : ""}
+    ${sectionColumnRules}
     footer { margin-top: 2rem; font-size: 8pt; color: #94a3b8; text-align: center; }
   </style>
 </head>
 <body>
   ${headerHtml}
 
+  <main class="cv-template-sections">
   ${doc.summary ? `
-  <section>
+  <section data-template-section="summary" ${design?.sidebarSections.includes("summary") ? 'data-template-sidebar="true"' : ""}>
     <h2>${isEditorialGold ? "Profile" : isSerifClassic ? "PROFILE" : isCorporateBlue ? "SUMMARY" : "Professional Summary"}</h2>
     <p>${formatCvText(doc.summary)}</p>
   </section>` : ""}
 
   ${doc.experiences && doc.experiences.length > 0 ? `
-  <section>
+  <section data-template-section="experience" ${design?.sidebarSections.includes("experience") ? 'data-template-sidebar="true"' : ""}>
     <h2>${isEditorialGold ? "Professional Experience" : isSerifClassic ? "EXPERIENCE" : isCorporateBlue ? "PROFESSIONAL EXPERIENCE" : isAnalystClean ? "E X P E R I E N C E" : "Work Experience"}</h2>
     ${doc.experiences
       .map(
@@ -10537,7 +10675,7 @@ function generateSemanticHtml(
   </section>` : ""}
 
   ${doc.projects && doc.projects.length > 0 ? `
-  <section>
+  <section data-template-section="projects" ${design?.sidebarSections.includes("projects") ? 'data-template-sidebar="true"' : ""}>
     <h2>Key Projects</h2>
     ${doc.projects
       .map(
@@ -10555,7 +10693,7 @@ function generateSemanticHtml(
   </section>` : ""}
 
   ${doc.skills && doc.skills.length > 0 ? `
-  <section>
+  <section data-template-section="skills" ${design?.sidebarSections.includes("skills") ? 'data-template-sidebar="true"' : ""}>
     <h2>${isSerifClassic ? "SKILLS" : isCorporateBlue ? "TECHNICAL SKILLS" : isAnalystClean ? "S K I L L S" : "Skills & Competencies"}</h2>
     <div class="skills">
       ${doc.skills.map((s) => `<span class="skill-tag">${formatCvText(sanitizeSkillBadge(s))}</span>`).join(" ")}
@@ -10563,7 +10701,7 @@ function generateSemanticHtml(
   </section>` : ""}
 
   ${doc.toolsAndSoftware && doc.toolsAndSoftware.length > 0 ? `
-  <section>
+  <section data-template-section="skills" ${design?.sidebarSections.includes("skills") ? 'data-template-sidebar="true"' : ""}>
     <h2>${isSerifClassic ? "SYSTEMS" : isAnalystClean ? "S Y S T E M S" : "Systems & Software"}</h2>
     <div class="skills">
       ${doc.toolsAndSoftware.map((s) => `<span class="skill-tag">${formatCvText(sanitizeSkillBadge(s))}</span>`).join(" ")}
@@ -10571,7 +10709,7 @@ function generateSemanticHtml(
   </section>` : ""}
 
   ${doc.education && doc.education.length > 0 ? `
-  <section>
+  <section data-template-section="education" ${design?.sidebarSections.includes("education") ? 'data-template-sidebar="true"' : ""}>
     <h2>${isSerifClassic ? "EDUCATION" : isAnalystClean ? "E D U C A T I O N" : "Education"}</h2>
     ${doc.education
       .map(
@@ -10584,7 +10722,7 @@ function generateSemanticHtml(
   </section>` : ""}
 
   ${doc.certifications && doc.certifications.length > 0 ? `
-  <section>
+  <section data-template-section="certifications" ${design?.sidebarSections.includes("certifications") ? 'data-template-sidebar="true"' : ""}>
     <h2>${isAnalystClean ? "C E R T I F I C A T E S" : "Certifications & Accreditations"}</h2>
     ${doc.certifications
       .map(
@@ -10597,13 +10735,13 @@ function generateSemanticHtml(
   </section>` : ""}
 
   ${doc.languages && doc.languages.length > 0 ? `
-  <section>
+  <section data-template-section="languages" ${design?.sidebarSections.includes("languages") ? 'data-template-sidebar="true"' : ""}>
     <h2>${isSerifClassic ? "LANGUAGES" : isAnalystClean ? "L A N G U A G E S" : "Languages"}</h2>
     <p>${doc.languages.join(" • ")}</p>
   </section>` : ""}
 
   ${doc.references && doc.references.length > 0 ? `
-  <section>
+  <section data-template-section="references" ${design?.sidebarSections.includes("references") ? 'data-template-sidebar="true"' : ""}>
     <h2>References</h2>
     ${doc.references
       .map(
@@ -10615,10 +10753,11 @@ function generateSemanticHtml(
   </section>` : ""}
 
   ${(doc.sections || []).map((section) => `
-  <section>
+  <section data-template-section="custom" ${design?.sidebarSections.includes("custom") ? 'data-template-sidebar="true"' : ""}>
     <h2>${formatCvText(section.heading)}</h2>
     <ul>${(section.items || []).filter(Boolean).map((item) => `<li>${formatCvText(item)}</li>`).join("")}</ul>
   </section>`).join("")}
+  </main>
 </body>
 </html>`;
 }

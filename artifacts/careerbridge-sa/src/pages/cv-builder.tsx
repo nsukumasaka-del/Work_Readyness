@@ -2289,7 +2289,6 @@ export default function CvBuilderPage() {
   const [a4PageCount, setA4PageCount] = useState(1);
   const [naturalA4PageCount, setNaturalA4PageCount] = useState(1);
   const [managedPageLeadPx, setManagedPageLeadPx] = useState(0);
-  const [a4StackHeightPx, setA4StackHeightPx] = useState(0);
   const [a4Spacers, setA4Spacers] = useState<Record<string, number>>({});
   const [canvasPageWidthPx, setCanvasPageWidthPx] = useState(794);
   const [draggedCustomSection, setDraggedCustomSection] = useState<number | null>(null);
@@ -5739,7 +5738,6 @@ export default function CvBuilderPage() {
     const el = printRef.current;
     if (!el || !cv) {
       setA4PageCount(1);
-      setA4StackHeightPx(0);
       setA4Spacers({});
       return;
     }
@@ -5753,13 +5751,12 @@ export default function CvBuilderPage() {
     let lastApplied: Record<string, number> = {};
 
     const updateMetrics = () => {
-      const { pageHeightPx: pagePx, height, naturalHeight, naturalPages } = measureCvPages(el);
+      const { pageHeightPx: pagePx, naturalHeight, naturalPages } = measureCvPages(el);
       const lead = managedPages.length ? Math.max(0, naturalPages * pagePx - naturalHeight) : 0;
       const pages = naturalPages + managedPages.length;
       setNaturalA4PageCount((prev) => (prev === naturalPages ? prev : naturalPages));
       setManagedPageLeadPx((prev) => (Math.abs(prev - lead) < 4 ? prev : Math.round(lead)));
       setA4PageCount((prev) => (prev === pages ? prev : pages));
-      setA4StackHeightPx((prev) => (Math.abs(prev - height) < 8 ? prev : height));
     };
 
     const measure = () => {
@@ -6988,8 +6985,8 @@ export default function CvBuilderPage() {
         {/* Pinned desktop preview, with an Edit/Preview toggle on phone and tablet widths. */}
         <main
           ref={canvasRef}
-          className={`cv-preview-scroll-container relative ${mobileWorkspaceView === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 w-full flex-1 flex-col overflow-auto scroll-pt-4 bg-slate-100/70 min-[1025px]:!flex min-[1025px]:w-auto`}
-          style={{ touchAction: "pan-x pan-y pinch-zoom", WebkitOverflowScrolling: "touch" }}
+          className={`cv-preview-scroll-container relative ${mobileWorkspaceView === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 w-full flex-1 flex-col overflow-x-auto overflow-y-auto overscroll-contain scroll-pt-4 bg-slate-100/70 min-[1025px]:!flex min-[1025px]:w-auto`}
+          style={{ touchAction: "pan-x pan-y pinch-zoom", WebkitOverflowScrolling: "touch", scrollBehavior: "smooth" }}
         >
           <div className="no-print sticky top-0 z-20 w-full shrink-0">
           <header className="grid w-full grid-cols-1 gap-2 border-b border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950 min-[768px]:flex min-[768px]:flex-nowrap min-[768px]:items-center min-[768px]:justify-between min-[768px]:gap-3 min-[768px]:px-5 min-[768px]:py-4">
@@ -7051,6 +7048,28 @@ export default function CvBuilderPage() {
               <span className="sr-only" aria-live="polite">History state {canvasHistoryVersion}</span>
             </div>
           ) : null}
+          {isEditMode ? (
+            <div className="no-print flex w-full shrink-0 items-center justify-end gap-2 border-b border-slate-200 bg-white px-3 py-1.5 min-[768px]:px-5" role="toolbar" aria-label="CV page management">
+              <span className="mr-auto text-[10px] font-semibold text-slate-500">Page management · {a4PageCount} {a4PageCount === 1 ? "page" : "pages"}</span>
+              <button
+                type="button"
+                onClick={() => addManagedPage("blank")}
+                className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                title="Add a blank page after the CV"
+              >
+                <Plus size={14} /> Add Page
+              </button>
+              <button
+                type="button"
+                disabled={!managedPages.length}
+                onClick={() => deleteManagedPage(managedPages.length - 1)}
+                className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
+                title={managedPages.length ? "Delete the last manually added page" : "Only manually added pages can be deleted"}
+              >
+                <Trash2 size={13} /> Delete Page
+              </button>
+            </div>
+          ) : null}
           </div>
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
@@ -7060,9 +7079,7 @@ export default function CvBuilderPage() {
                 className="cv-zoom-outer"
                 style={{
                    width: `${Math.ceil(canvasPageWidthPx * (zoomLevel / 100))}px`,
-                   height: a4StackHeightPx
-                     ? `${Math.ceil(a4StackHeightPx * (zoomLevel / 100))}px`
-                     : undefined,
+                   minHeight: `${Math.ceil(a4PageCount * (297 * 96 / 25.4) * (zoomLevel / 100))}px`,
                 }}
               >
                 <div

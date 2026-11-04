@@ -1,7 +1,7 @@
 import { applyTailoredContentToCv, buildGeneratedCv, CV_PARSER_SYSTEM_PROMPT, evaluateAts, extractCvDataFromText, finalizeExtractedCvData, generateCandidateBiography, matchJobDescription, normalizeReferenceEntries, type GeneratedCvDocument } from "./cv-builder";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { reconstructPdfTextFromItems } from "./pdf-layout-text";
+import { hasMultiColumnPdfLayout, reconstructPdfTextFromItems } from "./pdf-layout-text";
 import { calibrateJobListingScores, enforceTailorMatchGuardrail } from "./ai/gemini-client";
 import { CV_PARSER_RESPONSE_SCHEMA } from "./ai/cv-parser";
 
@@ -234,9 +234,16 @@ describe("complex CV import layout extraction", () => {
     assert.ok(CV_PARSER_RESPONSE_SCHEMA.required.includes("additional_sections"));
     assert.match(CV_PARSER_SYSTEM_PROMPT, /opening narrative paragraph[\s\S]+professional_summary/i);
     assert.match(CV_PARSER_SYSTEM_PROMPT, /multi-column[\s\S]+additional_sections/i);
+    assert.match(CV_PARSER_SYSTEM_PROMPT, /left column before right/i);
+    assert.match(CV_PARSER_SYSTEM_PROMPT, /prominent human name[\s\S]+school, employer, reference/i);
+    assert.match(CV_PARSER_SYSTEM_PROMPT, /occupational role\/headline[\s\S]+company name/i);
+    assert.match(CV_PARSER_SYSTEM_PROMPT, /STRICT SECTION-BY-SECTION MAPPING[\s\S]+Never use summary prose as an education detail/i);
     assert.match(CV_PARSER_SYSTEM_PROMPT, /NEVER place a spoken or written human language inside education or work_experience/i);
     const languageSchema = CV_PARSER_RESPONSE_SCHEMA.properties.languages.items;
     assert.deepEqual(languageSchema.required, ["language", "proficiency"]);
+    assert.match(CV_PARSER_RESPONSE_SCHEMA.properties.contact_information.properties.full_name.description, /not a school, employer, reference, role/);
+    assert.match(CV_PARSER_RESPONSE_SCHEMA.properties.contact_information.properties.professional_title.description, /not an employer, school/);
+    assert.match(CV_PARSER_RESPONSE_SCHEMA.properties.professional_summary.description, /never education, job history, or skills/);
   });
 
   it("routes headerless language proficiencies away from nearby education", () => {
@@ -303,10 +310,43 @@ XiTsonga: Native`;
         { str: "Dispatch coordination", x: 330, y: 545, width: 120, fontSize: 10 },
       ],
     ];
+    assert.equal(hasMultiColumnPdfLayout(positioned), true);
     const text = reconstructPdfTextFromItems(positioned);
     assert.ok(text.indexOf("WORK EXPERIENCE") < text.indexOf("EDUCATION"));
     assert.ok(text.indexOf("Coordinated daily dispatch") < text.indexOf("Bachelor of Commerce"));
     assert.ok(text.indexOf("Bachelor of Commerce") < text.indexOf("SKILLS"));
+  });
+
+  it("reads staggered columns vertically instead of interleaving same-height rows", () => {
+    const page = [
+      { str: "Amukelani Ramsy Maluleke", x: 40, y: 800, width: 330, fontSize: 20 },
+      { str: "WORK EXPERIENCE", x: 40, y: 750, width: 130, fontSize: 11 },
+      { str: "Customer Service Representative", x: 40, y: 720, width: 170, fontSize: 10 },
+      { str: "Handled customer enquiries", x: 40, y: 695, width: 150, fontSize: 10 },
+      { str: "ABC Retail", x: 40, y: 670, width: 80, fontSize: 10 },
+      { str: "EDUCATION", x: 300, y: 740, width: 75, fontSize: 11 },
+      { str: "National Senior Certificate", x: 300, y: 710, width: 140, fontSize: 10 },
+      { str: "Makhado High School", x: 300, y: 680, width: 120, fontSize: 10 },
+      { str: "SKILLS", x: 300, y: 650, width: 45, fontSize: 11 },
+    ];
+    assert.equal(hasMultiColumnPdfLayout([page]), true);
+    const text = reconstructPdfTextFromItems([page]);
+
+    assert.ok(text.indexOf("Amukelani Ramsy Maluleke") < text.indexOf("WORK EXPERIENCE"));
+    assert.ok(text.indexOf("WORK EXPERIENCE") < text.indexOf("Customer Service Representative"));
+    assert.ok(text.indexOf("ABC Retail") < text.indexOf("EDUCATION"));
+    assert.ok(text.indexOf("Makhado High School") < text.indexOf("SKILLS"));
+    assert.doesNotMatch(text, /WORK EXPERIENCE EDUCATION|Handled customer enquiries National Senior Certificate/);
+  });
+
+  it("does not classify a single-column document with indented lines as two columns", () => {
+    assert.equal(hasMultiColumnPdfLayout([[
+      { str: "Professional Summary", x: 40, y: 760, width: 130 },
+      { str: "A broad profile statement across the page.", x: 40, y: 735, width: 300 },
+      { str: "Work Experience", x: 40, y: 700, width: 110 },
+      { str: "• Coordinated daily operations.", x: 55, y: 675, width: 160 },
+      { str: "• Maintained accurate records.", x: 55, y: 650, width: 150 },
+    ]]), false);
   });
 
   it("extracts contact, experience, education, and skills from a two-column reading order", () => {

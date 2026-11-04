@@ -28,16 +28,19 @@ export const CV_PARSER_RESPONSE_SCHEMA = {
       additionalProperties: false,
       required: ["full_name", "email", "phone", "location", "linkedin_url", "portfolio_url", "professional_title"],
       properties: {
-        full_name: nullableString,
-        email: nullableString,
-        phone: nullableString,
-        location: nullableString,
-        linkedin_url: nullableString,
-        portfolio_url: nullableString,
-        professional_title: nullableString,
+        full_name: { ...nullableString, description: "The candidate's own full name, not a school, employer, reference, role, or summary phrase." },
+        email: { ...nullableString, description: "An email address belonging to the candidate, usually in the contact/header area." },
+        phone: { ...nullableString, description: "A phone number belonging to the candidate, not an employer or reference contact." },
+        location: { ...nullableString, description: "The candidate's own physical location or address, not an institution or employer address." },
+        linkedin_url: { ...nullableString, description: "The candidate's LinkedIn profile URL only." },
+        portfolio_url: { ...nullableString, description: "The candidate's website, portfolio, or personal GitHub URL only." },
+        professional_title: { ...nullableString, description: "The candidate's occupational title or headline, not an employer, school, or summary sentence." },
       },
     },
-    professional_summary: nullableString,
+    professional_summary: {
+      ...nullableString,
+      description: "Candidate profile, biography, objective, or summary text only; never education, job history, or skills.",
+    },
     work_experience: {
       type: "array",
       items: {
@@ -70,7 +73,11 @@ export const CV_PARSER_RESPONSE_SCHEMA = {
         },
       },
     },
-    skills: { type: "array", items: { type: "string" } },
+    skills: {
+      type: "array",
+      description: "Candidate capabilities and competencies only; exclude languages, education, employers, and reference details.",
+      items: { type: "string" },
+    },
     certifications: {
       type: "array",
       items: {

@@ -1,4 +1,4 @@
-import { reconstructPdfTextFromItems, type PositionedPdfTextItem } from "./pdf-layout-text";
+import { hasMultiColumnPdfLayout, reconstructPdfTextFromItems, type PositionedPdfTextItem } from "./pdf-layout-text";
 
 /**
  * Reliable text extraction from uploaded CV documents (PDF / DOCX / plain text).
@@ -193,9 +193,8 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
     const rawText = result.text as string | string[];
     const text = typeof rawText === "string" ? rawText : rawText.join("\n\n");
     const plainText = sanitizeExtractedCvText(text);
-    const layoutText = sanitizeExtractedCvText(
-      reconstructPdfTextFromItems(positioned.items as PositionedPdfTextItem[][]),
-    );
+    const positionedItems = positioned.items as PositionedPdfTextItem[][];
+    const layoutText = sanitizeExtractedCvText(reconstructPdfTextFromItems(positionedItems));
     const headingScore = (candidate: string) => {
       const headings = candidate.match(/\b(?:professional summary|work experience|employment history|education|skills|competencies|certifications|languages|references)\b/gi);
       const contacts = candidate.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:\+\d{1,3}|0)\s?\d[\d ()-]{7,}/gi);
@@ -203,7 +202,9 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
     };
     // Positioned text is a fallback for columns whose visual rows were interleaved
     // by the plain text extractor. Keep the plain result when it has better structure.
-    return layoutText && headingScore(layoutText) > headingScore(plainText) ? layoutText : plainText;
+    return layoutText && (hasMultiColumnPdfLayout(positionedItems) || headingScore(layoutText) > headingScore(plainText))
+      ? layoutText
+      : plainText;
   } catch (err) {
     console.error("PDF extraction error:", err);
     throw new DocumentExtractionError(

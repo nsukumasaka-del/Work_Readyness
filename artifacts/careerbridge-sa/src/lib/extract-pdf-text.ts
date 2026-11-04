@@ -4,6 +4,7 @@
  */
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { reconstructPdfTextFromItems, type PositionedPdfTextItem } from "../../../api-server/src/lib/pdf-layout-text";
 
 let workerConfigured = false;
 
@@ -16,52 +17,6 @@ function ensurePdfWorker() {
 export function isPdfFile(file: File): boolean {
   const name = file.name.toLowerCase();
   return name.endsWith(".pdf") || file.type === "application/pdf";
-}
-
-/**
- * Rebuild readable multi-line text from PDF.js text items using Y positions + hasEOL.
- * Collapsing every page into one space-joined string breaks CV section parsing.
- */
-function textContentToLines(items: unknown[]): string[] {
-  const rows: { y: number; parts: { x: number; text: string }[]; forceBreak: boolean }[] = [];
-  const yTolerance = 3;
-
-  for (const raw of items) {
-    if (!raw || typeof raw !== "object" || !("str" in raw)) continue;
-    const item = raw as { str?: string; transform?: number[]; hasEOL?: boolean };
-    const text = String(item.str || "").replace(/\s+/g, " ").trim();
-    const transform = item.transform || [];
-    const x = typeof transform[4] === "number" ? transform[4] : 0;
-    const y = typeof transform[5] === "number" ? transform[5] : 0;
-    const forceBreak = Boolean(item.hasEOL);
-
-    if (!text && !forceBreak) continue;
-
-    let row = rows.find((r) => Math.abs(r.y - y) <= yTolerance);
-    if (!row) {
-      row = { y, parts: [], forceBreak: false };
-      rows.push(row);
-    }
-    if (text) row.parts.push({ x, text });
-    if (forceBreak) row.forceBreak = true;
-  }
-
-  // PDF Y grows upward — sort top-to-bottom, then left-to-right within a row
-  rows.sort((a, b) => b.y - a.y || a.parts[0]?.x! - b.parts[0]?.x!);
-
-  const lines: string[] = [];
-  for (const row of rows) {
-    row.parts.sort((a, b) => a.x - b.x);
-    const line = row.parts
-      .map((p) => p.text)
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (line) lines.push(line);
-    else if (row.forceBreak) lines.push("");
-  }
-
-  return lines;
 }
 
 /**
@@ -137,8 +92,22 @@ export async function extractPdfTextFromFile(file: File): Promise<string> {
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
       const page = await pdf.getPage(pageNum);
       const content = await page.getTextContent();
-      const lines = textContentToLines(content.items || []);
-      const pageText = lines.join("\n").trim();
+      const positionedItems = (content.items || []).flatMap((raw): PositionedPdfTextItem[] => {
+        if (!raw || typeof raw !== "object" || !("str" in raw)) return [];
+        const item = raw as { str?: string; transform?: number[]; width?: number; height?: number; hasEOL?: boolean };
+        const transform = item.transform || [];
+        if (typeof transform[4] !== "number" || typeof transform[5] !== "number") return [];
+        return [{
+          str: String(item.str || ""),
+          x: transform[4],
+          y: transform[5],
+          width: typeof item.width === "number" ? item.width : 0,
+          height: typeof item.height === "number" ? item.height : undefined,
+          fontSize: typeof transform[0] === "number" ? Math.hypot(transform[0], transform[1] || 0) : undefined,
+          hasEOL: Boolean(item.hasEOL),
+        }];
+      });
+      const pageText = reconstructPdfTextFromItems([positionedItems]).trim();
       if (pageText) pages.push(pageText);
     }
 

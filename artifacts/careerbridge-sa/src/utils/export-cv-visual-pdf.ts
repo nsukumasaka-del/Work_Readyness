@@ -172,6 +172,7 @@ function hasManualPosition(element: HTMLElement, root: HTMLElement): boolean {
 export function measureCvPages(source: HTMLElement) {
   const style = getComputedStyle(source);
   const pageHeightPx = 297 * 96 / 25.4;
+  const paddingBottom = parseFloat(style.paddingBottom) || 0;
   const height = Math.max(source.scrollHeight, source.offsetHeight);
   const managedHeight = source.querySelector<HTMLElement>("[data-managed-pages-container]")?.offsetHeight || 0;
   // Translated/positioned blocks can extend into the trailing paper padding.
@@ -190,8 +191,11 @@ export function measureCvPages(source: HTMLElement) {
     if (!rect.width || !rect.height || computed.visibility === "hidden" || computed.display === "none") continue;
     contentBottom = Math.max(contentBottom, (rect.bottom - rootRect.top) / scale);
   }
-  const naturalHeight = Math.max(pageHeightPx, contentBottom, height - managedHeight - parseFloat(style.paddingBottom || "0"));
-  const naturalPages = Math.max(1, Math.ceil((naturalHeight - 1) / pageHeightPx));
+  const contentHeight = Math.max(contentBottom, height - managedHeight - paddingBottom);
+  const naturalHeight = Math.max(pageHeightPx, contentHeight);
+  // The final content block must finish before the page's bottom padding, not
+  // merely before the physical edge of the A4 sheet.
+  const naturalPages = Math.max(1, Math.ceil((contentHeight + paddingBottom - 1) / pageHeightPx));
   const managedCount = source.querySelectorAll("[data-managed-page]").length;
   return { pageHeightPx, naturalHeight, naturalPages, pageCount: naturalPages + managedCount, height };
 }

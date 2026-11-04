@@ -22,6 +22,7 @@ type CvPdfSourceDocument = {
   sections?: Array<{ heading?: string; items?: string[] }>;
 };
 export type CvPdfAppearance = {
+  templateId?: string;
   primaryColor: string;
   secondaryColor: string;
   borderColor: string;
@@ -108,6 +109,7 @@ export async function exportCvVisualPdf(
     filename: `${safeName}.pdf`,
     appearance: {
       ...appearance,
+      templateId,
       sectionOrder: appearance.sectionOrder.slice(0, 20),
       visibleSections: appearance.visibleSections,
     },

@@ -801,6 +801,47 @@
     -webkit-column-break-inside: avoid;
   }
 
+  #bonlist-cv-document.template-stylish,
+  #bonlist-cv-document.template-stylish * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #bonlist-cv-document.template-stylish [data-a4-flow="auto"],
+  #bonlist-cv-document.template-stylish [data-template-body-layout="double"],
+  #bonlist-cv-document.template-stylish [data-template-body-layout="double"] > div {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+    -webkit-column-break-inside: auto !important;
+  }
+
+  #bonlist-cv-document.template-stylish [data-template-body-layout="double"] {
+    display: grid !important;
+    align-items: start !important;
+  }
+
+  #bonlist-cv-document.template-stylish .group\/role,
+  #bonlist-cv-document.template-stylish .experience-item,
+  #bonlist-cv-document.template-stylish .education-item,
+  #bonlist-cv-document.template-stylish .cv-skill-chip,
+  #bonlist-cv-document.template-stylish [data-a4-id^="reference-"] {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    -webkit-column-break-inside: avoid !important;
+  }
+
+  #bonlist-cv-document.template-stylish .cv-badge-list {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  #bonlist-cv-document.template-stylish .cv-skill-chip {
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    word-break: normal !important;
+  }
+
   #bonlist-cv-document .cv-a4-spacer {
     break-inside: auto;
     page-break-inside: auto;

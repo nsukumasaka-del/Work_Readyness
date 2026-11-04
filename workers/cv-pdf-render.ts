@@ -21,6 +21,7 @@ type CvPdfDocument = {
 };
 
 type CvPdfAppearance = {
+  templateId?: unknown;
   primaryColor?: unknown;
   secondaryColor?: unknown;
   borderColor?: unknown;
@@ -157,6 +158,7 @@ export function buildCvPdfHtml(documentValue: unknown, appearanceValue: unknown)
   const fontSize = typeof appearance.fontSize === "number" && Number.isFinite(appearance.fontSize)
     ? Math.max(8, Math.min(16, appearance.fontSize))
     : 10.5;
+  const isStylish = appearance.templateId === "stylish";
   const margins = appearance.marginSize === "compact" ? ["12mm", "14mm"]
     : appearance.marginSize === "wide" ? ["20mm", "22mm"]
       : ["16mm", "18mm"];
@@ -215,8 +217,10 @@ export function buildCvPdfHtml(documentValue: unknown, appearanceValue: unknown)
       <div class="item-heading"><strong>${renderText(item.name)}</strong><span>${renderText(item.year)}</span></div>
       <div class="muted">${renderText(item.issuer)}</div>
     </article>`).join(""));
-  addSection("languages", "Languages", document.languages.map(renderText).join(" · "));
-  addSection("references", "References", document.references.map((reference) => `<p>${renderText(reference)}</p>`).join(""));
+  addSection("languages", "Languages", isStylish
+    ? `<div class="skill-list language-list">${document.languages.map((language) => `<span class="skill">${renderText(language)}</span>`).join("")}</div>`
+    : document.languages.map(renderText).join(" · "));
+  addSection("references", "References", document.references.map((reference) => `<p class="reference-item">${renderText(reference)}</p>`).join(""));
   addSection("custom", "", document.sections.map((item) => `
     <div class="custom-section"><h2>${renderText(item.heading)}</h2>${list(item.items)}</div>`).join(""));
 
@@ -227,6 +231,21 @@ export function buildCvPdfHtml(documentValue: unknown, appearanceValue: unknown)
     if (html) sections.delete(key);
     return html || [];
   }).concat([...sections.values()].flat());
+  const layoutSections = isDouble
+    ? (() => {
+      const nextRows = new Map<number, number>();
+      return orderedSections.map((sectionHtml) => {
+        const key = sectionHtml.match(/<section data-template-section="([^"]+)"/)?.[1] as TemplateSectionKey | undefined;
+        if (!key) return sectionHtml;
+        const column = sidebarKeys.has(key) ? (sidebarSide === "left" ? 1 : 2) : (sidebarSide === "left" ? 2 : 1);
+        const row = (nextRows.get(column) || 0) + 1;
+        nextRows.set(column, row);
+        return sectionHtml.replace(/style="([^"]*)"/, (_attribute, styles: string) =>
+          `style="grid-column:${column};grid-row:${row};${styles.replace(/grid-column:\d+;?/, "")}"`,
+        );
+      });
+    })()
+    : orderedSections;
   const designHeadingFont = design?.headingFont === "serif" ? "Georgia, 'Times New Roman', serif" : fontFamily;
   const headingTreatment = design?.headingTreatment === "uppercase" ? "uppercase" : "none";
   const headingStyle = design?.sectionStyle === "accent-bar"
@@ -255,10 +274,27 @@ export function buildCvPdfHtml(documentValue: unknown, appearanceValue: unknown)
       .muted { color:#475569; font-size:9.5pt; }
       .skill-list { display:flex; flex-wrap:wrap; gap:4px; }
       .skill { display:inline-block; max-width:100%; padding:2px 7px; border:1px solid ${borderColor}; border-radius:4px; background:${secondaryColor}; color:${primaryColor}; font-size:9pt; break-inside:avoid; }
+      ${isStylish ? `
+      body.template-stylish, body.template-stylish * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+      body.template-stylish header { color:#ffffff; background:${primaryColor}; border:0; border-radius:2px; padding:16px 18px; margin-bottom:14px; break-inside:avoid; page-break-inside:avoid; }
+      body.template-stylish header h1 { color:#ffffff; }
+      body.template-stylish header .headline, body.template-stylish header .contact { color:#ffffff; }
+      body.template-stylish main > section { min-width:0; margin:0 0 12px; break-inside:avoid; page-break-inside:avoid; }
+      body.template-stylish main > section[data-template-section="experience"],
+      body.template-stylish main > section[data-template-section="skills"],
+      body.template-stylish main > section[data-template-section="languages"],
+      body.template-stylish main > section[data-template-section="references"] { break-inside:auto; page-break-inside:auto; }
+      body.template-stylish .experience-item,
+      body.template-stylish .education-item,
+      body.template-stylish .reference-item,
+      body.template-stylish li { break-inside:avoid; page-break-inside:avoid; }
+      body.template-stylish main { display:${isDouble ? "grid" : "block"} !important; grid-template-columns:${columns}; grid-auto-flow:row; align-items:start; }
+      body.template-stylish .skill-list { display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start; }
+      body.template-stylish .skill { display:inline-flex; flex:0 1 auto; align-items:center; max-width:100%; border-radius:999px; white-space:normal; overflow-wrap:break-word; word-break:normal; break-inside:avoid; page-break-inside:avoid; }
+      ` : ""}
       .custom-section { margin:0 0 12px; }
-    </style></head><body>
-    <header><h1>${renderText(document.fullName || "Candidate Name")}</h1>
+    </style></head><body${isStylish ? ' class="template-stylish"' : ""}><header><h1>${renderText(document.fullName || "Candidate Name")}</h1>
       ${document.headline ? `<div class="headline">${renderText(document.headline)}</div>` : ""}
       ${headerContacts ? `<div class="contact">${headerContacts}</div>` : ""}
-    </header><main>${orderedSections.join("")}</main></body></html>`;
+    </header><main>${layoutSections.join("")}</main></body></html>`;
 }

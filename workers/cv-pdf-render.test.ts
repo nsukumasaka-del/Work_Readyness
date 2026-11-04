@@ -43,3 +43,29 @@ test("respects hidden section preferences in the generated PDF", () => {
   assert.ok(!html.includes("Hidden skill"));
   assert.ok(!html.includes("Professional Skills"));
 });
+
+test("preserves Stylish branding, tag layout, columns, and page-break rules", () => {
+  const html = buildCvPdfHtml({
+    fullName: "Ada Lovelace",
+    headline: "Engineer",
+    skills: ["Systems Analysis"],
+    languages: ["English (Fluent)", "French (Reading / Writing)"],
+    experiences: [{ role: "Engineer", company: "Analytical Engines", bullets: ["Built a reliable system."] }],
+    references: ["Grace Hopper · Director · Navy"],
+  }, {
+    templateId: "stylish",
+    columns: "double",
+    primaryColor: "#047857",
+    secondaryColor: "#ecfdf5",
+    borderColor: "#a7f3d0",
+  });
+
+  assert.match(html, /<body class="template-stylish">/);
+  assert.match(html, /body\.template-stylish header[^}]*background:#047857/);
+  assert.match(html, /body\.template-stylish main \{ display:grid !important/);
+  assert.match(html, /grid-column:1;grid-row:1/);
+  assert.match(html, /class="skill-list language-list"/);
+  assert.match(html, /class="skill">French \(Reading \/ Writing\)<\/span>/);
+  assert.match(html, /body\.template-stylish \.skill \{[^}]*break-inside:avoid; page-break-inside:avoid/);
+  assert.match(html, /class="reference-item"/);
+});

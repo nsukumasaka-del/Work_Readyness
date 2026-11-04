@@ -8013,7 +8013,9 @@ export default function CvBuilderPage() {
                     ...selectedTemplateDesign.primarySections.filter((key) => canvasSectionOrder.includes(key as CanvasSectionKey)) as CanvasSectionKey[],
                     ...canvasSectionOrder.filter((key) => !templateSections?.has(key as TemplateSectionKey)),
                   ]
-                  : canvasSectionOrder.filter((key) => ["summary", "experience", "projects", "custom"].includes(key));
+                  : isDouble
+                    ? canvasSectionOrder.filter((key) => ["summary", "experience", "projects", "custom"].includes(key))
+                    : canvasSectionOrder;
                 const sidebarColumnKeys = selectedTemplateDesign
                   ? selectedTemplateDesign.sidebarSections.filter((key) => canvasSectionOrder.includes(key as CanvasSectionKey)) as CanvasSectionKey[]
                   : canvasSectionOrder.filter((key) => !["summary", "experience", "projects", "custom"].includes(key));

@@ -837,6 +837,16 @@
     gap: 6px !important;
   }
 
+  #bonlist-cv-document.template-stylish .cv-a4-keep,
+  #bonlist-cv-document.template-stylish [data-a4-id="skills"],
+  #bonlist-cv-document.template-stylish [data-a4-id="education"],
+  #bonlist-cv-document.template-stylish [data-a4-id="languages"],
+  #bonlist-cv-document.template-stylish [data-a4-id="references"] {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    -webkit-column-break-inside: avoid !important;
+  }
+
   #bonlist-cv-document.template-stylish .cv-skill-chip {
     display: inline-flex !important;
     flex: 0 1 auto !important;

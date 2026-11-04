@@ -5358,6 +5358,8 @@ export default function CvBuilderPage() {
         fontSize,
         marginSize,
         columns: catalogTemplates.find((template) => template.id === selectedTemplate)?.columns || "single",
+        columnRatio,
+        sectionSpacing,
         sectionOrder: normalizeCanvasSectionOrder(sectionOrder),
         visibleSections,
         templateDesign: selectedTemplateDesign,
@@ -7522,7 +7524,7 @@ export default function CvBuilderPage() {
                 const skillsSection = visibleSections.skills && (
                   <>
                     <A4PageSpacer id="skills" height={a4Spacers.skills || 0} />
-                  <section data-a4-id="skills" data-a4-flow={supportsContinuousPageFlow ? "auto" : undefined} className="relative group/section min-w-0 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50" style={supportsContinuousPageFlow ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
+                  <section data-a4-id="skills" data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined} className={`relative group/section min-w-0 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""}`} style={supportsContinuousPageFlow && !isStylish ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -7591,7 +7593,7 @@ export default function CvBuilderPage() {
                 const educationSection = visibleSections.education && (
                   <>
                     <A4PageSpacer id="education" height={a4Spacers.education || 0} />
-                  <section data-a4-id="education" data-a4-flow={supportsContinuousPageFlow ? "auto" : undefined} className={`relative group/section space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${renderEducation.length === 0 ? "hidden" : ""}`} style={supportsContinuousPageFlow ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
+                  <section data-a4-id="education" data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined} className={`relative group/section space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""} ${renderEducation.length === 0 ? "hidden" : ""}`} style={supportsContinuousPageFlow && !isStylish ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -7814,9 +7816,9 @@ export default function CvBuilderPage() {
                     <A4PageSpacer id="languages" height={a4Spacers.languages || 0} />
                   <section
                     data-a4-id="languages"
-                    data-a4-flow={supportsContinuousPageFlow ? "auto" : undefined}
-                    className={`relative group/section min-w-0 space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.languages || []).length === 0 ? "hidden" : ""}`}
-                    style={supportsContinuousPageFlow ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}
+                    data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined}
+                    className={`relative group/section min-w-0 space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""} ${(cv.document.languages || []).length === 0 ? "hidden" : ""}`}
+                    style={supportsContinuousPageFlow && !isStylish ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}
                   >
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button

@@ -23,6 +23,8 @@ type CvPdfSourceDocument = {
 };
 export type CvPdfAppearance = {
   templateId?: string;
+  columnRatio?: number;
+  sectionSpacing?: number;
   primaryColor: string;
   secondaryColor: string;
   borderColor: string;

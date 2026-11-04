@@ -44,6 +44,18 @@ test("respects hidden section preferences in the generated PDF", () => {
   assert.ok(!html.includes("Professional Skills"));
 });
 
+test("keeps the existing grid layout for non-Stylish double-column templates", () => {
+  const html = buildCvPdfHtml({
+    fullName: "Ada Lovelace",
+    summary: "Profile.",
+    skills: ["TypeScript"],
+  }, { columns: "double" });
+
+  assert.match(html, /main \{ display:grid;/);
+  assert.match(html, /grid-column:2;grid-row:1/);
+  assert.ok(!html.includes('class="cv-pdf-columns"'));
+});
+
 test("preserves Stylish branding, tag layout, columns, and page-break rules", () => {
   const html = buildCvPdfHtml({
     fullName: "Ada Lovelace",
@@ -55,6 +67,8 @@ test("preserves Stylish branding, tag layout, columns, and page-break rules", ()
   }, {
     templateId: "stylish",
     columns: "double",
+    columnRatio: 68,
+    sectionSpacing: 18,
     primaryColor: "#047857",
     secondaryColor: "#ecfdf5",
     borderColor: "#a7f3d0",
@@ -62,10 +76,13 @@ test("preserves Stylish branding, tag layout, columns, and page-break rules", ()
 
   assert.match(html, /<body class="template-stylish">/);
   assert.match(html, /body\.template-stylish header[^}]*background:#047857/);
-  assert.match(html, /body\.template-stylish main \{ display:grid !important/);
-  assert.match(html, /grid-column:1;grid-row:1/);
+  assert.match(html, /class="cv-pdf-columns"/);
+  assert.match(html, /grid-template-columns:minmax\(0, 68fr\) minmax\(0, 32fr\)/);
+  assert.match(html, /class="cv-pdf-column"[^>]*><section data-template-section="experience"/);
+  assert.match(html, /class="cv-pdf-column"[^>]*><section data-template-section="skills"/);
+  assert.match(html, /body\.template-stylish \.cv-pdf-column \{[^}]*gap:18px/);
   assert.match(html, /body\.template-stylish, body\.template-stylish \* \{ -webkit-print-color-adjust:exact; print-color-adjust:exact; \}/);
-  assert.match(html, /data-template-section="references"[^}]*break-inside:avoid; page-break-inside:avoid/);
+  assert.match(html, /section\[data-template-section="references"\] \{ break-inside:avoid; page-break-inside:avoid/);
   assert.match(html, /body\.template-stylish \.skill \{[^}]*white-space:nowrap; break-inside:avoid; page-break-inside:avoid/);
   assert.match(html, /class="skill-list language-list"/);
   assert.match(html, /class="skill">French \(Reading \/ Writing\)<\/span>/);

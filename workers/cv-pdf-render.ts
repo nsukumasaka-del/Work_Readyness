@@ -22,6 +22,8 @@ type CvPdfDocument = {
 
 type CvPdfAppearance = {
   templateId?: unknown;
+  columnRatio?: unknown;
+  sectionSpacing?: unknown;
   primaryColor?: unknown;
   secondaryColor?: unknown;
   borderColor?: unknown;
@@ -47,6 +49,18 @@ const FONT_FAMILIES: Record<string, string> = {
   raleway: "Arial, Helvetica, sans-serif",
   playfair: "Georgia, 'Times New Roman', serif",
   mono: "'Courier New', monospace",
+};
+const STYLISH_FONT_FAMILIES: Record<string, string> = {
+  inter: "Inter, var(--font-sans), ui-sans-serif, system-ui, sans-serif",
+  roboto: "Roboto, Arial, sans-serif",
+  lato: "'Lato', sans-serif",
+  rubik: "'Rubik', sans-serif",
+  sans: "var(--font-sans), ui-sans-serif, system-ui, sans-serif",
+  merriweather: "'Merriweather', Georgia, serif",
+  garamond: "'EB Garamond', serif",
+  raleway: "'Raleway', sans-serif",
+  playfair: "'Playfair Display', Georgia, serif",
+  mono: "'Roboto Mono', monospace",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -154,29 +168,32 @@ export function buildCvPdfHtml(documentValue: unknown, appearanceValue: unknown)
   const borderColor = safeColor(appearance.borderColor, "#bfdbfe");
   const textColor = design?.textColor || "#1e293b";
   const backgroundColor = design?.backgroundColor || "#ffffff";
-  const fontFamily = typeof appearance.fontId === "string" ? FONT_FAMILIES[appearance.fontId] || FONT_FAMILIES.inter : FONT_FAMILIES.inter;
+  const isStylish = appearance.templateId === "stylish";
+  const fontFamilies = isStylish ? STYLISH_FONT_FAMILIES : FONT_FAMILIES;
+  const fontFamily = typeof appearance.fontId === "string" ? fontFamilies[appearance.fontId] || fontFamilies.inter : fontFamilies.inter;
   const fontSize = typeof appearance.fontSize === "number" && Number.isFinite(appearance.fontSize)
     ? Math.max(8, Math.min(16, appearance.fontSize))
     : 10.5;
-  const isStylish = appearance.templateId === "stylish";
   const margins = appearance.marginSize === "compact" ? ["12mm", "14mm"]
     : appearance.marginSize === "wide" ? ["20mm", "22mm"]
       : ["16mm", "18mm"];
   const order = normalizeSectionOrder(appearance.sectionOrder);
   const isDouble = design ? design.columns === "double" : appearance.columns === "double";
   const sidebarSide = design?.sidebarSide || "right";
-  const columns = sidebarSide === "left" ? "minmax(0, 1fr) minmax(0, 1.4fr)" : "minmax(0, 1.4fr) minmax(0, 1fr)";
+  const requestedColumnRatio = typeof appearance.columnRatio === "number" && Number.isFinite(appearance.columnRatio)
+    ? Math.max(35, Math.min(72, appearance.columnRatio))
+    : 62;
+  const leftColumnRatio = sidebarSide === "left" ? 100 - requestedColumnRatio : requestedColumnRatio;
+  const columns = `minmax(0, ${leftColumnRatio}fr) minmax(0, ${100 - leftColumnRatio}fr)`;
+  const sectionSpacing = typeof appearance.sectionSpacing === "number" && Number.isFinite(appearance.sectionSpacing)
+    ? Math.max(8, Math.min(48, appearance.sectionSpacing))
+    : 24;
   const primaryKeys = new Set<TemplateSectionKey>(
     design
       ? [...design.primarySections, ...SECTION_ORDER.filter((key) => !design.primarySections.includes(key) && !design.sidebarSections.includes(key))]
       : SECTION_ORDER.filter((key) => DEFAULT_PRIMARY_SECTIONS.has(key)),
   );
   const sidebarKeys = new Set<TemplateSectionKey>(design?.sidebarSections || (isDouble ? SECTION_ORDER.filter((key) => !primaryKeys.has(key)) : []));
-  const sectionColumn = (key: TemplateSectionKey) => {
-    if (!isDouble) return "";
-    const column = sidebarKeys.has(key) ? (sidebarSide === "left" ? 1 : 2) : (sidebarSide === "left" ? 2 : 1);
-    return ` style="grid-column:${column};${sidebarKeys.has(key) ? `background:${design?.sidebarColor || "#f8fafc"};padding:8px;` : ""}"`;
-  };
   const list = (items: string[]) => items.length
     ? `<ul>${items.map((item) => `<li>${renderText(item)}</li>`).join("")}</ul>`
     : "";
@@ -184,7 +201,7 @@ export function buildCvPdfHtml(documentValue: unknown, appearanceValue: unknown)
   const sections = new Map<TemplateSectionKey, string[]>();
   const addSection = (key: TemplateSectionKey, heading: string, content: string) => {
     if (!content || visibleSections[key] === false) return;
-    const rendered = `<section data-template-section="${key}"${sectionColumn(key)}>${heading ? `<h2>${escapeHtml(heading)}</h2>` : ""}${content}</section>`;
+    const rendered = `<section data-template-section="${key}">${heading ? `<h2>${escapeHtml(heading)}</h2>` : ""}${content}</section>`;
     sections.set(key, [...(sections.get(key) || []), rendered]);
   };
 
@@ -231,21 +248,40 @@ export function buildCvPdfHtml(documentValue: unknown, appearanceValue: unknown)
     if (html) sections.delete(key);
     return html || [];
   }).concat([...sections.values()].flat());
-  const layoutSections = isDouble
+  const layoutSections = isDouble && isStylish
     ? (() => {
-      const nextRows = new Map<number, number>();
-      return orderedSections.map((sectionHtml) => {
+      const primarySections: string[] = [];
+      const sidebarSections: string[] = [];
+      for (const sectionHtml of orderedSections) {
         const key = sectionHtml.match(/<section data-template-section="([^"]+)"/)?.[1] as TemplateSectionKey | undefined;
-        if (!key) return sectionHtml;
-        const column = sidebarKeys.has(key) ? (sidebarSide === "left" ? 1 : 2) : (sidebarSide === "left" ? 2 : 1);
-        const row = (nextRows.get(column) || 0) + 1;
-        nextRows.set(column, row);
-        return sectionHtml.replace(/style="([^"]*)"/, (_attribute, styles: string) =>
-          `style="grid-column:${column};grid-row:${row};${styles.replace(/grid-column:\d+;?/, "")}"`,
-        );
-      });
+        (key && sidebarKeys.has(key) ? sidebarSections : primarySections).push(sectionHtml);
+      }
+      const leftSections = sidebarSide === "left" ? sidebarSections : primarySections;
+      const rightSections = sidebarSide === "left" ? primarySections : sidebarSections;
+      const sidebarStyle = ` style="background:${design?.sidebarColor || "#f8fafc"};padding:8px"`;
+      const leftStyle = design ? (sidebarSide === "left" ? sidebarStyle : "") : "";
+      const rightStyle = design ? (sidebarSide === "right" ? sidebarStyle : "") : "";
+      return `<div class="cv-pdf-columns"><div class="cv-pdf-column"${leftStyle}>${leftSections.join("")}</div><div class="cv-pdf-column"${rightStyle}>${rightSections.join("")}</div></div>`;
     })()
-    : orderedSections;
+    : isDouble
+      ? (() => {
+        const nextRows = new Map<number, number>();
+        return orderedSections.map((sectionHtml) => {
+          const key = sectionHtml.match(/<section data-template-section="([^"]+)"/)?.[1] as TemplateSectionKey | undefined;
+          if (!key) return sectionHtml;
+          const column = sidebarKeys.has(key) ? (sidebarSide === "left" ? 1 : 2) : (sidebarSide === "left" ? 2 : 1);
+          const row = (nextRows.get(column) || 0) + 1;
+          nextRows.set(column, row);
+          const sidebarStyle = design && sidebarKeys.has(key)
+            ? `background:${design.sidebarColor};padding:8px;`
+            : "";
+          return sectionHtml.replace(
+            "<section ",
+            `<section style="grid-column:${column};grid-row:${row};${sidebarStyle}" `,
+          );
+        }).join("");
+      })()
+      : orderedSections.join("");
   const designHeadingFont = design?.headingFont === "serif" ? "Georgia, 'Times New Roman', serif" : fontFamily;
   const headingTreatment = design?.headingTreatment === "uppercase" ? "uppercase" : "none";
   const headingStyle = design?.sectionStyle === "accent-bar"
@@ -262,8 +298,11 @@ export function buildCvPdfHtml(documentValue: unknown, appearanceValue: unknown)
       h1 { margin:0; color:${primaryColor}; font-family:${designHeadingFont}; font-size:22pt; line-height:1.15; }
       .headline { margin-top:4px; color:#475569; font-size:11pt; font-weight:600; }
       .contact { margin-top:7px; color:#64748b; font-size:9pt; overflow-wrap:anywhere; }
-      main { display:${isDouble ? "grid" : "block"}; grid-template-columns:${columns}; gap:${design?.density === "compact" ? "10px 18px" : "16px 24px"}; align-items:start; }
+      main { display:${isDouble && !isStylish ? "grid" : "block"}; grid-template-columns:${columns}; gap:${design?.density === "compact" ? "10px 18px" : "16px 24px"}; align-items:start; }
       main > section { min-width:0; margin:0 0 12px; }
+      .cv-pdf-columns { display:grid; grid-template-columns:${columns}; gap:${design?.density === "compact" ? "20px" : "32px"}; align-items:start; }
+      .cv-pdf-column { display:flex; flex-direction:column; gap:${sectionSpacing}px; min-width:0; break-inside:auto; page-break-inside:auto; }
+      .cv-pdf-column > section { min-width:0; margin:0; }
       h2 { margin:0 0 6px; padding:0 0 4px; color:${primaryColor}; font-family:${designHeadingFont}; font-size:10pt; font-weight:700; letter-spacing:.08em; text-transform:${headingTreatment}; ${headingStyle} break-after:avoid; page-break-after:avoid; }
       p { margin:4px 0; }
       ul { margin:4px 0; padding-left:18px; }
@@ -279,17 +318,17 @@ export function buildCvPdfHtml(documentValue: unknown, appearanceValue: unknown)
       body.template-stylish header { color:#ffffff; background:${primaryColor}; border:0; border-radius:2px; padding:16px 18px; margin-bottom:14px; break-inside:avoid; page-break-inside:avoid; }
       body.template-stylish header h1 { color:#ffffff; }
       body.template-stylish header .headline, body.template-stylish header .contact { color:#ffffff; }
-      body.template-stylish main { display:${isDouble ? "grid" : "block"} !important; grid-template-columns:${columns}; grid-auto-flow:row; align-items:start; }
-      body.template-stylish main > section { min-width:0; margin:0 0 12px; }
-      body.template-stylish main > section[data-template-section="summary"],
-      body.template-stylish main > section[data-template-section="education"],
-      body.template-stylish main > section[data-template-section="projects"],
-      body.template-stylish main > section[data-template-section="certifications"],
-      body.template-stylish main > section[data-template-section="custom"],
-      body.template-stylish main > section[data-template-section="references"] { break-inside:avoid; page-break-inside:avoid; }
-      body.template-stylish main > section[data-template-section="experience"],
-      body.template-stylish main > section[data-template-section="skills"],
-      body.template-stylish main > section[data-template-section="languages"] { break-inside:auto; page-break-inside:auto; }
+      body.template-stylish .cv-pdf-columns { display:grid; grid-template-columns:${columns}; align-items:start; }
+      body.template-stylish .cv-pdf-column { display:flex; flex-direction:column; gap:${sectionSpacing}px; min-width:0; break-inside:auto; page-break-inside:auto; }
+      body.template-stylish .cv-pdf-column > section { min-width:0; margin:0; }
+      body.template-stylish .cv-pdf-column > section[data-template-section="summary"],
+      body.template-stylish .cv-pdf-column > section[data-template-section="education"],
+      body.template-stylish .cv-pdf-column > section[data-template-section="skills"],
+      body.template-stylish .cv-pdf-column > section[data-template-section="projects"],
+      body.template-stylish .cv-pdf-column > section[data-template-section="certifications"],
+      body.template-stylish .cv-pdf-column > section[data-template-section="custom"],
+      body.template-stylish .cv-pdf-column > section[data-template-section="languages"],
+      body.template-stylish .cv-pdf-column > section[data-template-section="references"] { break-inside:avoid; page-break-inside:avoid; }
       body.template-stylish .experience-item,
       body.template-stylish .education-item,
       body.template-stylish .reference-item,
@@ -301,5 +340,5 @@ export function buildCvPdfHtml(documentValue: unknown, appearanceValue: unknown)
     </style></head><body${isStylish ? ' class="template-stylish"' : ""}><header><h1>${renderText(document.fullName || "Candidate Name")}</h1>
       ${document.headline ? `<div class="headline">${renderText(document.headline)}</div>` : ""}
       ${headerContacts ? `<div class="contact">${headerContacts}</div>` : ""}
-    </header><main>${layoutSections.join("")}</main></body></html>`;
+    </header><main>${layoutSections}</main></body></html>`;
 }

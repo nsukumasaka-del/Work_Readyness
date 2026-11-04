@@ -239,6 +239,44 @@ describe("safe CV tailoring and references", () => {
     assert.equal(tailored.experiences[0]?.bullets[0], "Maintained accurate customer records.");
   });
 
+  it("reorders relevant education, certifications, competencies and skill groups without changing source facts", () => {
+    const source: GeneratedCvDocument = {
+      ...document,
+      education: [
+        { id: "edu-1", degree: "Diploma", institution: "College", graduationYear: "2021" },
+        { id: "edu-2", degree: "Certificate", institution: "Training Centre", graduationYear: "2020" },
+      ],
+      certifications: [
+        { id: "cert-1", name: "First Aid", issuer: "Provider A", year: "2020" },
+        { id: "cert-2", name: "Safety", issuer: "Provider B", year: "2021" },
+      ],
+      competencies: ["Customer service", "Dispatch coordination"],
+      toolsAndSoftware: ["Excel", "NAVIS"],
+      skillGroups: [{ category: "Operations", skills: ["Dispatch", "Records"] }],
+      languages: ["English: Fluent"],
+      references: ["Jacky van Rooyan, Team Leader"],
+    };
+    const tailored = applyTailoredContentToCv(source, {
+      personal: { fullName: "Changed Name" },
+      education: [{ id: "edu-2" }, { id: "edu-1" }],
+      certifications: [{ id: "cert-2" }, { id: "cert-1" }],
+      competencies: ["Dispatch coordination", "Unverified competency"],
+      toolsAndSoftware: ["NAVIS"],
+      skillGroups: [{ category: "Operations", skills: ["Records"] }],
+      languages: ["Changed language"],
+      references: ["Changed reference"],
+    });
+
+    assert.deepEqual(tailored.education.map((item) => item.id), ["edu-2", "edu-1"]);
+    assert.deepEqual(tailored.certifications?.map((item) => item.id), ["cert-2", "cert-1"]);
+    assert.deepEqual(tailored.competencies, ["Dispatch coordination", "Customer service"]);
+    assert.deepEqual(tailored.toolsAndSoftware, ["NAVIS", "Excel"]);
+    assert.deepEqual(tailored.skillGroups?.[0]?.skills, ["Records", "Dispatch"]);
+    assert.equal(tailored.fullName, "Jane Doe");
+    assert.deepEqual(tailored.languages, source.languages);
+    assert.deepEqual(tailored.references, source.references);
+  });
+
   it("keeps the original experience order if the tailoring response omits or duplicates an entry", () => {
     const source = {
       ...document,
@@ -266,10 +304,19 @@ describe("safe CV tailoring and references", () => {
       cvDocument: {
         fullName: "Jane Doe",
         headline: "Coordinator",
+        contactLine: "jane@example.com | Johannesburg",
+        email: "jane@example.com",
+        phone: "+27 82 123 4567",
         summary: "Experienced operations professional.",
         experiences: [{ id: "exp-1", role: "Coordinator", company: "DSV", bullets: ["Handled dispatch."] }],
         skills: ["Dispatch", "Customer service"],
-        education: [{ degree: "Diploma", institution: "College", graduationYear: "2021" }],
+        education: [{ id: "edu-1", degree: "Diploma", institution: "College", graduationYear: "2021", details: "Operations coursework" }],
+        certifications: [{ id: "cert-1", name: "First Aid", issuer: "Provider", year: "2022" }],
+        competencies: ["Dispatch coordination"],
+        skillGroups: [{ category: "Operations", skills: ["Dispatch"] }],
+        languages: ["English: Fluent"],
+        references: ["Jacky van Rooyan, Team Leader"],
+        referenceDetails: [{ id: "ref-1", name: "Jacky van Rooyan", title: "Team Leader", company: "DSV", phone: "082 123 4567" }],
         privateImageBase64: "A".repeat(100_000),
       },
       baseline: { match_rate_percentage: 72, hard_requirements_met: true, proposals: ["discard"] },
@@ -279,6 +326,12 @@ describe("safe CV tailoring and references", () => {
     assert.equal("privateImageBase64" in (evidence.cvDocument as Record<string, unknown>), false);
     assert.equal("proposals" in (evidence.baseline as Record<string, unknown>), false);
     assert.equal(evidence.targetRole, "Operations Coordinator");
+    const cvEvidence = evidence.cvDocument as Record<string, unknown>;
+    assert.equal("personal" in cvEvidence, true);
+    assert.equal("education" in cvEvidence, true);
+    assert.equal("certifications" in cvEvidence, true);
+    assert.equal("languages" in cvEvidence, true);
+    assert.equal("references" in cvEvidence, true);
   });
 
   it("normalizes Gemini timeout and abort errors for HTTP handling", () => {

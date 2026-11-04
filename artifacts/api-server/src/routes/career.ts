@@ -2072,8 +2072,27 @@ router.post("/career/cv/tailor", async (req, res) => {
       baseline,
     }), baseline);
     if (!Array.isArray(generated.proposals)) throw new Error("Gemini returned an invalid tailoring report.");
-    if (!generated.tailoredContent || typeof generated.tailoredContent !== "object" || Array.isArray(generated.tailoredContent)) throw new Error("Gemini returned invalid tailored CV content.");
-    const tailoredCvDocument = applyTailoredContentToCv(cvDocument, generated.tailoredContent as Record<string, unknown> | undefined);
+    const tailoredContent = generated.tailoredContent;
+    if (!tailoredContent || typeof tailoredContent !== "object" || Array.isArray(tailoredContent)) {
+      throw new Error("Gemini returned invalid tailored CV content.");
+    }
+    const tailoredSections = tailoredContent as Record<string, unknown>;
+    const requiredListSections = [
+      "experiences", "education", "certifications", "skills", "toolsAndSoftware",
+      "competencies", "skillGroups", "languages", "references", "referenceDetails",
+    ];
+    const personalFields = ["fullName", "headline", "contactLine", "email", "phone", "location", "linkedin", "website"];
+    const personal = tailoredSections.personal && typeof tailoredSections.personal === "object" && !Array.isArray(tailoredSections.personal)
+      ? tailoredSections.personal as Record<string, unknown>
+      : null;
+    if (
+      typeof tailoredSections.summary !== "string" ||
+      !personal || personalFields.some((field) => typeof personal[field] !== "string") ||
+      requiredListSections.some((section) => !Array.isArray(tailoredSections[section]))
+    ) {
+      throw new Error("Gemini returned incomplete tailored CV sections.");
+    }
+    const tailoredCvDocument = applyTailoredContentToCv(cvDocument, tailoredSections);
     res.json({ ...baseline, ...generated, proposals: generated.proposals, tailoredCvDocument });
   } catch (error) {
     req.log.error({ err: error }, "Gemini CV tailoring failed");

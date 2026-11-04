@@ -308,16 +308,55 @@ export interface GeneratedCvDocument {
 }
 
 export type TailoredCvContent = {
+  personal?: unknown;
   summary?: unknown;
   experiences?: unknown;
+  education?: unknown;
+  certifications?: unknown;
   skills?: unknown;
+  toolsAndSoftware?: unknown;
+  competencies?: unknown;
+  skillGroups?: unknown;
+  languages?: unknown;
+  references?: unknown;
+  referenceDetails?: unknown;
 };
 
-/**
- * Apply Gemini's narrowly scoped wording output to a deep clone of the input.
- * All keys, sections, dates, employers, titles, education and references come
- * from the original document; the model is never allowed to replace the CV.
- */
+function reorderCvItemsById<T extends { id: string }>(original: T[], requested: unknown): T[] {
+  if (!Array.isArray(requested) || requested.length !== original.length || original.length === 0) return original;
+  const ids = requested.map((item) =>
+    item && typeof item === "object" && !Array.isArray(item) && typeof item.id === "string" ? item.id : "",
+  );
+  const byId = new Map(original.map((item) => [item.id, item]));
+  if (byId.size !== original.length || new Set(ids).size !== original.length || ids.some((id) => !byId.has(id))) {
+    return original;
+  }
+  return ids.map((id) => byId.get(id)!);
+}
+
+function rankExistingCvStrings(original: string[], requested: unknown): string[] {
+  const originalByKey = new Map(original.map((item) => [normalizeTextPhrase(item), item]));
+  const ranked: string[] = [];
+  const seen = new Set<string>();
+  if (Array.isArray(requested)) {
+    for (const value of requested) {
+      if (typeof value !== "string") continue;
+      const key = normalizeTextPhrase(value);
+      const existing = originalByKey.get(key);
+      if (existing && !seen.has(key)) {
+        ranked.push(existing);
+        seen.add(key);
+      }
+    }
+  }
+  for (const item of original) {
+    const key = normalizeTextPhrase(item);
+    if (!seen.has(key)) ranked.push(item);
+  }
+  return ranked;
+}
+
+/** Apply validated wording and ordering changes while preserving all source CV facts. */
 export function applyTailoredContentToCv(
   input: GeneratedCvDocument,
   candidate: unknown,
@@ -358,26 +397,43 @@ export function applyTailoredContentToCv(
     return bullets?.length === experience.bullets.length ? { ...experience, bullets } : experience;
   });
 
-  const originalSkills = input.skills || [];
-  const originalByKey = new Map(originalSkills.map((skill) => [normalizeTextPhrase(skill), skill]));
-  const requestedSkills = Array.isArray(tailored.skills) ? tailored.skills : [];
-  const ranked: string[] = [];
-  const seen = new Set<string>();
-  for (const value of requestedSkills) {
-    if (typeof value !== "string") continue;
-    const key = normalizeTextPhrase(value);
-    const original = originalByKey.get(key);
-    if (original && !seen.has(key)) {
-      ranked.push(original);
-      seen.add(key);
+  output.education = reorderCvItemsById(output.education, tailored.education);
+  if (output.certifications) {
+    output.certifications = reorderCvItemsById(output.certifications, tailored.certifications);
+  }
+  output.skills = rankExistingCvStrings(input.skills || [], tailored.skills);
+  if (output.toolsAndSoftware) {
+    output.toolsAndSoftware = rankExistingCvStrings(input.toolsAndSoftware || [], tailored.toolsAndSoftware);
+  }
+  if (output.competencies) {
+    output.competencies = rankExistingCvStrings(input.competencies || [], tailored.competencies);
+  }
+  if (output.skillGroups) {
+    const originalGroups = output.skillGroups;
+    const byCategory = new Map(originalGroups.map((group) => [normalizeTextPhrase(group.category), group]));
+    const orderedGroups: typeof originalGroups = [];
+    const seenGroups = new Set<string>();
+    if (Array.isArray(tailored.skillGroups)) {
+      for (const value of tailored.skillGroups) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+        const group = value as Record<string, unknown>;
+        const category = typeof group.category === "string" ? group.category : "";
+        const key = normalizeTextPhrase(category);
+        const original = byCategory.get(key);
+        if (!original || seenGroups.has(key)) continue;
+        orderedGroups.push({
+          ...original,
+          skills: rankExistingCvStrings(original.skills, group.skills),
+        });
+        seenGroups.add(key);
+      }
     }
+    for (const group of originalGroups) {
+      const key = normalizeTextPhrase(group.category);
+      if (!seenGroups.has(key)) orderedGroups.push(group);
+    }
+    output.skillGroups = orderedGroups;
   }
-  // Preserve every original skill even if the model omitted it.
-  for (const skill of originalSkills) {
-    const key = normalizeTextPhrase(skill);
-    if (!seen.has(key)) ranked.push(skill);
-  }
-  output.skills = ranked;
   return output;
 }
 

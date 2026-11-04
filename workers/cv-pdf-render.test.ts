@@ -64,8 +64,10 @@ test("preserves Stylish branding, tag layout, columns, and page-break rules", ()
   assert.match(html, /body\.template-stylish header[^}]*background:#047857/);
   assert.match(html, /body\.template-stylish main \{ display:grid !important/);
   assert.match(html, /grid-column:1;grid-row:1/);
+  assert.match(html, /body\.template-stylish, body\.template-stylish \* \{ -webkit-print-color-adjust:exact; print-color-adjust:exact; \}/);
+  assert.match(html, /data-template-section="references"[^}]*break-inside:avoid; page-break-inside:avoid/);
+  assert.match(html, /body\.template-stylish \.skill \{[^}]*white-space:nowrap; break-inside:avoid; page-break-inside:avoid/);
   assert.match(html, /class="skill-list language-list"/);
   assert.match(html, /class="skill">French \(Reading \/ Writing\)<\/span>/);
-  assert.match(html, /body\.template-stylish \.skill \{[^}]*break-inside:avoid; page-break-inside:avoid/);
   assert.match(html, /class="reference-item"/);
 });

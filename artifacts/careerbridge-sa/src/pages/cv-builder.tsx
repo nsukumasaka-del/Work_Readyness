@@ -7899,7 +7899,7 @@ export default function CvBuilderPage() {
                 const referencesSection = visibleSections.references && (
                   <>
                     <A4PageSpacer id="references" height={a4Spacers.references || 0} />
-                  <section data-a4-id="references" data-a4-flow={supportsContinuousPageFlow ? "auto" : undefined} className={`relative group/section space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${renderReferences.length === 0 ? "hidden" : ""}`} style={supportsContinuousPageFlow ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
+                  <section data-a4-id="references" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${renderReferences.length === 0 ? "hidden" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"

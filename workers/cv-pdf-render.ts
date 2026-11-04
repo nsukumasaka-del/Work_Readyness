@@ -279,18 +279,23 @@ export function buildCvPdfHtml(documentValue: unknown, appearanceValue: unknown)
       body.template-stylish header { color:#ffffff; background:${primaryColor}; border:0; border-radius:2px; padding:16px 18px; margin-bottom:14px; break-inside:avoid; page-break-inside:avoid; }
       body.template-stylish header h1 { color:#ffffff; }
       body.template-stylish header .headline, body.template-stylish header .contact { color:#ffffff; }
-      body.template-stylish main > section { min-width:0; margin:0 0 12px; break-inside:avoid; page-break-inside:avoid; }
+      body.template-stylish main { display:${isDouble ? "grid" : "block"} !important; grid-template-columns:${columns}; grid-auto-flow:row; align-items:start; }
+      body.template-stylish main > section { min-width:0; margin:0 0 12px; }
+      body.template-stylish main > section[data-template-section="summary"],
+      body.template-stylish main > section[data-template-section="education"],
+      body.template-stylish main > section[data-template-section="projects"],
+      body.template-stylish main > section[data-template-section="certifications"],
+      body.template-stylish main > section[data-template-section="custom"],
+      body.template-stylish main > section[data-template-section="references"] { break-inside:avoid; page-break-inside:avoid; }
       body.template-stylish main > section[data-template-section="experience"],
       body.template-stylish main > section[data-template-section="skills"],
-      body.template-stylish main > section[data-template-section="languages"],
-      body.template-stylish main > section[data-template-section="references"] { break-inside:auto; page-break-inside:auto; }
+      body.template-stylish main > section[data-template-section="languages"] { break-inside:auto; page-break-inside:auto; }
       body.template-stylish .experience-item,
       body.template-stylish .education-item,
       body.template-stylish .reference-item,
       body.template-stylish li { break-inside:avoid; page-break-inside:avoid; }
-      body.template-stylish main { display:${isDouble ? "grid" : "block"} !important; grid-template-columns:${columns}; grid-auto-flow:row; align-items:start; }
       body.template-stylish .skill-list { display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start; }
-      body.template-stylish .skill { display:inline-flex; flex:0 1 auto; align-items:center; max-width:100%; border-radius:999px; white-space:normal; overflow-wrap:break-word; word-break:normal; break-inside:avoid; page-break-inside:avoid; }
+      body.template-stylish .skill { display:inline-flex; flex:0 1 auto; align-items:center; max-width:100%; border-radius:999px; white-space:nowrap; break-inside:avoid; page-break-inside:avoid; }
       ` : ""}
       .custom-section { margin:0 0 12px; }
     </style></head><body${isStylish ? ' class="template-stylish"' : ""}><header><h1>${renderText(document.fullName || "Candidate Name")}</h1>

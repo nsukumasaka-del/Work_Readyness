@@ -824,6 +824,7 @@
   #bonlist-cv-document.template-stylish .experience-item,
   #bonlist-cv-document.template-stylish .education-item,
   #bonlist-cv-document.template-stylish .cv-skill-chip,
+  #bonlist-cv-document.template-stylish .cv-a4-keep,
   #bonlist-cv-document.template-stylish [data-a4-id^="reference-"] {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
@@ -837,9 +838,12 @@
   }
 
   #bonlist-cv-document.template-stylish .cv-skill-chip {
-    white-space: normal !important;
-    overflow-wrap: break-word !important;
-    word-break: normal !important;
+    display: inline-flex !important;
+    flex: 0 1 auto !important;
+    max-width: 100% !important;
+    white-space: nowrap !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   #bonlist-cv-document .cv-a4-spacer {

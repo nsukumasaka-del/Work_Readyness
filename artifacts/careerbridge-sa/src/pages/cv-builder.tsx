@@ -7073,7 +7073,7 @@ export default function CvBuilderPage() {
           </div>
           {/* REALISTIC MULTI-PAGE A4 PREVIEW (matches download) */}
           {cv ? (
-            <div className="flex min-h-max w-full shrink-0 flex-1 justify-center bg-slate-100/70 px-2 pt-6 pb-32 sm:px-6 min-[1025px]:pb-6">
+            <div className="flex min-h-max w-full flex-none justify-center bg-slate-100/70 px-2 pt-6 pb-32 sm:px-6 min-[1025px]:pb-6">
             <div className="cv-a4-viewport relative mx-auto">
                 <div
                 className="cv-zoom-outer"

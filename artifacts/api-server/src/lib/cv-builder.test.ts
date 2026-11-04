@@ -2,7 +2,13 @@ import { applyTailoredContentToCv, buildGeneratedCv, CV_PARSER_SYSTEM_PROMPT, ev
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { hasMultiColumnPdfLayout, reconstructPdfTextFromItems } from "./pdf-layout-text";
-import { calibrateJobListingScores, enforceTailorMatchGuardrail } from "./ai/gemini-client";
+import {
+  calibrateJobListingScores,
+  compactCvAssistantEvidence,
+  enforceTailorMatchGuardrail,
+  GeminiRequestTimeoutError,
+  isGeminiTimeoutError,
+} from "./ai/gemini-client";
 import { CV_PARSER_RESPONSE_SCHEMA } from "./ai/cv-parser";
 
 function expect<T>(actual: T) {
@@ -250,6 +256,35 @@ describe("safe CV tailoring and references", () => {
 
     assert.deepEqual(tailored.experiences.map((item) => item.id), ["exp-1", "exp-2"]);
     assert.deepEqual(tailored.experiences[0]?.bullets, source.experiences[0]?.bullets);
+  });
+
+  it("compacts tailoring evidence and omits unrelated asset metadata", () => {
+    const evidence = compactCvAssistantEvidence("tailor", {
+      targetRole: "Operations Coordinator",
+      targetCompany: "Example Ltd",
+      jobDescription: "Coordinate dispatch and customer enquiries.",
+      cvDocument: {
+        fullName: "Jane Doe",
+        headline: "Coordinator",
+        summary: "Experienced operations professional.",
+        experiences: [{ id: "exp-1", role: "Coordinator", company: "DSV", bullets: ["Handled dispatch."] }],
+        skills: ["Dispatch", "Customer service"],
+        education: [{ degree: "Diploma", institution: "College", graduationYear: "2021" }],
+        privateImageBase64: "A".repeat(100_000),
+      },
+      baseline: { match_rate_percentage: 72, hard_requirements_met: true, proposals: ["discard"] },
+    }) as Record<string, unknown>;
+
+    assert.ok(JSON.stringify(evidence).length < 10_000);
+    assert.equal("privateImageBase64" in (evidence.cvDocument as Record<string, unknown>), false);
+    assert.equal("proposals" in (evidence.baseline as Record<string, unknown>), false);
+    assert.equal(evidence.targetRole, "Operations Coordinator");
+  });
+
+  it("normalizes Gemini timeout and abort errors for HTTP handling", () => {
+    assert.equal(isGeminiTimeoutError(new GeminiRequestTimeoutError()), true);
+    assert.equal(isGeminiTimeoutError(Object.assign(new Error("aborted"), { name: "AbortError" })), true);
+    assert.equal(isGeminiTimeoutError(new Error("invalid response")), false);
   });
 
   it("removes concatenated multi-column reference fragments", () => {

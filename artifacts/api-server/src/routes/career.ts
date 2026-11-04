@@ -17,7 +17,7 @@ import { and, count, desc, eq, ne } from "drizzle-orm";
 import { fetchTrustedJobDetails, getTrustedBoardLabels } from "../lib/job-board-search";
 import { normalizeJobRequest, searchCandidateJobs, searchManualJobs, searchWithLocationFallback } from "../lib/job-search-service";
 import { buildCareerAlignmentReport, estimateCareerYears, type CareerAlignmentReport } from "../lib/career-alignment";
-import { calibrateJobListingScores, scoreJobListingsWithGemini, enrichCareerAdvisoryWithGemini, enforceTailorMatchGuardrail, generateCvAssistantJson, generateSmokeyReply, reviewDiagnosticRoleFitWithGemini, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
+import { calibrateJobListingScores, scoreJobListingsWithGemini, enrichCareerAdvisoryWithGemini, enforceTailorMatchGuardrail, generateCvAssistantJson, generateSmokeyReply, isGeminiTimeoutError, reviewDiagnosticRoleFitWithGemini, streamSmokeyReply, type GeminiChatTurn } from "../lib/ai/gemini-client";
 import { requireUser, type AuthedUserRequest } from "../lib/user-sessions";
 import { nodePaymentAccess } from '../lib/yoco-store';
 import { protectReport } from '../lib/yoco';
@@ -2077,7 +2077,12 @@ router.post("/career/cv/tailor", async (req, res) => {
     res.json({ ...baseline, ...generated, proposals: generated.proposals, tailoredCvDocument });
   } catch (error) {
     req.log.error({ err: error }, "Gemini CV tailoring failed");
-    res.status(502).json({ error: "Could not tailor this CV. Please try again." });
+    const timedOut = isGeminiTimeoutError(error);
+    res.status(timedOut ? 504 : 502).json({
+      error: timedOut
+        ? "CV tailoring took too long to finish. Please try again; your CV has not been changed."
+        : "Could not tailor this CV. Please try again.",
+    });
   }
 });
 

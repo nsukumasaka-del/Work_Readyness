@@ -16,8 +16,10 @@ import puppeteer from "@cloudflare/puppeteer";
 import {
   generateCvAssistantJson,
   enforceTailorMatchGuardrail,
+  compactCvAssistantEvidence,
   generateGeminiJson,
   generateSmokeyReply,
+  isGeminiTimeoutError,
   streamSmokeyReply,
   type CvAssistantTask,
   type GeminiChatTurn,
@@ -243,7 +245,7 @@ async function handleCvAssistant(request: Request, env: Env, task: CvAssistantTa
 
   const submittedCv = input.cvData || input.cvDocument;
   const cv = submittedCv && typeof submittedCv === "object" && !Array.isArray(submittedCv) ? submittedCv : {};
-  const evidence: Record<string, unknown> = {
+  const rawEvidence: Record<string, unknown> = {
     cvDocument: cv,
     targetRole: text(input.targetRole || input.role, 160),
     targetCompany: text(input.targetCompany, 160),
@@ -256,6 +258,11 @@ async function handleCvAssistant(request: Request, env: Env, task: CvAssistantTa
     existingSkills: textList(input.existingSkills || (cv as Record<string, unknown>).skills, 40),
     baseline: input.baseline,
   };
+  const compactedEvidence = compactCvAssistantEvidence(task, rawEvidence);
+  if (!compactedEvidence || typeof compactedEvidence !== "object" || Array.isArray(compactedEvidence)) {
+    return jsonError(400, "Required CV assistant details are missing.");
+  }
+  const evidence = compactedEvidence as Record<string, unknown>;
   if (JSON.stringify(evidence).length > 32_000) return jsonError(413, "This CV is too large to process. Please shorten it and retry.");
   if ((task === "bullet" && !evidence.bullet) || (task === "humanize" && !evidence.text) ||
       (task === "advisor" && !evidence.question) || (task === "summary" && !evidence.cvDocument) ||
@@ -299,7 +306,9 @@ async function handleCvAssistant(request: Request, env: Env, task: CvAssistantTa
     });
   } catch (error) {
     console.error(`[cv-ai:${task}] Gemini request failed`, error);
-    return jsonError(502, "CV AI could not complete this request. Please try again.");
+    return isGeminiTimeoutError(error)
+      ? jsonError(504, "CV tailoring took too long to finish. Please try again; your CV has not been changed.")
+      : jsonError(502, "CV AI could not complete this request. Please try again.");
   }
 }
 

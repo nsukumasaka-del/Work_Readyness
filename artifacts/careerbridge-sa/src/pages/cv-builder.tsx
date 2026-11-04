@@ -7142,6 +7142,7 @@ export default function CvBuilderPage() {
                 const isCorporateBlue = selectedTemplate === "corporate_blue";
                 const isEditorialGold = selectedTemplate === "editorial_gold";
                 const isAnalystClean = selectedTemplate === "analyst_clean";
+                const supportsContinuousPageFlow = isMinimal || isSerifClassic || isStylish;
                 const professionalTitle = professionalTitleFrom(cv.document);
 
                 const renderSectionHeading = (title: string) => {
@@ -7391,6 +7392,9 @@ export default function CvBuilderPage() {
                                 className="min-w-0 max-w-full bg-transparent text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
                                 placeholder="Company Name"
                               />
+                              {exp.location ? (
+                                <span className="min-w-0 max-w-full break-words text-[11px] font-normal text-slate-500">{exp.location}</span>
+                              ) : null}
                             </div>
                             <div className="flex shrink-0 items-center gap-1 text-[11px] text-slate-500">
                               <input
@@ -7518,7 +7522,7 @@ export default function CvBuilderPage() {
                 const skillsSection = visibleSections.skills && (
                   <>
                     <A4PageSpacer id="skills" height={a4Spacers.skills || 0} />
-                  <section data-a4-id="skills" className="relative group/section cv-a4-keep min-w-0 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
+                  <section data-a4-id="skills" data-a4-flow={supportsContinuousPageFlow ? "auto" : undefined} className="relative group/section min-w-0 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50" style={supportsContinuousPageFlow ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -7587,7 +7591,7 @@ export default function CvBuilderPage() {
                 const educationSection = visibleSections.education && (
                   <>
                     <A4PageSpacer id="education" height={a4Spacers.education || 0} />
-                  <section data-a4-id="education" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${renderEducation.length === 0 ? "hidden" : ""}`}>
+                  <section data-a4-id="education" data-a4-flow={supportsContinuousPageFlow ? "auto" : undefined} className={`relative group/section space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${renderEducation.length === 0 ? "hidden" : ""}`} style={supportsContinuousPageFlow ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -7615,8 +7619,10 @@ export default function CvBuilderPage() {
                     ) : (
                       <div className={isTimeline ? "relative pl-6 border-l-2 ml-2 space-y-4 my-2" : "space-y-2"} style={isTimeline ? { borderColor: selectedColor.border } : {}}>
                         {renderEducation.map((edu, eduIdx) => (
+                          <Fragment key={edu.id || eduIdx}>
+                          <A4PageSpacer id={`education-${eduIdx}`} height={a4Spacers[`education-${eduIdx}`] || 0} />
                           <div
-                            key={edu.id || eduIdx}
+                            data-a4-id={`education-${eduIdx}`}
                             className="education-item cv-a4-keep text-xs overflow-visible group/edu relative"
                           >
                             {isTimeline && (
@@ -7635,7 +7641,7 @@ export default function CvBuilderPage() {
                               className="w-full bg-transparent font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal"
                               placeholder="Degree / Qualification"
                             />
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 text-[11px] text-slate-600 overflow-visible">
+                            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[11px] text-slate-600">
                               <AutoGrowTextarea
                                 value={edu.institution}
                                 onChange={(e) => {
@@ -7643,9 +7649,12 @@ export default function CvBuilderPage() {
                                   edus[eduIdx] = { ...edu, institution: e.target.value };
                                   updateDocumentField("education", edus);
                                 }}
-                                className="bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal"
+                                className="min-w-0 max-w-full flex-1 bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm overflow-visible whitespace-normal"
                                 placeholder="Institution"
                               />
+                              {edu.location ? (
+                                <span className="min-w-0 max-w-full break-words text-slate-500">{edu.location}</span>
+                              ) : null}
                               <input
                                 type="text"
                                 value={edu.graduationYear}
@@ -7654,12 +7663,25 @@ export default function CvBuilderPage() {
                                   edus[eduIdx] = { ...edu, graduationYear: e.target.value };
                                   updateDocumentField("education", edus);
                                 }}
-                                style={{ width: `${Math.max((edu.graduationYear || "").length + 1, 5)}ch` }}
-                                className="bg-transparent text-right focus:outline-none overflow-visible"
+                                style={{ width: `${Math.min(Math.max((edu.graduationYear || "").length + 1, 5), 10)}ch` }}
+                                className="max-w-full shrink-0 bg-transparent text-right focus:outline-none overflow-visible"
                                 placeholder="Year"
                               />
                             </div>
+                            {edu.details ? (
+                              <AutoGrowTextarea
+                                value={edu.details}
+                                onChange={(e) => {
+                                  const edus = [...cv.document.education];
+                                  edus[eduIdx] = { ...edu, details: e.target.value };
+                                  updateDocumentField("education", edus);
+                                }}
+                                className="block w-full min-w-0 max-w-full bg-transparent text-[11px] leading-snug text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm whitespace-pre-wrap"
+                                placeholder="Additional education details"
+                              />
+                            ) : null}
                           </div>
+                          </Fragment>
                         ))}
                       </div>
                     )}
@@ -7792,7 +7814,9 @@ export default function CvBuilderPage() {
                     <A4PageSpacer id="languages" height={a4Spacers.languages || 0} />
                   <section
                     data-a4-id="languages"
-                    className={`relative group/section cv-a4-keep min-w-0 space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.languages || []).length === 0 ? "hidden" : ""}`}
+                    data-a4-flow={supportsContinuousPageFlow ? "auto" : undefined}
+                    className={`relative group/section min-w-0 space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.languages || []).length === 0 ? "hidden" : ""}`}
+                    style={supportsContinuousPageFlow ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}
                   >
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
@@ -7828,11 +7852,12 @@ export default function CvBuilderPage() {
                               languages[lIdx] = event.currentTarget.textContent || "";
                               updateDocumentField("languages", languages);
                             }}
-                            className="cv-skill-chip rounded-lg border px-2.5 py-0.5 text-[11px] font-medium"
+                            className="cv-skill-chip min-w-0 max-w-full rounded-lg border px-2.5 py-0.5 text-[11px] font-medium whitespace-normal break-words"
                             style={{
                               backgroundColor: selectedColor.secondary,
                               borderColor: selectedColor.border,
                               color: selectedColor.primary,
+                              overflowWrap: "anywhere",
                             }}
                           >
                             {lang}
@@ -7844,11 +7869,37 @@ export default function CvBuilderPage() {
                   </>
                 );
 
-                const renderReferences = cv.document.references || [];
+                const rawReferences = cv.document.references || [];
+                const referenceDetails = cv.document.referenceDetails || [];
+                const referenceText = (detail: CvReferenceDetail) =>
+                  [detail.name, detail.title, detail.company, detail.phone]
+                    .map((value) => value?.trim())
+                    .filter((value): value is string => Boolean(value))
+                    .join(" · ");
+                const renderReferences = [
+                  ...rawReferences.map((reference) => {
+                    const normalizedReference = reference.toLocaleLowerCase();
+                    const matchingDetails = referenceDetails.find((detail) =>
+                      detail.name.trim() && normalizedReference.includes(detail.name.trim().toLocaleLowerCase()),
+                    );
+                    if (!matchingDetails) return reference;
+                    const additionalDetails = [matchingDetails.title, matchingDetails.company, matchingDetails.phone]
+                      .map((value) => value?.trim())
+                      .filter((value): value is string => Boolean(value))
+                      .filter((value) => !normalizedReference.includes(value.toLocaleLowerCase()));
+                    return additionalDetails.length ? `${reference} · ${additionalDetails.join(" · ")}` : reference;
+                  }),
+                  ...referenceDetails
+                    .filter((detail) => detail.name.trim())
+                    .filter((detail) => !rawReferences.some((reference) =>
+                      reference.toLocaleLowerCase().includes(detail.name.trim().toLocaleLowerCase()),
+                    ))
+                    .map(referenceText),
+                ];
                 const referencesSection = visibleSections.references && (
                   <>
                     <A4PageSpacer id="references" height={a4Spacers.references || 0} />
-                  <section data-a4-id="references" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${renderReferences.length === 0 ? "hidden" : ""}`}>
+                  <section data-a4-id="references" data-a4-flow={supportsContinuousPageFlow ? "auto" : undefined} className={`relative group/section space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${renderReferences.length === 0 ? "hidden" : ""}`} style={supportsContinuousPageFlow ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -8363,12 +8414,12 @@ export default function CvBuilderPage() {
                       <div
                         className="relative grid items-start"
                         data-template-body-layout={selectedTemplateDesign ? "double" : undefined}
-                        style={{ gridTemplateColumns: `minmax(0, ${layoutColumnRatio}fr) minmax(0, ${100 - layoutColumnRatio}fr)`, gap: isCompact ? 20 : 32 }}
+                        style={{ gridTemplateColumns: `minmax(0, ${layoutColumnRatio}fr) minmax(0, ${100 - layoutColumnRatio}fr)`, gap: isCompact ? 20 : 32, ...(supportsContinuousPageFlow ? { breakInside: "auto", pageBreakInside: "auto" } : {}) }}
                       >
                         <div
                           className="min-w-0"
                           data-template-sidebar={selectedTemplateDesign?.sidebarSide === "left" ? "true" : undefined}
-                          style={{ display: "flex", flexDirection: "column", gap: sectionSpacing, ...(selectedTemplateDesign?.sidebarSide === "left" ? { backgroundColor: selectedTemplateDesign.sidebarColor, padding: "0.5rem" } : {}) }}
+                          style={{ display: "flex", flexDirection: "column", gap: sectionSpacing, ...(supportsContinuousPageFlow ? { breakInside: "auto", pageBreakInside: "auto" } : {}), ...(selectedTemplateDesign?.sidebarSide === "left" ? { backgroundColor: selectedTemplateDesign.sidebarColor, padding: "0.5rem" } : {}) }}
                         >
                           {leftColumnKeys.map(renderCanvasSection)}
                         </div>
@@ -8393,7 +8444,7 @@ export default function CvBuilderPage() {
                         <div
                           className="min-w-0"
                           data-template-sidebar={selectedTemplateDesign?.sidebarSide === "right" ? "true" : undefined}
-                          style={{ display: "flex", flexDirection: "column", gap: sectionSpacing, ...(selectedTemplateDesign?.sidebarSide === "right" ? { backgroundColor: selectedTemplateDesign.sidebarColor, padding: "0.5rem" } : {}) }}
+                          style={{ display: "flex", flexDirection: "column", gap: sectionSpacing, ...(supportsContinuousPageFlow ? { breakInside: "auto", pageBreakInside: "auto" } : {}), ...(selectedTemplateDesign?.sidebarSide === "right" ? { backgroundColor: selectedTemplateDesign.sidebarColor, padding: "0.5rem" } : {}) }}
                         >
                           {rightColumnKeys.map(renderCanvasSection)}
                         </div>

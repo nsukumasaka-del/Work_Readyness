@@ -213,6 +213,45 @@ describe("safe CV tailoring and references", () => {
     assert.deepEqual(tailored.experiences[0]?.bullets, document.experiences[0]?.bullets);
   });
 
+  it("reorders only the complete existing experience set and preserves each role's identity", () => {
+    const source = {
+      ...document,
+      experiences: [
+        ...document.experiences,
+        { id: "exp-2", role: "Assistant", company: "North Star", startDate: "2020", endDate: "2021", bullets: ["Maintained customer records."], classification: "VERIFIED" as const },
+      ],
+    };
+    const tailored = applyTailoredContentToCv(source, {
+      experiences: [
+        { id: "exp-2", bullets: ["Maintained accurate customer records."] },
+        { id: "exp-1", bullets: ["Resolved customer queries for logistics clients."] },
+      ],
+    });
+
+    assert.deepEqual(tailored.experiences.map((item) => item.id), ["exp-2", "exp-1"]);
+    assert.equal(tailored.experiences[0]?.company, "North Star");
+    assert.equal(tailored.experiences[0]?.bullets[0], "Maintained accurate customer records.");
+  });
+
+  it("keeps the original experience order if the tailoring response omits or duplicates an entry", () => {
+    const source = {
+      ...document,
+      experiences: [
+        ...document.experiences,
+        { id: "exp-2", role: "Assistant", company: "North Star", startDate: "2020", endDate: "2021", bullets: ["Maintained customer records."], classification: "VERIFIED" as const },
+      ],
+    };
+    const tailored = applyTailoredContentToCv(source, {
+      experiences: [
+        { id: "exp-2", bullets: ["Maintained accurate customer records."] },
+        { id: "exp-2", bullets: ["Duplicate entry."] },
+      ],
+    });
+
+    assert.deepEqual(tailored.experiences.map((item) => item.id), ["exp-1", "exp-2"]);
+    assert.deepEqual(tailored.experiences[0]?.bullets, source.experiences[0]?.bullets);
+  });
+
   it("removes concatenated multi-column reference fragments", () => {
     const references = normalizeReferenceEntries([
       "Jacky van Rooyan, Team Leader, DSV Road Brokerage, 082 320 1339",
@@ -375,7 +414,9 @@ describe("strict ATS role alignment", () => {
     const report = matchJobDescription(
       logisticsCv,
       "Commercial Pilot\nMust hold a valid CPL or ATPL and have documented flight-deck experience.",
+      "Commercial Pilot",
     );
+    assert.equal(report.jobTitle, "Commercial Pilot");
     assert.equal(report.hard_requirements_met, false);
     assert.ok(report.overallMatch <= 15);
     assert.equal(report.match_rate_percentage, report.overallMatch);

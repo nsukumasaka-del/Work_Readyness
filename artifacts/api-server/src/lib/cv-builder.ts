@@ -331,16 +331,28 @@ export function applyTailoredContentToCv(
 
   const rewrites = Array.isArray(tailored.experiences) ? tailored.experiences : [];
   const byId = new Map<string, string[]>();
+  const orderedIds: string[] = [];
   for (const candidate of rewrites) {
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
     const record = candidate as Record<string, unknown>;
     const id = typeof record.id === "string" ? record.id : "";
-    const bullets = Array.isArray(record.bullets)
-      ? record.bullets.map((bullet) => typeof bullet === "string" ? bullet.trim() : "").filter(Boolean)
-      : [];
-    if (id && bullets.length) byId.set(id, bullets);
+    if (!id || !Array.isArray(record.bullets)) continue;
+    const bullets = record.bullets.map((bullet) => typeof bullet === "string" ? bullet.trim() : "");
+    if (bullets.some((bullet) => !bullet)) continue;
+    if (byId.has(id)) continue;
+    byId.set(id, bullets);
+    orderedIds.push(id);
   }
-  output.experiences = output.experiences.map((experience) => {
+  const originalExperiences = output.experiences;
+  const originalById = new Map(originalExperiences.map((experience) => [experience.id, experience]));
+  const validOrder = originalExperiences.length === orderedIds.length &&
+    originalById.size === originalExperiences.length &&
+    new Set(orderedIds).size === originalExperiences.length &&
+    orderedIds.every((id) => originalById.has(id));
+  const orderedExperiences = validOrder
+    ? orderedIds.map((id) => originalById.get(id)!)
+    : originalExperiences;
+  output.experiences = orderedExperiences.map((experience) => {
     const bullets = byId.get(experience.id);
     // Exact cardinality prevents Gemini from dropping or adding claims.
     return bullets?.length === experience.bullets.length ? { ...experience, bullets } : experience;
@@ -2244,13 +2256,14 @@ export function evaluateQualityScore(
 export function matchJobDescription(
   cv: GeneratedCvDocument,
   jobDescriptionText: string,
+  targetRole?: string,
 ): JobMatchReport {
   const jdText = jobDescriptionText.trim();
   const lowerJd = jdText.toLowerCase();
 
   // Extract job title from first 200 characters if possible
   const firstLine = jdText.split("\n")[0] || "Target Role";
-  const jobTitle = firstLine.length < 80 ? firstLine.replace(/job description|vacancy|role|position/gi, "").trim() : cv.headline;
+  const jobTitle = targetRole?.trim() || (firstLine.length < 80 ? firstLine.replace(/job description|vacancy|role|position/gi, "").trim() : cv.headline);
 
   const cvFullText = (
     cv.headline +

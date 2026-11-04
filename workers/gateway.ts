@@ -245,7 +245,8 @@ async function handleCvAssistant(request: Request, env: Env, task: CvAssistantTa
   const cv = submittedCv && typeof submittedCv === "object" && !Array.isArray(submittedCv) ? submittedCv : {};
   const evidence: Record<string, unknown> = {
     cvDocument: cv,
-    targetRole: text(input.targetRole || input.role || (cv as Record<string, unknown>).headline, 160),
+    targetRole: text(input.targetRole || input.role, 160),
+    targetCompany: text(input.targetCompany, 160),
     jobDescription: text(input.jobDescription || input.targetJob, 8_000),
     question: text(input.question, 2_000),
     text: text(input.text, 5_000),
@@ -263,7 +264,7 @@ async function handleCvAssistant(request: Request, env: Env, task: CvAssistantTa
   }
   try {
     const deterministicBaseline: JobMatchReport | undefined = task === "tailor"
-      ? matchJobDescription(cv as GeneratedCvDocument, String(evidence.jobDescription))
+      ? matchJobDescription(cv as GeneratedCvDocument, String(evidence.jobDescription), String(evidence.targetRole || ""))
       : undefined;
     if (deterministicBaseline) evidence.baseline = deterministicBaseline;
     let result = await generateCvAssistantJson<Record<string, unknown>>({

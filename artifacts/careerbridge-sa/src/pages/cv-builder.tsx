@@ -2530,7 +2530,10 @@ export default function CvBuilderPage() {
 
   // Job Tailoring
   const [jobDescription, setJobDescription] = useState("");
+  const [targetJobTitle, setTargetJobTitle] = useState("");
+  const [targetCompany, setTargetCompany] = useState("");
   const [tailoringReport, setTailoringReport] = useState<JobMatchReport | null>(null);
+  const [tailoringSourceDocument, setTailoringSourceDocument] = useState<GeneratedCvDocument | null>(null);
   const [tailoringLoading, setTailoringLoading] = useState(false);
 
   // Smart Bullet Enhancement Modal
@@ -4942,6 +4945,8 @@ export default function CvBuilderPage() {
           body: JSON.stringify({
             cvData: cv.document,
             jobDescription,
+            targetRole: targetJobTitle.trim(),
+            targetCompany: targetCompany.trim(),
             creditConsent: true,
             idempotencyKey,
           }),
@@ -4952,6 +4957,7 @@ export default function CvBuilderPage() {
           body: JSON.stringify({
             cvDocument: cv.document,
             jobDescription,
+            targetRole: targetJobTitle.trim(),
           }),
         }).catch(() => null),
         authFetch("/api/career/cv/transferable-skills", {
@@ -4959,13 +4965,14 @@ export default function CvBuilderPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             cvDocument: cv.document,
-            targetRoleOrIndustry: cv.document.headline,
+            targetRoleOrIndustry: targetJobTitle.trim() || cv.document.headline,
           }),
         }).catch(() => null),
       ]);
 
       if (resTailor.ok) {
         const data = (await resTailor.json()) as JobMatchReport;
+        setTailoringSourceDocument(cv.document);
         setTailoringReport(data);
         if (data.tailoredCvDocument) {
           recordChange("Tailored CV to target job description");
@@ -4974,7 +4981,7 @@ export default function CvBuilderPage() {
           setCv(updatedCv);
           persistGeneratedCv(updatedCv);
           void runQualityEvaluation(tailoredDocument, jobDescription);
-          setMessage("CV tailored to the job description. All original sections and factual details were preserved.");
+          setMessage("Tailored CV is ready in the live preview. Review the changes, then save or export when ready.");
           setTimeout(() => setMessage(""), 4500);
         }
         void fetchMonetizationStatus().then((next) => { setMonetization(next); window.dispatchEvent(new Event("bonlist-monetization-updated")); }).catch(() => undefined);
@@ -6660,7 +6667,7 @@ export default function CvBuilderPage() {
                     ATS Score & Preview
                   </button>
                   <button type="button" onClick={() => setShowJobMatchDrawer(true)} className="rounded-lg border border-border px-2.5 py-2 font-semibold text-foreground hover:bg-secondary">
-                    Job Match
+                    Tailor to Job
                   </button>
                   <button type="button" onClick={() => setActiveNavPanel("ai")} className="col-span-2 rounded-lg border border-border px-2.5 py-2 font-semibold text-foreground hover:bg-secondary">
                     AI Tools & Career Advisor
@@ -8690,7 +8697,7 @@ export default function CvBuilderPage() {
                 </span>
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
-                    Job Match & Keyword Engine
+                    Tailor to Job
                   </h3>
                   <p className="text-[10px] text-muted-foreground">6-Tier Requirements & Highlighting</p>
                 </div>
@@ -8705,11 +8712,31 @@ export default function CvBuilderPage() {
             </div>
 
             <div className="space-y-4 text-xs">
+              <input
+                type="text"
+                maxLength={160}
+                value={targetJobTitle}
+                onChange={(event) => setTargetJobTitle(event.target.value)}
+                placeholder="Target job title (optional)"
+                aria-label="Target job title"
+                className="w-full rounded-xl border border-border bg-background p-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <input
+                type="text"
+                maxLength={160}
+                value={targetCompany}
+                onChange={(event) => setTargetCompany(event.target.value)}
+                placeholder="Target company (optional)"
+                aria-label="Target company"
+                className="w-full rounded-xl border border-border bg-background p-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
               <textarea
-                rows={4}
+                rows={6}
+                maxLength={8000}
                 value={jobDescription}
                 onChange={(e) => setJobDescription(e.target.value)}
                 placeholder="Paste the target job description or requirements here..."
+                aria-label="Target job description"
                 className="w-full rounded-xl border border-border bg-background p-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
 
@@ -8719,8 +8746,71 @@ export default function CvBuilderPage() {
                 onClick={() => void handleRunTailoring()}
                 className="w-full rounded-xl bg-primary py-2 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-50"
               >
-                {tailoringLoading ? "Analysing role fit…" : monetization.adminBypass ? "Tailor CV · Admin access" : `Tailor CV to this job · ${monetization.features.find((item) => item.id === "tailor_cv")?.creditCost ?? 3} credits`}
+                {tailoringLoading ? "Tailoring your CV…" : monetization.adminBypass ? "Tailor CV · Admin access" : `Tailor CV · ${monetization.features.find((item) => item.id === "tailor_cv")?.creditCost ?? 3} credits`}
               </button>
+
+              {tailoringReport?.tailoredCvDocument && tailoringSourceDocument && (
+                <section aria-label="Tailored CV changes" className="space-y-3 rounded-xl border border-primary/25 bg-primary/5 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="font-bold text-foreground">Tailored live preview</h4>
+                    <span className="rounded-full bg-primary/10 px-2 py-1 font-bold text-primary">
+                      {tailoringReport.overallMatch}% match
+                    </span>
+                  </div>
+                  <p className="text-[10px] leading-relaxed text-muted-foreground">
+                    Review these changes in the canvas. Save or export when ready; the job title and company are context only and are not added as past experience.
+                  </p>
+                  <details open className="rounded-lg border border-border bg-card p-2.5">
+                    <summary className="cursor-pointer font-semibold text-foreground">Professional summary</summary>
+                    <div className="mt-2 space-y-2">
+                      <p className="text-muted-foreground"><span className="font-semibold">Before:</span> {tailoringSourceDocument.summary || "No summary"}</p>
+                      <p className="text-foreground"><span className="font-semibold">After:</span> {tailoringReport.tailoredCvDocument.summary || "No summary"}</p>
+                    </div>
+                  </details>
+                  <details className="rounded-lg border border-border bg-card p-2.5">
+                    <summary className="cursor-pointer font-semibold text-foreground">
+                      Experience changes ({tailoringReport.tailoredCvDocument.experiences.filter((experience) =>
+                        JSON.stringify(experience.bullets) !== JSON.stringify(tailoringSourceDocument.experiences.find((original) => original.id === experience.id)?.bullets),
+                      ).length})
+                    </summary>
+                    <div className="mt-2 max-h-64 space-y-2 overflow-y-auto">
+                      {tailoringReport.tailoredCvDocument.experiences.map((experience) => {
+                        const original = tailoringSourceDocument.experiences.find((item) => item.id === experience.id);
+                        if (!original || JSON.stringify(original.bullets) === JSON.stringify(experience.bullets)) return null;
+                        return (
+                          <div key={experience.id} className="rounded-lg border border-border p-2">
+                            <p className="font-semibold text-foreground">{experience.role || experience.company || "Experience"}</p>
+                            {experience.bullets.map((bullet, index) => (
+                              bullet !== original.bullets[index] ? (
+                                <div key={`${experience.id}-${index}`} className="mt-1 space-y-1">
+                                  <p className="text-muted-foreground"><span className="font-semibold">Before:</span> {original.bullets[index] || "—"}</p>
+                                  <p className="text-foreground"><span className="font-semibold">After:</span> {bullet}</p>
+                                </div>
+                              ) : null
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </details>
+                  {tailoringSourceDocument.experiences.some((experience, index) =>
+                    experience.id !== tailoringReport.tailoredCvDocument?.experiences[index]?.id,
+                  ) && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Experience entries were reordered by relevance. The live preview reflects the new order.
+                    </p>
+                  )}
+                  <details className="rounded-lg border border-border bg-card p-2.5">
+                    <summary className="cursor-pointer font-semibold text-foreground">Relevant skills reordered</summary>
+                    <p className="mt-2 text-foreground">{tailoringReport.tailoredCvDocument.skills.join(" · ") || "No skills listed"}</p>
+                  </details>
+                  {!tailoringReport.hard_requirements_met && (
+                    <p role="status" className="rounded-lg bg-amber-500/10 p-2 text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                      The CV does not show all mandatory qualifications. Tailoring does not add missing credentials or experience.
+                    </p>
+                  )}
+                </section>
+              )}
 
               {advancedMatchReport && (
                 <div className="space-y-3 pt-2">

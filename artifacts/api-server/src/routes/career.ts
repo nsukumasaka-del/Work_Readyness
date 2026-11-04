@@ -2052,13 +2052,25 @@ router.post("/career/cv/improve", async (req, res) => {
 router.post("/career/cv/tailor", async (req, res) => {
   const cvDocument = (req.body?.cvData || req.body?.cvDocument) as GeneratedCvDocument;
   const jobDescription = String(req.body?.jobDescription || "").trim();
+  const targetRole = String(req.body?.targetRole || "").trim().slice(0, 160);
+  const targetCompany = String(req.body?.targetCompany || "").trim().slice(0, 160);
   if (!cvDocument || !jobDescription) {
     res.status(400).json({ error: "cvData and jobDescription are required" });
     return;
   }
+  if (jobDescription.length > 8_000) {
+    res.status(400).json({ error: "The job description must be 8,000 characters or fewer." });
+    return;
+  }
   try {
-    const baseline = matchJobDescription(cvDocument, jobDescription);
-    const generated = enforceTailorMatchGuardrail(await runCvAssistant("tailor", { cvDocument, jobDescription, baseline }), baseline);
+    const baseline = matchJobDescription(cvDocument, jobDescription, targetRole);
+    const generated = enforceTailorMatchGuardrail(await runCvAssistant("tailor", {
+      cvDocument,
+      jobDescription,
+      targetRole,
+      targetCompany,
+      baseline,
+    }), baseline);
     if (!Array.isArray(generated.proposals)) throw new Error("Gemini returned an invalid tailoring report.");
     if (!generated.tailoredContent || typeof generated.tailoredContent !== "object" || Array.isArray(generated.tailoredContent)) throw new Error("Gemini returned invalid tailored CV content.");
     const tailoredCvDocument = applyTailoredContentToCv(cvDocument, generated.tailoredContent as Record<string, unknown> | undefined);

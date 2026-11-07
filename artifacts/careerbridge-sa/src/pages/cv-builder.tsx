@@ -2241,6 +2241,64 @@ function offsetWithinRoot(el: HTMLElement, root: HTMLElement): { top: number; he
   };
 }
 
+const cvPageFlowBaseMargins = new WeakMap<HTMLElement, number>();
+
+function applyCvPreviewPageFlow(root: HTMLElement, enabled: boolean): void {
+  const items = Array.from(root.querySelectorAll<HTMLElement>("[data-cv-page-flow-item]"));
+  const flowElements = new Set<HTMLElement>(items);
+  const headings = new Map<HTMLElement, HTMLElement>();
+
+  for (const item of items) {
+    const section = item.closest<HTMLElement>("section[data-a4-id]");
+    if (!section || section.querySelector("[data-cv-page-flow-item]") !== item || item.querySelector("[data-cv-page-flow-heading]")) {
+      continue;
+    }
+    const heading = section.querySelector<HTMLElement>("[data-cv-page-flow-heading]");
+    const headingWrapper = heading?.parentElement;
+    if (headingWrapper && !item.contains(headingWrapper)) {
+      headings.set(item, headingWrapper);
+      flowElements.add(headingWrapper);
+    }
+  }
+
+  for (const element of flowElements) {
+    let baseMargin = cvPageFlowBaseMargins.get(element);
+    if (baseMargin === undefined) {
+      baseMargin = Number.parseFloat(getComputedStyle(element).marginBlockStart) || 0;
+      cvPageFlowBaseMargins.set(element, baseMargin);
+    }
+    element.style.marginBlockStart = `${baseMargin}px`;
+  }
+
+  if (!enabled || !items.length) return;
+
+  const pageHeightPx = 297 * 96 / 25.4;
+  const rootRect = root.getBoundingClientRect();
+  const scale = rootRect.width / Math.max(root.offsetWidth, 1) || 1;
+  const pageHeight = pageHeightPx * scale;
+  const style = getComputedStyle(root);
+  const paddingTop = (Number.parseFloat(style.paddingTop) || 0) * scale;
+  const paddingBottom = (Number.parseFloat(style.paddingBottom) || 0) * scale;
+
+  for (const item of items) {
+    if (!item.getClientRects().length || getComputedStyle(item).display === "none") continue;
+    const headingWrapper = headings.get(item);
+    const movingElement = headingWrapper || item;
+    const movingRect = movingElement.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    const top = Math.min(movingRect.top, itemRect.top);
+    const bottom = Math.max(movingRect.bottom, itemRect.bottom);
+    const pageIndex = Math.max(0, Math.floor((top - rootRect.top) / pageHeight));
+    const safeBottom = rootRect.top + (pageIndex + 1) * pageHeight - paddingBottom;
+
+    if (bottom <= safeBottom + 1) continue;
+
+    const nextPageContentTop = rootRect.top + (pageIndex + 1) * pageHeight + paddingTop;
+    const currentBaseMargin = cvPageFlowBaseMargins.get(movingElement) || 0;
+    movingElement.style.marginBlockStart = `${currentBaseMargin + Math.max(0, nextPageContentTop - top)}px`;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main CvBuilderPage Component
 // ---------------------------------------------------------------------------
@@ -5712,6 +5770,10 @@ export default function CvBuilderPage() {
     let ro: ResizeObserver | null = null;
 
     const updateMetrics = () => {
+      applyCvPreviewPageFlow(
+        el,
+        selectedTemplate === "minimal" || selectedTemplate === "serif_classic" || selectedTemplate === "stylish",
+      );
       const { pageHeightPx: pagePx, naturalHeight, naturalPages } = measureCvPages(el);
       const lead = managedPages.length ? Math.max(0, naturalPages * pagePx - naturalHeight) : 0;
       const pages = naturalPages + managedPages.length;
@@ -7101,6 +7163,7 @@ export default function CvBuilderPage() {
                   const displayTitle = sectionLabels[title] || title;
                   const headingEditProps = {
                     "data-inline-editable": "true",
+                    "data-cv-page-flow-heading": title,
                     contentEditable: isEditMode ? true : undefined,
                     suppressContentEditableWarning: true,
                     onBlur: (event: ReactFocusEvent<HTMLHeadingElement>) => {
@@ -7199,6 +7262,7 @@ export default function CvBuilderPage() {
                   <>
                   <section
                     data-a4-id="summary"
+                    data-cv-page-flow-item="summary"
                     className={`relative group/section cv-a4-keep transition-all ${
                       !scrubCvText(cv.document.summary) ? "no-print" : ""
                     } ${
@@ -7292,6 +7356,7 @@ export default function CvBuilderPage() {
                         <Fragment key={exp.id || expIdx}>
                         <div
                           data-a4-id={isStylish ? `exp-${expIdx}-header` : undefined}
+                          data-cv-page-flow-item="experience"
                           className="cv-item experience-entry group/role relative space-y-1.5"
                         >
                         <div data-a4-id={isStylish ? undefined : `exp-${expIdx}-header`} className="experience-item cv-a4-keep relative space-y-1.5">
@@ -7466,7 +7531,7 @@ export default function CvBuilderPage() {
                 const renderSkills = cv.document.skills || [];
                 const skillsSection = visibleSections.skills && (
                   <>
-                  <section data-a4-id="skills" data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined} className={`relative group/section min-w-0 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""}`} style={supportsContinuousPageFlow && !isStylish ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
+                  <section data-a4-id="skills" data-cv-page-flow-item="skills" data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined} className={`relative group/section min-w-0 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""}`} style={supportsContinuousPageFlow && !isStylish ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -7565,6 +7630,7 @@ export default function CvBuilderPage() {
                           <Fragment key={edu.id || eduIdx}>
                           <div
                             data-a4-id={`education-${eduIdx}`}
+                            data-cv-page-flow-item="education"
                             className="cv-item education-entry education-item cv-a4-keep text-xs overflow-visible group/edu relative"
                           >
                             {isTimeline && (
@@ -7664,7 +7730,8 @@ export default function CvBuilderPage() {
                         {(cv.document.projects || []).map((proj, pIdx) => (
                           <div
                             key={proj.id || pIdx}
-                            className="group/project relative space-y-1 text-xs"
+                            data-cv-page-flow-item="project"
+                            className="cv-item group/project relative space-y-1 text-xs"
                           >
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <input
@@ -7737,7 +7804,7 @@ export default function CvBuilderPage() {
                       {renderSectionHeading("Certifications & Accreditations")}
                       <div className="space-y-1.5">
                         {visibleCertifications.map((cert, index) => (
-                          <div key={cert.id || index} className="cv-certification-row flex min-w-0 items-baseline gap-x-2 text-xs leading-snug">
+                          <div key={cert.id || index} data-cv-page-flow-item="certification" className="cv-item cv-certification-row flex min-w-0 items-baseline gap-x-2 text-xs leading-snug">
                             <div className="min-w-0 flex-1 break-words">
                               <span className="font-semibold text-slate-900">{cert.name}</span>
                               {cert.issuer?.trim() ? <span className="text-slate-600">{"\u00a0·\u00a0"}{cert.issuer}</span> : null}
@@ -7753,6 +7820,7 @@ export default function CvBuilderPage() {
                   <>
                   <section
                     data-a4-id="languages"
+                    data-cv-page-flow-item="languages"
                     data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined}
                     className={`relative group/section min-w-0 space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""} ${(cv.document.languages || []).length === 0 ? "hidden" : ""}`}
                     style={supportsContinuousPageFlow && !isStylish ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}
@@ -7868,6 +7936,7 @@ export default function CvBuilderPage() {
                               updateDocumentField("references", refs);
                             }}
                             data-a4-id={`reference-${rIdx}`}
+                            data-cv-page-flow-item="reference"
                             className="cv-item reference-entry block w-full min-w-0 max-w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent text-xs leading-snug text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
                             style={{ overflowWrap: "anywhere" }}
                             placeholder="Referee details or 'Available upon request'"
@@ -7883,6 +7952,7 @@ export default function CvBuilderPage() {
                   <Fragment key={`${section.heading}-${sectionIndex}`}>
                   <section
                     data-a4-id={`custom-${sectionIndex}`}
+                    data-cv-page-flow-item="custom"
                     className="group/custom relative space-y-2 rounded-xl p-1 transition hover:bg-slate-50/50"
                   >
                     <div className="flex items-center gap-2">

@@ -53,7 +53,7 @@ function createPdfPreviewClone(source: HTMLElement): HTMLElement {
     element.style.setProperty("page-break-inside", "auto", "important");
   });
   clone.querySelectorAll<HTMLElement>(
-    "h1, h2, h3, .cv-item, .experience-entry, .education-entry, .reference-entry, .experience-item, .education-item, [data-a4-id^='reference-'], [role='listitem'], li",
+    "h1, h2, h3, .cv-item, .experience-entry, .education-entry, .reference-entry, .experience-item, .education-item, [data-cv-page-flow-item], [data-a4-id^='reference-'], [role='listitem'], li",
   ).forEach((element) => {
     element.style.setProperty("break-inside", "avoid", "important");
     element.style.setProperty("page-break-inside", "avoid", "important");
@@ -107,6 +107,7 @@ export async function exportCvVisualPdf(
           ".reference-entry",
           ".experience-item",
           ".education-item",
+          "[data-cv-page-flow-item]",
           "[role='listitem']",
           "li",
           "h1",
@@ -147,6 +148,7 @@ export async function exportCvVisualPdf(
             #bonlist-cv-document-export .experience-entry,
             #bonlist-cv-document-export .education-entry,
             #bonlist-cv-document-export .reference-entry,
+            #bonlist-cv-document-export [data-cv-page-flow-item],
             #bonlist-cv-document-export .experience-item,
             #bonlist-cv-document-export .education-item,
             #bonlist-cv-document-export [data-a4-id^="reference-"],

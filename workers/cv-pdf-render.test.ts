@@ -44,6 +44,25 @@ test("respects hidden section preferences in the generated PDF", () => {
   assert.ok(!html.includes("Professional Skills"));
 });
 
+test("deduplicates education, experience, and skills by their displayed content", () => {
+  const html = buildCvPdfHtml({
+    fullName: "Ada Lovelace",
+    experiences: [
+      { id: "exp-1", role: "Engineer", company: "Analytical Engines", startDate: "1842", endDate: "1843", bullets: ["Built systems."] },
+      { id: "exp-copy", role: "Engineer", company: "Analytical Engines", startDate: "1842", endDate: "1843", bullets: ["Built systems."] },
+    ],
+    education: [
+      { id: "edu-1", degree: "N2 Certificate", institution: "Technical College", graduationYear: "2020" },
+      { id: "edu-copy", degree: "N2 Certificate", institution: "Technical College", graduationYear: "2020" },
+    ],
+    skills: ["Maintenance", "Maintenance"],
+  }, {});
+
+  assert.equal((html.match(/class="experience-item"/g) || []).length, 1);
+  assert.equal((html.match(/class="education-item"/g) || []).length, 1);
+  assert.equal((html.match(/>Maintenance<\/span>/g) || []).length, 1);
+});
+
 test("keeps the existing grid layout for non-Stylish double-column templates", () => {
   const html = buildCvPdfHtml({
     fullName: "Ada Lovelace",

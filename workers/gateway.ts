@@ -40,7 +40,6 @@ export interface Env extends D1Env {
 
 async function handleCvPdfExport(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") return jsonError(405, "Method not allowed.");
-  if (!env.BROWSER) return jsonError(503, "PDF export is temporarily unavailable.");
   const user = await getAuthenticatedUser(request, env);
   if (!user) return jsonError(401, "Please sign in to export your CV.");
 
@@ -62,6 +61,13 @@ async function handleCvPdfExport(request: Request, env: Env): Promise<Response> 
   if (!await canUseTemplate(env, user, templateId)) {
     return jsonError(402, "Unlock this template once to export and reuse it for life.");
   }
+  if (payload.authorizeOnly === true) {
+    return new Response(null, {
+      status: 204,
+      headers: { "cache-control": "no-store" },
+    });
+  }
+  if (!env.BROWSER) return jsonError(503, "PDF export is temporarily unavailable.");
   let html: string;
   try {
     html = buildCvPdfHtml(payload.document, payload.appearance);

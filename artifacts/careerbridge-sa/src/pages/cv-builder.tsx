@@ -93,7 +93,7 @@ import { getNativeCv, NATIVE_CV_STORE_UPDATED, saveNativeCv } from "@/lib/native
 import { isAndroidApp } from "@/lib/platform";
 import { EMPTY_MONETIZATION, fetchMonetizationStatus, templateAccess, type MonetizationStatus } from "@/lib/monetization";
 import { requestPayment } from '@/lib/yoco';
-import { exportCvVisualPdf, measureCvPages, computeCvPageSpacers, type CvPdfExportStage } from "@/utils/export-cv-visual-pdf";
+import { exportCvVisualPdf, measureCvPages, type CvPdfExportStage } from "@/utils/export-cv-visual-pdf";
 import { sanitizeSkillBadge } from "@/utils/sanitizeSkills";
 import {
   buildGeneratedCv as buildGeneratedCvLocally,
@@ -499,15 +499,29 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     }
     return Array.from(byKey.values());
   };
-  const uniqueExperiences = dedupeBy(experiences, (item) => item.id || [item.role, item.company, item.startDate, item.endDate].join("|"), (previous, next) => ({
+  const experienceIdentity = (item: CvExperienceItem) => {
+    const identity = [item.role, item.company, item.startDate, item.endDate].map(normalizeFactPhrase);
+    return identity.some(Boolean) ? identity.join("|") : item.id;
+  };
+  const educationIdentity = (item: CvEducationItem) => {
+    const identity = [item.degree, item.institution, item.graduationYear].map(normalizeFactPhrase);
+    return identity.some(Boolean) ? identity.join("|") : item.id;
+  };
+  const uniqueExperiences = dedupeBy(experiences, experienceIdentity, (previous, next) => ({
     ...previous,
-    ...next,
-    location: next.location || previous.location,
+    role: previous.role || next.role,
+    company: previous.company || next.company,
+    location: previous.location || next.location,
+    startDate: previous.startDate || next.startDate,
+    endDate: previous.endDate || next.endDate,
     bullets: normalizeList([...previous.bullets, ...next.bullets], 1000),
   }));
-  const uniqueEducation = dedupeBy(education, (item) => item.id || [item.degree, item.institution, item.graduationYear].join("|"), (previous, next) => ({
+  const uniqueEducation = dedupeBy(education, educationIdentity, (previous, next) => ({
     ...previous,
-    ...next,
+    degree: previous.degree || next.degree,
+    institution: previous.institution || next.institution,
+    location: previous.location || next.location,
+    graduationYear: previous.graduationYear || next.graduationYear,
     details: [previous.details, next.details].filter(Boolean).filter((value, index, all) => all.indexOf(value) === index).join(" · ") || undefined,
   }));
 
@@ -2227,52 +2241,6 @@ function offsetWithinRoot(el: HTMLElement, root: HTMLElement): { top: number; he
   };
 }
 
-/** Prefer keeping previous spacer when the delta is small — prevents A4 shake loops. */
-function spacersEqual(a: Record<string, number>, b: Record<string, number>): boolean {
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((k) => Math.abs((a[k] || 0) - (b[k] || 0)) <= 10);
-}
-
-function mergeSpacersStable(
-  prev: Record<string, number>,
-  next: Record<string, number>,
-): Record<string, number> {
-  if (spacersEqual(prev, next)) return prev;
-  const merged: Record<string, number> = {};
-  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
-  for (const key of keys) {
-    const a = prev[key] || 0;
-    const b = next[key] || 0;
-    // Keep previous value unless the new push differs enough (hysteresis)
-    merged[key] = Math.abs(a - b) <= 10 ? a : Math.round(b);
-    if (merged[key]! <= 2) delete merged[key];
-  }
-  return merged;
-}
-
-/**
- * Compute blank space BEFORE each [data-a4-id] block so the whole block starts on
- * the next A4 page when it would otherwise split. Measures with existing spacers
- * collapsed so results are stable (no measure→push→remeasure oscillation).
- */
-function computeA4Spacers(root: HTMLElement): Record<string, number> {
-  return computeCvPageSpacers(root, true);
-}
-
-function A4PageSpacer({ id, height }: { id: string; height: number }) {
-  if (height <= 0) return null;
-  return (
-    <div
-      data-a4-spacer={id}
-      className="cv-a4-spacer pointer-events-none !mt-0 !mb-0"
-      style={{ height, width: "100%", flexShrink: 0, overflow: "hidden" }}
-      aria-hidden
-    />
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Main CvBuilderPage Component
 // ---------------------------------------------------------------------------
@@ -2289,7 +2257,6 @@ export default function CvBuilderPage() {
   const [a4PageCount, setA4PageCount] = useState(1);
   const [naturalA4PageCount, setNaturalA4PageCount] = useState(1);
   const [managedPageLeadPx, setManagedPageLeadPx] = useState(0);
-  const [a4Spacers, setA4Spacers] = useState<Record<string, number>>({});
   const [canvasPageWidthPx, setCanvasPageWidthPx] = useState(794);
   const [draggedCustomSection, setDraggedCustomSection] = useState<number | null>(null);
   const [draggedExperienceIndex, setDraggedExperienceIndex] = useState<number | null>(null);
@@ -5357,20 +5324,8 @@ export default function CvBuilderPage() {
       const templateName = catalogTemplates.find((template) => template.id === selectedTemplate)?.name || "CV";
       const safeTemplateName = templateName.replace(/[^a-z0-9_-]/gi, "_");
       const filename = `${safeBaseName}_${safeTemplateName}`;
-      await exportCvVisualPdf(cv.document, filename, selectedTemplate, {
-        primaryColor: selectedColor.primary,
-        secondaryColor: selectedColor.secondary,
-        borderColor: selectedColor.border,
-        fontId: selectedFont.id,
-        fontSize,
-        marginSize,
-        columns: catalogTemplates.find((template) => template.id === selectedTemplate)?.columns || "single",
-        columnRatio,
-        sectionSpacing,
-        sectionOrder: normalizeCanvasSectionOrder(sectionOrder),
-        visibleSections,
-        templateDesign: selectedTemplateDesign,
-      }, setPdfDownloadStage);
+      if (!printRef.current) throw new Error("The CV preview is not ready to export.");
+      await exportCvVisualPdf(printRef.current, filename, selectedTemplate, setPdfDownloadStage);
       setMessage("Your CV PDF download has started.");
       setTimeout(() => setMessage(""), 4000);
     } catch (exportError) {
@@ -5728,9 +5683,8 @@ export default function CvBuilderPage() {
       const clone = root.cloneNode(true) as HTMLElement;
       clone.removeAttribute("id");
       clone.querySelectorAll("[data-managed-page], .no-print, [data-preview-only='true']").forEach((element) => element.remove());
-      clone.querySelectorAll("[data-a4-id], [data-a4-spacer]").forEach((element) => {
+      clone.querySelectorAll("[data-a4-id]").forEach((element) => {
         element.removeAttribute("data-a4-id");
-        element.removeAttribute("data-a4-spacer");
       });
       clone.style.position = "absolute";
       clone.style.left = "0";
@@ -5742,12 +5696,11 @@ export default function CvBuilderPage() {
     });
   }, [managedPages, cv, selectedTemplate, selectedColor.id, selectedFont.id, fontSize, lineSpacing, marginSize, inlineFormatting, elementPositions, sectionOrder, sectionSpacing, columnRatio, sectionLabels]);
 
-  // Live A4 page count + React spacers that keep sections whole across page breaks
+  // Measure document flow naturally; page breaks are left to CSS and export pagination.
   useLayoutEffect(() => {
     const el = printRef.current;
     if (!el || !cv) {
       setA4PageCount(1);
-      setA4Spacers({});
       return;
     }
 
@@ -5757,7 +5710,6 @@ export default function CvBuilderPage() {
     let applying = false;
     let coolDown = false;
     let ro: ResizeObserver | null = null;
-    let lastApplied: Record<string, number> = {};
 
     const updateMetrics = () => {
       const { pageHeightPx: pagePx, naturalHeight, naturalPages } = measureCvPages(el);
@@ -5774,16 +5726,7 @@ export default function CvBuilderPage() {
       coolDown = true;
       try {
         ro?.disconnect();
-        const nextSpacers = computeA4Spacers(el);
-        const merged = mergeSpacersStable(lastApplied, nextSpacers);
-        if (!spacersEqual(lastApplied, merged)) {
-          lastApplied = merged;
-          setA4Spacers(merged);
-        }
-        // Metrics after layout commits
-        requestAnimationFrame(() => {
-          updateMetrics();
-        });
+        updateMetrics();
       } finally {
         window.clearTimeout(coolDownTimer);
         coolDownTimer = window.setTimeout(() => {
@@ -7254,7 +7197,6 @@ export default function CvBuilderPage() {
 
                 const summarySection = visibleSections.summary && (
                   <>
-                    <A4PageSpacer id="summary" height={a4Spacers.summary || 0} />
                   <section
                     data-a4-id="summary"
                     className={`relative group/section cv-a4-keep transition-all ${
@@ -7314,7 +7256,6 @@ export default function CvBuilderPage() {
 
                 const experienceSection = visibleSections.experience && cv.document.experiences.length > 0 && (
                   <>
-                  {!isStylish && <A4PageSpacer id="experience" height={a4Spacers.experience || 0} />}
                   <section data-a4-id="experience" data-a4-flow={isStylish ? "auto" : undefined} className="relative group/section space-y-4 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
                     {/* Contextual Section Toolbar */}
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1.5 rounded-full border border-border bg-card/95 backdrop-blur-md px-2.5 py-0.5 shadow-sm">
@@ -7349,7 +7290,6 @@ export default function CvBuilderPage() {
                     <div className={isTimeline ? "relative pl-6 border-l-2 ml-2 space-y-6 my-2" : "space-y-4"} style={isTimeline ? { borderColor: selectedColor.border } : {}}>
                       {cv.document.experiences.map((exp, expIdx) => (
                         <Fragment key={exp.id || expIdx}>
-                        <A4PageSpacer id={`exp-${expIdx}-header`} height={a4Spacers[`exp-${expIdx}-header`] || 0} />
                         <div
                           data-a4-id={isStylish ? `exp-${expIdx}-header` : undefined}
                           className="group/role relative space-y-1.5"
@@ -7437,10 +7377,6 @@ export default function CvBuilderPage() {
                           <div role="list" className="min-w-0 space-y-1 pl-0.5">
                             {exp.bullets.map((b, bIdx) => (
                               <Fragment key={bIdx}>
-                              <A4PageSpacer
-                                id={`exp-${expIdx}-bullet-${bIdx}`}
-                                height={a4Spacers[`exp-${expIdx}-bullet-${bIdx}`] || 0}
-                              />
                               <div
                                 role="listitem"
                                 data-a4-id={`exp-${expIdx}-bullet-${bIdx}`}
@@ -7530,7 +7466,6 @@ export default function CvBuilderPage() {
                 const renderSkills = cv.document.skills || [];
                 const skillsSection = visibleSections.skills && (
                   <>
-                    <A4PageSpacer id="skills" height={a4Spacers.skills || 0} />
                   <section data-a4-id="skills" data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined} className={`relative group/section min-w-0 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""}`} style={supportsContinuousPageFlow && !isStylish ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
@@ -7599,7 +7534,6 @@ export default function CvBuilderPage() {
                 const renderEducation = cv.document.education || [];
                 const educationSection = visibleSections.education && (
                   <>
-                    <A4PageSpacer id="education" height={a4Spacers.education || 0} />
                   <section data-a4-id="education" data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined} className={`relative group/section space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""} ${renderEducation.length === 0 ? "hidden" : ""}`} style={supportsContinuousPageFlow && !isStylish ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
@@ -7629,7 +7563,6 @@ export default function CvBuilderPage() {
                       <div className={isTimeline ? "relative pl-6 border-l-2 ml-2 space-y-4 my-2" : "space-y-2"} style={isTimeline ? { borderColor: selectedColor.border } : {}}>
                         {renderEducation.map((edu, eduIdx) => (
                           <Fragment key={edu.id || eduIdx}>
-                          <A4PageSpacer id={`education-${eduIdx}`} height={a4Spacers[`education-${eduIdx}`] || 0} />
                           <div
                             data-a4-id={`education-${eduIdx}`}
                             className="education-item cv-a4-keep text-xs overflow-visible group/edu relative"
@@ -7700,7 +7633,6 @@ export default function CvBuilderPage() {
 
                 const projectsSection = visibleSections.projects && (
                   <>
-                    <A4PageSpacer id="projects" height={a4Spacers.projects || 0} />
                   <section data-a4-id="projects" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.projects || []).length === 0 ? "hidden" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
@@ -7801,7 +7733,6 @@ export default function CvBuilderPage() {
                 const visibleCertifications = (cv.document.certifications || []).filter((cert) => cert.name.trim());
                 const certificationsSection = visibleSections.certifications && visibleCertifications.length > 0 && (
                   <>
-                    <A4PageSpacer id="certifications" height={a4Spacers.certifications || 0} />
                     <section data-a4-id="certifications" className="cv-a4-keep space-y-2 rounded-xl p-1 -m-1">
                       {renderSectionHeading("Certifications & Accreditations")}
                       <div className="space-y-1.5">
@@ -7820,7 +7751,6 @@ export default function CvBuilderPage() {
                 );
                 const languagesSection = visibleSections.languages && (
                   <>
-                    <A4PageSpacer id="languages" height={a4Spacers.languages || 0} />
                   <section
                     data-a4-id="languages"
                     data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined}
@@ -7907,7 +7837,6 @@ export default function CvBuilderPage() {
                 ];
                 const referencesSection = visibleSections.references && (
                   <>
-                    <A4PageSpacer id="references" height={a4Spacers.references || 0} />
                   <section data-a4-id="references" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${renderReferences.length === 0 ? "hidden" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
@@ -7952,7 +7881,6 @@ export default function CvBuilderPage() {
 
                 const customSectionsSection = (cv.document.sections || []).map((section, sectionIndex) => (
                   <Fragment key={`${section.heading}-${sectionIndex}`}>
-                  <A4PageSpacer id={`custom-${sectionIndex}`} height={a4Spacers[`custom-${sectionIndex}`] || 0} />
                   <section
                     data-a4-id={`custom-${sectionIndex}`}
                     className="group/custom relative space-y-2 rounded-xl p-1 transition hover:bg-slate-50/50"

@@ -81,6 +81,27 @@ function records(value: unknown, maxItems = 100): Record<string, unknown>[] {
   return Array.isArray(value) ? value.slice(0, maxItems).filter(isRecord) : [];
 }
 
+function uniqueRecords(value: unknown, fields: string[], maxItems = 100): Record<string, unknown>[] {
+  const seen = new Set<string>();
+  return records(value, maxItems).filter((item) => {
+    const identity = fields.map((field) => text(item[field], 300).toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim()).join("|");
+    const key = identity.replace(/\|/g, "").trim() ? identity : text(item.id, 100).trim().toLocaleLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function uniqueTextList(value: unknown, maxItems: number, maxLength: number): string[] {
+  const seen = new Set<string>();
+  return textList(value, maxItems, maxLength).filter((item) => {
+    const key = item.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -101,7 +122,7 @@ function safeColor(value: unknown, fallback: string): string {
 
 function normalizeDocument(value: unknown): CvPdfDocument {
   if (!isRecord(value)) throw new Error("A CV document is required.");
-  const experiences = records(value.experiences).map((item) => ({
+  const experiences = uniqueRecords(value.experiences, ["role", "company", "startDate", "endDate"]).map((item) => ({
     role: text(item.role, 240),
     company: text(item.company, 240),
     location: text(item.location, 240),
@@ -109,7 +130,7 @@ function normalizeDocument(value: unknown): CvPdfDocument {
     endDate: text(item.endDate, 80),
     bullets: textList(item.bullets, 30, 1_000),
   }));
-  const education = records(value.education).map((item) => ({
+  const education = uniqueRecords(value.education, ["degree", "institution", "graduationYear"]).map((item) => ({
     degree: text(item.degree, 300),
     institution: text(item.institution, 300),
     location: text(item.location, 240),
@@ -142,12 +163,12 @@ function normalizeDocument(value: unknown): CvPdfDocument {
     summary: text(value.summary, 8_000),
     experiences,
     education,
-    skills: textList(value.skills, 300, 240),
-    toolsAndSoftware: textList(value.toolsAndSoftware, 200, 240),
+    skills: uniqueTextList(value.skills, 300, 240),
+    toolsAndSoftware: uniqueTextList(value.toolsAndSoftware, 200, 240),
     projects,
     certifications,
-    languages: textList(value.languages, 100, 160),
-    references: textList(value.references, 100, 1_000),
+    languages: uniqueTextList(value.languages, 100, 160),
+    references: uniqueTextList(value.references, 100, 1_000),
     sections,
   };
 }

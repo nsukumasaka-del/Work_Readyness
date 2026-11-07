@@ -584,24 +584,6 @@
   max-width: 100%;
 }
 
-/* Soft page bands behind content (overridden by print / custom paper patterns) */
-#bonlist-cv-document.cv-page-sheet::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent calc(var(--cv-a4-height) - 10px),
-    rgba(148, 163, 184, 0.35) calc(var(--cv-a4-height) - 10px),
-    rgba(226, 232, 240, 0.95) var(--cv-a4-height)
-  );
-  background-size: 100% var(--cv-a4-height);
-  background-repeat: repeat-y;
-}
-
 .cv-page-guides {
   position: absolute;
   inset: 0;
@@ -789,10 +771,6 @@
     background-image: none !important;
     transform: none !important;
     overflow: visible !important;
-  }
-
-  #bonlist-cv-document.cv-page-sheet::before {
-    display: none !important;
   }
 
   #bonlist-cv-document input,

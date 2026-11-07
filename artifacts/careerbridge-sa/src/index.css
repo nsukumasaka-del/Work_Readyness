@@ -605,27 +605,26 @@
 .cv-page-guides {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 4;
+  overflow: visible;
   pointer-events: none;
 }
 
 .cv-page-guide {
   position: absolute;
-  left: 0;
-  right: 0;
+  left: calc(100% + 10px);
+  right: auto;
+  width: 220px;
   height: 0;
   border-top: 2px dashed rgba(14, 165, 233, 0.55);
-  /* Sit in the page gutter so labels don't cover body text */
   z-index: 3;
 }
 
 .cv-page-guide-label {
-  position: absolute;
-  left: 50%;
-  /* Sit just inside the next page's top margin, away from the preceding text. */
-  top: 10px;
-  bottom: auto;
-  transform: translateX(-50%);
+  position: relative;
+  top: -11px;
+  display: inline-flex;
+  max-width: 220px;
   padding: 2px 10px;
   border-radius: 999px;
   background: rgba(14, 165, 233, 0.95);
@@ -670,6 +669,53 @@
   break-after: avoid;
   page-break-after: avoid;
   break-inside: avoid;
+}
+
+#bonlist-cv-document.template-minimal section[data-a4-id],
+#bonlist-cv-document.template-serif_classic section[data-a4-id],
+#bonlist-cv-document.template-stylish section[data-a4-id] {
+  break-inside: auto;
+  page-break-inside: auto;
+  -webkit-column-break-inside: auto;
+}
+
+#bonlist-cv-document.template-minimal .cv-item,
+#bonlist-cv-document.template-minimal .experience-item,
+#bonlist-cv-document.template-minimal .education-item,
+#bonlist-cv-document.template-minimal .reference-entry,
+#bonlist-cv-document.template-serif_classic .cv-item,
+#bonlist-cv-document.template-serif_classic .experience-item,
+#bonlist-cv-document.template-serif_classic .education-item,
+#bonlist-cv-document.template-serif_classic .reference-entry,
+#bonlist-cv-document.template-stylish .cv-item,
+#bonlist-cv-document.template-stylish .experience-item,
+#bonlist-cv-document.template-stylish .education-item,
+#bonlist-cv-document.template-stylish .reference-entry,
+#bonlist-cv-document.template-minimal li,
+#bonlist-cv-document.template-serif_classic li,
+#bonlist-cv-document.template-stylish li {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+}
+
+#bonlist-cv-document.template-minimal h1,
+#bonlist-cv-document.template-minimal h2,
+#bonlist-cv-document.template-minimal h3,
+#bonlist-cv-document.template-minimal .section-title,
+#bonlist-cv-document.template-minimal .cv-section-heading,
+#bonlist-cv-document.template-serif_classic h1,
+#bonlist-cv-document.template-serif_classic h2,
+#bonlist-cv-document.template-serif_classic h3,
+#bonlist-cv-document.template-serif_classic .section-title,
+#bonlist-cv-document.template-serif_classic .cv-section-heading,
+#bonlist-cv-document.template-stylish h1,
+#bonlist-cv-document.template-stylish h2,
+#bonlist-cv-document.template-stylish h3,
+#bonlist-cv-document.template-stylish .section-title,
+#bonlist-cv-document.template-stylish .cv-section-heading {
+  break-after: avoid;
+  page-break-after: avoid;
 }
 
 @media print {
@@ -810,7 +856,10 @@
   #bonlist-cv-document.template-stylish .experience-item,
   #bonlist-cv-document.template-stylish .education-item,
   #bonlist-cv-document.template-stylish .cv-skill-chip,
-  #bonlist-cv-document.template-stylish .cv-a4-keep,
+  #bonlist-cv-document.template-stylish .cv-item,
+  #bonlist-cv-document.template-stylish .experience-entry,
+  #bonlist-cv-document.template-stylish .education-entry,
+  #bonlist-cv-document.template-stylish .reference-entry,
   #bonlist-cv-document.template-stylish [data-a4-id^="reference-"] {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
@@ -823,14 +872,10 @@
     gap: 6px !important;
   }
 
-  #bonlist-cv-document.template-stylish .cv-a4-keep,
-  #bonlist-cv-document.template-stylish [data-a4-id="skills"],
-  #bonlist-cv-document.template-stylish [data-a4-id="education"],
-  #bonlist-cv-document.template-stylish [data-a4-id="languages"],
-  #bonlist-cv-document.template-stylish [data-a4-id="references"] {
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-    -webkit-column-break-inside: avoid !important;
+  #bonlist-cv-document.template-stylish section[data-a4-id] {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+    -webkit-column-break-inside: auto !important;
   }
 
   #bonlist-cv-document.template-stylish .cv-skill-chip {
@@ -840,6 +885,47 @@
     white-space: nowrap !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+  }
+
+  #bonlist-cv-document.template-minimal section[data-a4-id],
+  #bonlist-cv-document.template-serif_classic section[data-a4-id] {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+    -webkit-column-break-inside: auto !important;
+  }
+
+  #bonlist-cv-document.template-minimal .cv-item,
+  #bonlist-cv-document.template-minimal .experience-item,
+  #bonlist-cv-document.template-minimal .education-item,
+  #bonlist-cv-document.template-minimal .reference-entry,
+  #bonlist-cv-document.template-serif_classic .cv-item,
+  #bonlist-cv-document.template-serif_classic .experience-item,
+  #bonlist-cv-document.template-serif_classic .education-item,
+  #bonlist-cv-document.template-serif_classic .reference-entry,
+  #bonlist-cv-document.template-minimal li,
+  #bonlist-cv-document.template-serif_classic li {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    -webkit-column-break-inside: avoid !important;
+  }
+
+  #bonlist-cv-document.template-minimal h1,
+  #bonlist-cv-document.template-minimal h2,
+  #bonlist-cv-document.template-minimal h3,
+  #bonlist-cv-document.template-minimal .section-title,
+  #bonlist-cv-document.template-minimal .cv-section-heading,
+  #bonlist-cv-document.template-serif_classic h1,
+  #bonlist-cv-document.template-serif_classic h2,
+  #bonlist-cv-document.template-serif_classic h3,
+  #bonlist-cv-document.template-serif_classic .section-title,
+  #bonlist-cv-document.template-serif_classic .cv-section-heading,
+  #bonlist-cv-document.template-stylish h1,
+  #bonlist-cv-document.template-stylish h2,
+  #bonlist-cv-document.template-stylish h3,
+  #bonlist-cv-document.template-stylish .section-title,
+  #bonlist-cv-document.template-stylish .cv-section-heading {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
   }
 
   @page {

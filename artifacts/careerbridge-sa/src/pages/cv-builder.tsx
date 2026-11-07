@@ -7292,7 +7292,7 @@ export default function CvBuilderPage() {
                         <Fragment key={exp.id || expIdx}>
                         <div
                           data-a4-id={isStylish ? `exp-${expIdx}-header` : undefined}
-                          className="group/role relative space-y-1.5"
+                          className="cv-item experience-entry group/role relative space-y-1.5"
                         >
                         <div data-a4-id={isStylish ? undefined : `exp-${expIdx}-header`} className="experience-item cv-a4-keep relative space-y-1.5">
                           {expIdx === 0 && renderSectionHeading(
@@ -7565,7 +7565,7 @@ export default function CvBuilderPage() {
                           <Fragment key={edu.id || eduIdx}>
                           <div
                             data-a4-id={`education-${eduIdx}`}
-                            className="education-item cv-a4-keep text-xs overflow-visible group/edu relative"
+                            className="cv-item education-entry education-item cv-a4-keep text-xs overflow-visible group/edu relative"
                           >
                             {isTimeline && (
                               <span
@@ -7868,7 +7868,7 @@ export default function CvBuilderPage() {
                               updateDocumentField("references", refs);
                             }}
                             data-a4-id={`reference-${rIdx}`}
-                            className="block w-full min-w-0 max-w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent text-xs leading-snug text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
+                            className="cv-item reference-entry block w-full min-w-0 max-w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent text-xs leading-snug text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-sm"
                             style={{ overflowWrap: "anywhere" }}
                             placeholder="Referee details or 'Available upon request'"
                           />

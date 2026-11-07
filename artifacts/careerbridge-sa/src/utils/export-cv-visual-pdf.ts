@@ -52,9 +52,15 @@ function createPdfPreviewClone(source: HTMLElement): HTMLElement {
     element.style.setProperty("break-inside", "auto", "important");
     element.style.setProperty("page-break-inside", "auto", "important");
   });
-  clone.querySelectorAll<HTMLElement>("h2, .experience-item, .education-item, [data-a4-id^='reference-'], [role='listitem'], li").forEach((element) => {
+  clone.querySelectorAll<HTMLElement>(
+    "h1, h2, h3, .cv-item, .experience-entry, .education-entry, .reference-entry, .experience-item, .education-item, [data-a4-id^='reference-'], [role='listitem'], li",
+  ).forEach((element) => {
     element.style.setProperty("break-inside", "avoid", "important");
     element.style.setProperty("page-break-inside", "avoid", "important");
+  });
+  clone.querySelectorAll<HTMLElement>("h1, h2, h3, .section-title, .cv-section-heading").forEach((element) => {
+    element.style.setProperty("break-after", "avoid", "important");
+    element.style.setProperty("page-break-after", "avoid", "important");
   });
   return clone;
 }
@@ -89,9 +95,25 @@ export async function exportCvVisualPdf(
     onStageChange?.("rendering");
     const { default: html2pdf } = await import("html2pdf.js");
     const exportScale = Math.min(2, 30_000 / Math.max(clone.scrollHeight, clone.offsetHeight, 1));
-    const pdf = await html2pdf().set({
+    const pdfOptions = {
       margin: 0,
-      image: { type: "png" },
+      image: { type: "png" as const },
+      pagebreak: {
+        mode: ["css", "legacy"],
+        avoid: [
+          ".cv-item",
+          ".experience-entry",
+          ".education-entry",
+          ".reference-entry",
+          ".experience-item",
+          ".education-item",
+          "[role='listitem']",
+          "li",
+          "h1",
+          "h2",
+          "h3",
+        ],
+      },
       html2canvas: {
         scale: exportScale,
         useCORS: true,
@@ -118,7 +140,13 @@ export async function exportCvVisualPdf(
               break-inside: auto !important;
               page-break-inside: auto !important;
             }
+            #bonlist-cv-document-export h1,
             #bonlist-cv-document-export h2,
+            #bonlist-cv-document-export h3,
+            #bonlist-cv-document-export .cv-item,
+            #bonlist-cv-document-export .experience-entry,
+            #bonlist-cv-document-export .education-entry,
+            #bonlist-cv-document-export .reference-entry,
             #bonlist-cv-document-export .experience-item,
             #bonlist-cv-document-export .education-item,
             #bonlist-cv-document-export [data-a4-id^="reference-"],
@@ -127,12 +155,21 @@ export async function exportCvVisualPdf(
               break-inside: avoid !important;
               page-break-inside: avoid !important;
             }
+            #bonlist-cv-document-export h1,
+            #bonlist-cv-document-export h2,
+            #bonlist-cv-document-export h3,
+            #bonlist-cv-document-export .section-title,
+            #bonlist-cv-document-export .cv-section-heading {
+              break-after: avoid !important;
+              page-break-after: avoid !important;
+            }
           `;
           clonedDocument.head.appendChild(printRules);
         },
       },
-      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-    }).from(clone).outputPdf("blob");
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" as const },
+    };
+    const pdf = await html2pdf().set(pdfOptions).from(clone).outputPdf("blob");
     if (!pdf.size) throw new Error("The PDF renderer returned an empty document.");
     onStageChange?.("downloading");
     const url = URL.createObjectURL(pdf);

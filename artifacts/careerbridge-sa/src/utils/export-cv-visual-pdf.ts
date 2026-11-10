@@ -65,6 +65,69 @@ function createPdfPreviewClone(source: HTMLElement): HTMLElement {
   return clone;
 }
 
+function sanitizeOklchColors(root: HTMLElement, clonedDocument: Document): void {
+  const clonedWindow = clonedDocument.defaultView;
+  const canvas = clonedDocument.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  const toRgb = (color: string): string => {
+    if (!color.toLowerCase().includes("oklch")) return color;
+    if (!context) throw new Error("Could not initialize the PDF color converter.");
+    context.fillStyle = "#010203";
+    context.fillStyle = color;
+    if (context.fillStyle === "#010203") {
+      throw new Error(`Could not convert CSS color for PDF export: ${color}`);
+    }
+    context.clearRect(0, 0, 1, 1);
+    context.fillRect(0, 0, 1, 1);
+    const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data;
+    return alpha === 255
+      ? `rgb(${red}, ${green}, ${blue})`
+      : `rgba(${red}, ${green}, ${blue}, ${alpha / 255})`;
+  };
+  const replaceColors = (value: string): string =>
+    value.replace(/oklch\([^)]*\)/gi, (color) => toRgb(color));
+  const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement>("*"))];
+  const pseudoRules: string[] = [];
+
+  elements.forEach((element, index) => {
+    const computed = clonedWindow?.getComputedStyle(element);
+    if (computed) {
+      for (let propertyIndex = 0; propertyIndex < computed.length; propertyIndex += 1) {
+        const property = computed.item(propertyIndex);
+        const value = computed.getPropertyValue(property);
+        if (value.toLowerCase().includes("oklch")) {
+          element.style.setProperty(property, replaceColors(value), "important");
+        }
+      }
+    }
+
+    for (const pseudo of ["::before", "::after"] as const) {
+      const pseudoStyle = clonedWindow?.getComputedStyle(element, pseudo);
+      if (!pseudoStyle) continue;
+      const declarations: string[] = [];
+      for (let propertyIndex = 0; propertyIndex < pseudoStyle.length; propertyIndex += 1) {
+        const property = pseudoStyle.item(propertyIndex);
+        const value = pseudoStyle.getPropertyValue(property);
+        if (value.toLowerCase().includes("oklch")) {
+          declarations.push(`${property}: ${replaceColors(value)} !important`);
+        }
+      }
+      if (declarations.length) {
+        element.setAttribute("data-pdf-color-index", String(index));
+        pseudoRules.push(`[data-pdf-color-index="${index}"]${pseudo} { ${declarations.join("; ")}; }`);
+      }
+    }
+  });
+
+  if (pseudoRules.length) {
+    const style = clonedDocument.createElement("style");
+    style.textContent = pseudoRules.join("\n");
+    clonedDocument.head.appendChild(style);
+  }
+}
+
 /** Render the actual styled preview DOM, avoiding a second, divergent template renderer. */
 export async function exportCvVisualPdf(
   previewElement: HTMLElement,
@@ -129,38 +192,7 @@ export async function exportCvVisualPdf(
           clonedRoot.style.setProperty("max-width", "210mm", "important");
           clonedRoot.style.setProperty("min-height", "297mm", "important");
           clonedRoot.style.setProperty("height", "auto", "important");
-          const clonedWindow = clonedDocument.defaultView;
-          const colorCanvas = clonedDocument.createElement("canvas");
-          colorCanvas.width = 1;
-          colorCanvas.height = 1;
-          const colorContext = colorCanvas.getContext("2d", { willReadFrequently: true });
-          const toRgb = (color: string): string => {
-            if (!color.toLowerCase().includes("oklch")) return color;
-            if (!colorContext) throw new Error("Could not initialize the PDF color converter.");
-            colorContext.fillStyle = "#010203";
-            colorContext.fillStyle = color;
-            if (clonedWindow?.CSS.supports("color", color) === false
-              || (clonedWindow?.CSS.supports("color", color) !== true && colorContext.fillStyle === "#010203")) {
-              throw new Error(`Could not convert CSS color for PDF export: ${color}`);
-            }
-            colorContext.clearRect(0, 0, 1, 1);
-            colorContext.fillRect(0, 0, 1, 1);
-            const [red, green, blue, alpha] = colorContext.getImageData(0, 0, 1, 1).data;
-            return alpha === 255
-              ? `rgb(${red}, ${green}, ${blue})`
-              : `rgba(${red}, ${green}, ${blue}, ${alpha / 255})`;
-          };
-          const cvElements = [clonedRoot, ...Array.from(clonedRoot.querySelectorAll<HTMLElement>("*"))];
-          cvElements.forEach((element) => {
-            const computed = clonedWindow?.getComputedStyle(element);
-            if (!computed) return;
-            if (computed.backgroundColor.toLowerCase().includes("oklch")) {
-              element.style.setProperty("background-color", toRgb(computed.backgroundColor), "important");
-            }
-            if (computed.color.toLowerCase().includes("oklch")) {
-              element.style.setProperty("color", toRgb(computed.color), "important");
-            }
-          });
+          sanitizeOklchColors(clonedRoot, clonedDocument);
           const printRules = clonedDocument.createElement("style");
           printRules.textContent = `
             @page { size: A4 portrait; margin: 0; }

@@ -296,6 +296,44 @@ function professionalTitleFrom(value: unknown): string {
   return "";
 }
 
+function dedupeCvEducation(items: CvEducationItem[]): CvEducationItem[] {
+  const normalize = (value: string | undefined) => (value || "").toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  const indices = new Map<string, number>();
+  const unique: CvEducationItem[] = [];
+  for (const item of items) {
+    const identityKeys = [
+      item.id?.trim() ? `id:${item.id.trim()}` : "",
+      [normalize(item.degree), normalize(item.institution), normalize(item.graduationYear)].join("|"),
+    ].filter(Boolean);
+    const duplicateIndex = identityKeys
+      .map((key) => indices.get(key))
+      .find((index): index is number => index !== undefined);
+    const index = duplicateIndex ?? unique.length;
+    unique[index] = item;
+    identityKeys.forEach((key) => indices.set(key, index));
+  }
+  return unique;
+}
+
+function dedupeCvSkills(items: string[]): string[] {
+  const unique = new Map<string, string>();
+  for (const item of items) {
+    const skill = scrubCvText(item);
+    const key = skill.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+    if (key) unique.set(key, skill);
+  }
+  return Array.from(unique.values());
+}
+
+function isCvEducationItem(value: unknown): value is CvEducationItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return typeof item.id === "string"
+    && typeof item.degree === "string"
+    && typeof item.institution === "string"
+    && typeof item.graduationYear === "string";
+}
+
 function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
   const fullName = scrubCvText(doc.fullName) || "";
   const headline = professionalTitleFrom(doc);
@@ -319,7 +357,7 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
     }))
     .filter((exp) => exp.role || exp.company || exp.bullets.length > 0);
 
-  const education = (doc.education || [])
+  const education = dedupeCvEducation((doc.education || [])
     .map((edu) => ({
       ...edu,
       degree: scrubCvText(edu.degree),
@@ -327,7 +365,7 @@ function sanitizeCvDocument(doc: GeneratedCvDocument): GeneratedCvDocument {
       graduationYear: scrubCvText(edu.graduationYear) || edu.graduationYear,
       details: scrubCvText(edu.details) || undefined,
     }))
-    .filter((edu) => edu.degree || edu.institution);
+    .filter((edu) => edu.degree || edu.institution));
 
   const normalizeList = (items: string[], maxLength: number) => {
     const seen = new Set<string>();
@@ -1993,8 +2031,10 @@ function TemplateThumbnail({
   const summaryRaw = (doc?.summary || "Results-driven professional with a record of delivering reliable solutions, improving team workflows and supporting measurable business outcomes.").trim();
   const summary = summaryRaw.slice(0, 90) + (summaryRaw.length > 90 ? "…" : "");
   const experiences = doc?.experiences?.length ? doc.experiences.slice(0, 2) : [{ role: "Software Engineer", company: "Acme Studio", startDate: "2022", endDate: "Present", bullets: ["Built reliable product features for customers.", "Improved delivery workflows across the team."] }];
-  const skills = doc?.skills?.length ? doc.skills.slice(0, 6) : ["Product Development", "Communication", "Problem Solving", "TypeScript", "Teamwork", "Analysis"];
-  const education = doc?.education?.length ? doc.education.slice(0, 2) : [{ degree: "BSc Computer Science", institution: "University of Cape Town", graduationYear: "2021" }];
+  const uniqueSkills = dedupeCvSkills(doc?.skills || []);
+  const uniqueEducation = dedupeCvEducation(doc?.education || []);
+  const skills = uniqueSkills.length ? uniqueSkills.slice(0, 6) : ["Product Development", "Communication", "Problem Solving", "TypeScript", "Teamwork", "Analysis"];
+  const education = uniqueEducation.length ? uniqueEducation.slice(0, 2) : [{ degree: "BSc Computer Science", institution: "University of Cape Town", graduationYear: "2021" }];
   const languages = doc?.languages?.length ? doc.languages.slice(0, 3) : ["English"];
   const certs = doc?.certifications?.length ? doc.certifications.slice(0, 1) : [{ name: "Professional Certification" }];
 
@@ -4333,7 +4373,12 @@ export default function CvBuilderPage() {
   const updateDocumentField = (key: keyof GeneratedCvDocument, value: unknown) => {
     if (!cv) return;
     recordCanvasHistory();
-    const updatedDoc = { ...cv.document, [key]: value };
+    const nextValue = key === "education" && Array.isArray(value)
+      ? dedupeCvEducation(value.filter(isCvEducationItem))
+      : key === "skills" && Array.isArray(value)
+        ? dedupeCvSkills(value.filter((item): item is string => typeof item === "string"))
+        : value;
+    const updatedDoc = { ...cv.document, [key]: nextValue };
     const updatedCv = { ...cv, document: updatedDoc };
     setCv(updatedCv);
     persistGeneratedCv(updatedCv);
@@ -7130,7 +7175,7 @@ export default function CvBuilderPage() {
                           const managedIndex = pageIndex - naturalA4PageCount;
                           const isManagedPage = managedIndex >= 0;
                           return (
-                            <div key={pageIndex} className="pointer-events-auto absolute right-2 flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 px-2 py-1 text-[10px] font-semibold text-slate-600 shadow-sm backdrop-blur" style={{ top: `calc(${pageIndex * 297}mm + 6px)` }}>
+                            <div key={pageIndex} className="cv-page-control-badge pointer-events-auto absolute flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 px-2 py-1 text-[10px] font-semibold text-slate-600 shadow-sm backdrop-blur" style={{ top: `calc(${pageIndex * 297}mm + 6px)` }}>
                               <span className="mr-1 whitespace-nowrap">Page {pageIndex + 1} of {a4PageCount}</span>
                               <button type="button" onClick={() => addManagedPage("blank", undefined, isManagedPage ? managedIndex : undefined)} className="inline-flex items-center gap-1 rounded px-1.5 py-1 hover:bg-slate-100" title="Add a blank page below"><Plus size={12} /> Add Page</button>
                               <button type="button" onClick={() => addManagedPage(isManagedPage && managedPages[managedIndex]?.kind === "blank" ? "blank" : "duplicate", isManagedPage ? managedPages[managedIndex]?.sourcePageIndex : pageIndex, isManagedPage ? managedIndex : undefined)} className="rounded p-1 hover:bg-slate-100" title="Duplicate this page"><Copy size={12} /></button>
@@ -7263,7 +7308,7 @@ export default function CvBuilderPage() {
                   <section
                     data-a4-id="summary"
                     data-cv-page-flow-item="summary"
-                    className={`relative group/section cv-a4-keep transition-all ${
+                    className={`cv-section relative group/section cv-a4-keep transition-all ${
                       !scrubCvText(cv.document.summary) ? "no-print" : ""
                     } ${
                       isCreative
@@ -7320,7 +7365,7 @@ export default function CvBuilderPage() {
 
                 const experienceSection = visibleSections.experience && cv.document.experiences.length > 0 && (
                   <>
-                  <section data-a4-id="experience" data-a4-flow={isStylish ? "auto" : undefined} className="relative group/section space-y-4 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
+                  <section data-a4-id="experience" data-a4-flow={isStylish ? "auto" : undefined} className="cv-section relative group/section space-y-4 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50">
                     {/* Contextual Section Toolbar */}
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1.5 rounded-full border border-border bg-card/95 backdrop-blur-md px-2.5 py-0.5 shadow-sm">
                       <button
@@ -7528,10 +7573,10 @@ export default function CvBuilderPage() {
                   </>
                 );
 
-                const renderSkills = cv.document.skills || [];
+                const renderSkills = dedupeCvSkills(cv.document.skills || []);
                 const skillsSection = visibleSections.skills && (
                   <>
-                  <section data-a4-id="skills" data-cv-page-flow-item="skills" data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined} className={`relative group/section min-w-0 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""}`} style={supportsContinuousPageFlow && !isStylish ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
+                  <section data-a4-id="skills" data-cv-page-flow-item="skills" data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined} className={`cv-section relative group/section min-w-0 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -7564,7 +7609,7 @@ export default function CvBuilderPage() {
                         No skills listed yet. Click &quot;+ Add Skill&quot; to add competencies.
                       </p>
                     ) : (
-                      <div className="cv-badge-list mt-2 flex flex-wrap gap-1.5">
+                      <div className="cv-badge-list skill-group mt-2 flex flex-wrap gap-1.5">
                         {renderSkills.map((skill, sIdx) => {
                           return (
                             <span
@@ -7596,10 +7641,10 @@ export default function CvBuilderPage() {
 
                 const systemsSection = null;
 
-                const renderEducation = cv.document.education || [];
+                const renderEducation = dedupeCvEducation(cv.document.education || []);
                 const educationSection = visibleSections.education && (
                   <>
-                  <section data-a4-id="education" data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined} className={`relative group/section space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""} ${renderEducation.length === 0 ? "hidden" : ""}`} style={supportsContinuousPageFlow && !isStylish ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}>
+                  <section data-a4-id="education" data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined} className={`cv-section relative group/section space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""} ${renderEducation.length === 0 ? "hidden" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -7642,7 +7687,7 @@ export default function CvBuilderPage() {
                             <AutoGrowTextarea
                               value={edu.degree}
                               onChange={(e) => {
-                                const edus = [...cv.document.education];
+                                const edus = [...renderEducation];
                                 edus[eduIdx] = { ...edu, degree: e.target.value };
                                 updateDocumentField("education", edus);
                               }}
@@ -7653,7 +7698,7 @@ export default function CvBuilderPage() {
                               <AutoGrowTextarea
                                 value={edu.institution}
                                 onChange={(e) => {
-                                  const edus = [...cv.document.education];
+                                  const edus = [...renderEducation];
                                   edus[eduIdx] = { ...edu, institution: e.target.value };
                                   updateDocumentField("education", edus);
                                 }}
@@ -7667,7 +7712,7 @@ export default function CvBuilderPage() {
                                 type="text"
                                 value={edu.graduationYear}
                                 onChange={(e) => {
-                                  const edus = [...cv.document.education];
+                                  const edus = [...renderEducation];
                                   edus[eduIdx] = { ...edu, graduationYear: e.target.value };
                                   updateDocumentField("education", edus);
                                 }}
@@ -7680,7 +7725,7 @@ export default function CvBuilderPage() {
                               <AutoGrowTextarea
                                 value={edu.details}
                                 onChange={(e) => {
-                                  const edus = [...cv.document.education];
+                                  const edus = [...renderEducation];
                                   edus[eduIdx] = { ...edu, details: e.target.value };
                                   updateDocumentField("education", edus);
                                 }}
@@ -7699,7 +7744,7 @@ export default function CvBuilderPage() {
 
                 const projectsSection = visibleSections.projects && (
                   <>
-                  <section data-a4-id="projects" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.projects || []).length === 0 ? "hidden" : ""}`}>
+                  <section data-a4-id="projects" className={`cv-section relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${(cv.document.projects || []).length === 0 ? "hidden" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -7800,7 +7845,7 @@ export default function CvBuilderPage() {
                 const visibleCertifications = (cv.document.certifications || []).filter((cert) => cert.name.trim());
                 const certificationsSection = visibleSections.certifications && visibleCertifications.length > 0 && (
                   <>
-                    <section data-a4-id="certifications" className="cv-a4-keep space-y-2 rounded-xl p-1 -m-1">
+                    <section data-a4-id="certifications" className="cv-section cv-a4-keep space-y-2 rounded-xl p-1 -m-1">
                       {renderSectionHeading("Certifications & Accreditations")}
                       <div className="space-y-1.5">
                         {visibleCertifications.map((cert, index) => (
@@ -7822,8 +7867,7 @@ export default function CvBuilderPage() {
                     data-a4-id="languages"
                     data-cv-page-flow-item="languages"
                     data-a4-flow={supportsContinuousPageFlow && !isStylish ? "auto" : undefined}
-                    className={`relative group/section min-w-0 space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""} ${(cv.document.languages || []).length === 0 ? "hidden" : ""}`}
-                    style={supportsContinuousPageFlow && !isStylish ? { breakInside: "auto", pageBreakInside: "auto" } : undefined}
+                    className={`cv-section relative group/section min-w-0 space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${isStylish ? "cv-a4-keep" : ""} ${(cv.document.languages || []).length === 0 ? "hidden" : ""}`}
                   >
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
@@ -7905,7 +7949,7 @@ export default function CvBuilderPage() {
                 ];
                 const referencesSection = visibleSections.references && (
                   <>
-                  <section data-a4-id="references" className={`relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${renderReferences.length === 0 ? "hidden" : ""}`}>
+                  <section data-a4-id="references" className={`cv-section relative group/section cv-a4-keep space-y-2 rounded-xl p-1 -m-1 transition-all hover:bg-slate-50/50 ${renderReferences.length === 0 ? "hidden" : ""}`}>
                     <div className="absolute top-0 right-0 no-print opacity-0 group-hover/section:opacity-100 transition-opacity z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 backdrop-blur-md px-2 py-0.5 shadow-sm">
                       <button
                         type="button"
@@ -7953,7 +7997,7 @@ export default function CvBuilderPage() {
                   <section
                     data-a4-id={`custom-${sectionIndex}`}
                     data-cv-page-flow-item="custom"
-                    className="group/custom relative space-y-2 rounded-xl p-1 transition hover:bg-slate-50/50"
+                    className="cv-section group/custom relative space-y-2 rounded-xl p-1 transition hover:bg-slate-50/50"
                   >
                     <div className="flex items-center gap-2">
                       <input type="text" value={section.heading} onChange={(event) => {

@@ -48,12 +48,12 @@ function createPdfPreviewClone(source: HTMLElement): HTMLElement {
   clone.style.setProperty("overflow", "visible", "important");
   clone.style.setProperty("transform", "none", "important");
   clone.style.setProperty("box-shadow", "none", "important");
-  clone.querySelectorAll<HTMLElement>("section, [data-a4-id]").forEach((element) => {
+  clone.querySelectorAll<HTMLElement>("section:not(.cv-section), [data-a4-id]:not(.cv-section)").forEach((element) => {
     element.style.setProperty("break-inside", "auto", "important");
     element.style.setProperty("page-break-inside", "auto", "important");
   });
   clone.querySelectorAll<HTMLElement>(
-    "h1, h2, h3, .cv-item, .experience-entry, .education-entry, .reference-entry, .experience-item, .education-item, [data-cv-page-flow-item], [data-a4-id^='reference-'], [role='listitem'], li",
+    "h1, h2, h3, .cv-section, .experience-item, .education-item, .skill-group, .cv-item, .experience-entry, .education-entry, .reference-entry, [data-cv-page-flow-item], [data-a4-id^='reference-'], [role='listitem'], li",
   ).forEach((element) => {
     element.style.setProperty("break-inside", "avoid", "important");
     element.style.setProperty("page-break-inside", "avoid", "important");
@@ -105,6 +105,8 @@ export async function exportCvVisualPdf(
           ".experience-entry",
           ".education-entry",
           ".reference-entry",
+          ".cv-section",
+          ".skill-group",
           ".experience-item",
           ".education-item",
           "[data-cv-page-flow-item]",
@@ -122,11 +124,43 @@ export async function exportCvVisualPdf(
         logging: false,
         onclone: (clonedDocument: Document) => {
           const clonedRoot = clonedDocument.getElementById("bonlist-cv-document-export");
-          if (!clonedRoot) return;
+          if (!clonedRoot) throw new Error("Could not find the CV document in the PDF export clone.");
           clonedRoot.style.setProperty("width", "210mm", "important");
           clonedRoot.style.setProperty("max-width", "210mm", "important");
           clonedRoot.style.setProperty("min-height", "297mm", "important");
           clonedRoot.style.setProperty("height", "auto", "important");
+          const clonedWindow = clonedDocument.defaultView;
+          const colorCanvas = clonedDocument.createElement("canvas");
+          colorCanvas.width = 1;
+          colorCanvas.height = 1;
+          const colorContext = colorCanvas.getContext("2d", { willReadFrequently: true });
+          const toRgb = (color: string): string => {
+            if (!color.toLowerCase().includes("oklch")) return color;
+            if (!colorContext) throw new Error("Could not initialize the PDF color converter.");
+            colorContext.fillStyle = "#010203";
+            colorContext.fillStyle = color;
+            if (clonedWindow?.CSS.supports("color", color) === false
+              || (clonedWindow?.CSS.supports("color", color) !== true && colorContext.fillStyle === "#010203")) {
+              throw new Error(`Could not convert CSS color for PDF export: ${color}`);
+            }
+            colorContext.clearRect(0, 0, 1, 1);
+            colorContext.fillRect(0, 0, 1, 1);
+            const [red, green, blue, alpha] = colorContext.getImageData(0, 0, 1, 1).data;
+            return alpha === 255
+              ? `rgb(${red}, ${green}, ${blue})`
+              : `rgba(${red}, ${green}, ${blue}, ${alpha / 255})`;
+          };
+          const cvElements = [clonedRoot, ...Array.from(clonedRoot.querySelectorAll<HTMLElement>("*"))];
+          cvElements.forEach((element) => {
+            const computed = clonedWindow?.getComputedStyle(element);
+            if (!computed) return;
+            if (computed.backgroundColor.toLowerCase().includes("oklch")) {
+              element.style.setProperty("background-color", toRgb(computed.backgroundColor), "important");
+            }
+            if (computed.color.toLowerCase().includes("oklch")) {
+              element.style.setProperty("color", toRgb(computed.color), "important");
+            }
+          });
           const printRules = clonedDocument.createElement("style");
           printRules.textContent = `
             @page { size: A4 portrait; margin: 0; }
@@ -136,10 +170,17 @@ export async function exportCvVisualPdf(
               print-color-adjust: exact !important;
             }
             #bonlist-cv-document-export { break-after: auto !important; page-break-after: auto !important; }
-            #bonlist-cv-document-export section,
-            #bonlist-cv-document-export [data-a4-id] {
+            #bonlist-cv-document-export section:not(.cv-section),
+            #bonlist-cv-document-export [data-a4-id]:not(.cv-section) {
               break-inside: auto !important;
               page-break-inside: auto !important;
+            }
+            #bonlist-cv-document-export .cv-section,
+            #bonlist-cv-document-export .experience-item,
+            #bonlist-cv-document-export .education-item,
+            #bonlist-cv-document-export .skill-group {
+              break-inside: avoid !important;
+              page-break-inside: avoid !important;
             }
             #bonlist-cv-document-export h1,
             #bonlist-cv-document-export h2,
